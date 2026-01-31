@@ -1,0 +1,1276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>个人中心 - PicManager</title>
+    <link rel="icon" href="/static/icon/Pic.ico" type="image/x-icon">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .profile-container {
+            min-height: 100vh;
+            background: var(--bg-primary);
+        }
+
+        .profile-header {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .profile-header h1 {
+            color: white;
+            margin: 0;
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 12px;
+        }
+
+        .header-btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .header-btn.primary {
+            background: white;
+            color: var(--primary-color);
+            border: none;
+        }
+
+        .header-btn.primary:hover {
+            background: #f0f0f0;
+            transform: translateY(-2px);
+        }
+
+        .header-btn.danger {
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .header-btn.danger:hover {
+            background: var(--danger-color);
+            border-color: var(--danger-color);
+        }
+
+        .profile-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 30px;
+        }
+
+        .profile-tabs {
+            display: flex;
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 6px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .profile-tab {
+            flex: 1;
+            padding: 14px 20px;
+            text-align: center;
+            background: transparent;
+            border: none;
+            border-radius: 8px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .profile-tab:hover {
+            color: var(--text-primary);
+            background: var(--bg-primary);
+        }
+
+        .profile-tab.active {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+        }
+
+        .profile-tab.hidden {
+            display: none;
+        }
+
+        .tab-panel {
+            display: none;
+        }
+
+        .tab-panel.active {
+            display: block;
+        }
+
+        /* 个人信息卡片 */
+        .user-card {
+            background: var(--bg-secondary);
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            margin-bottom: 25px;
+        }
+
+        .user-avatar-section {
+            display: flex;
+            align-items: center;
+            gap: 25px;
+            margin-bottom: 25px;
+            padding-bottom: 25px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .user-avatar {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 4px solid var(--primary-color);
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+        }
+
+        .user-basic-info {
+            flex: 1;
+        }
+
+        .user-nickname {
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 0 0 8px 0;
+        }
+
+        .user-qq {
+            color: var(--text-secondary);
+            font-size: 15px;
+            margin: 0 0 10px 0;
+        }
+
+        .user-role-badge {
+            display: inline-block;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .role-root {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+        }
+
+        .role-admin {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: white;
+        }
+
+        .role-user {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+            color: white;
+        }
+
+        .role-guest {
+            background: var(--text-muted);
+            color: white;
+        }
+
+        .user-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 20px;
+        }
+
+        .stat-item {
+            background: var(--bg-primary);
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--primary-color);
+            margin-bottom: 6px;
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        /* 修改密码卡片 */
+        .password-card {
+            background: var(--bg-secondary);
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 0 0 20px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .password-form {
+            max-width: 400px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid var(--border-color);
+            border-radius: 10px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 15px;
+            transition: all 0.3s ease;
+            box-sizing: border-box;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+        }
+
+        /* 管理员控制台 */
+        .admin-section {
+            margin-bottom: 30px;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .section-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .pending-count {
+            background: var(--danger-color);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            margin-left: 10px;
+        }
+
+        .request-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .request-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .request-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 15px;
+        }
+
+        .request-user {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .request-avatar {
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            object-fit: cover;
+        }
+
+        .request-user-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .request-user-name {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .request-user-qq {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .request-type {
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .type-add {
+            background: rgba(34, 197, 94, 0.15);
+            color: #22c55e;
+        }
+
+        .type-edit {
+            background: rgba(59, 130, 246, 0.15);
+            color: #3b82f6;
+        }
+
+        .type-delete {
+            background: rgba(239, 68, 68, 0.15);
+            color: #ef4444;
+        }
+
+        .request-content {
+            background: var(--bg-primary);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+
+        .request-image-preview {
+            max-width: 200px;
+            max-height: 150px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+
+        .request-detail {
+            font-size: 14px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        .request-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+
+        .empty-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+
+        /* Root控制台 - 管理员管理 */
+        .admin-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .admin-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .admin-avatar {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            object-fit: cover;
+        }
+
+        .admin-info {
+            flex: 1;
+        }
+
+        .admin-name {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .admin-qq {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+
+        .add-admin-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .add-admin-form {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .add-admin-form .form-group {
+            flex: 1;
+            margin-bottom: 0;
+        }
+
+        /* 游客信息 */
+        .guest-card {
+            background: var(--bg-secondary);
+            border-radius: 16px;
+            padding: 40px;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .guest-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        .guest-title {
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 10px;
+        }
+
+        .guest-ip {
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+        }
+
+        .guest-limit-info {
+            background: var(--bg-primary);
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+        }
+
+        .limit-progress {
+            height: 8px;
+            background: var(--border-color);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+
+        .limit-bar {
+            height: 100%;
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+            transition: width 0.3s ease;
+        }
+
+        .limit-text {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            padding: 16px 24px;
+            border-radius: 10px;
+            color: white;
+            font-weight: 500;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s ease;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .toast.success {
+            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+        }
+
+        .toast.error {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        }
+    </style>
+</head>
+<body>
+    <div class="profile-container">
+        <div class="profile-header">
+            <h1>
+                <span class="inline-icon icon-user"></span>
+                <span>个人中心</span>
+            </h1>
+            <div class="header-actions">
+                <a href="/" class="header-btn primary">返回主页</a>
+                <button class="header-btn danger" onclick="handleLogout()">退出登录</button>
+            </div>
+        </div>
+
+        <div class="profile-content">
+            <div class="profile-tabs">
+                <button class="profile-tab active" data-tab="personal">个人信息</button>
+                <button class="profile-tab hidden" id="admin-tab" data-tab="admin">管理员控制台</button>
+                <button class="profile-tab hidden" id="root-tab" data-tab="root">Root控制台</button>
+            </div>
+
+            <!-- 个人信息面板 -->
+            <div class="tab-panel active" id="personal-panel">
+                <!-- 游客视图 -->
+                <div class="guest-card" id="guest-view" style="display: none;">
+                    <div class="guest-icon">👻</div>
+                    <h2 class="guest-title">游客模式</h2>
+                    <p class="guest-ip">IP地址: <span id="guest-ip-display">--</span></p>
+                    
+                    <div class="guest-limit-info">
+                        <div class="limit-progress">
+                            <div class="limit-bar" id="limit-bar" style="width: 100%;"></div>
+                        </div>
+                        <p class="limit-text">今日剩余操作次数: <strong id="remaining-ops">5</strong> / 5</p>
+                    </div>
+
+                    <a href="/login" class="btn btn-primary">
+                        登录以获得完整功能
+                    </a>
+                </div>
+
+                <!-- 用户视图 -->
+                <div id="user-view" style="display: none;">
+                    <div class="user-card">
+                        <div class="user-avatar-section">
+                            <img id="user-avatar" class="user-avatar" src="" alt="头像">
+                            <div class="user-basic-info">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <h2 class="user-nickname" id="user-nickname">--</h2>
+                                    <button class="btn btn-sm btn-secondary" id="refresh-nickname-btn" onclick="refreshNickname()" title="从QQ号自动获取昵称" style="padding: 4px 8px; font-size: 12px;">
+                                        <span class="inline-icon icon-refresh"></span>
+                                        <span>自动</span>
+                                    </button>
+                                    <button class="btn btn-sm btn-secondary" id="edit-nickname-btn" onclick="toggleEditNickname()" title="手动编辑昵称" style="padding: 4px 8px; font-size: 12px;">
+                                        <span class="inline-icon icon-edit"></span>
+                                        <span>编辑</span>
+                                    </button>
+                                </div>
+                                <div id="edit-nickname-form" style="display: none; margin-top: 10px; gap: 8px;">
+                                    <input type="text" id="new-nickname-input" class="form-input" placeholder="输入新昵称" style="width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--border-color);">
+                                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                                        <button class="btn btn-sm btn-success" onclick="saveNickname()">保存</button>
+                                        <button class="btn btn-sm btn-secondary" onclick="toggleEditNickname()">取消</button>
+                                    </div>
+                                </div>
+                                <p class="user-qq">QQ: <span id="user-qq">--</span></p>
+                                <span class="user-role-badge" id="user-role">--</span>
+                            </div>
+                        </div>
+                        <div class="user-stats">
+                            <div class="stat-item">
+                                <div class="stat-value" id="stat-joined">--</div>
+                                <div class="stat-label">注册时间</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 修改密码（管理员专用） -->
+                    <div class="password-card" id="password-section" style="display: none;">
+                        <h3 class="card-title">
+                            <span class="inline-icon icon-lock"></span>
+                            <span>修改密码</span>
+                        </h3>
+                        <div class="password-form">
+                            <div class="form-group">
+                                <label>原密码</label>
+                                <input type="password" id="old-password" class="form-input" placeholder="请输入原密码">
+                            </div>
+                            <div class="form-group">
+                                <label>新密码</label>
+                                <input type="password" id="new-password" class="form-input" placeholder="请输入新密码">
+                            </div>
+                            <div class="form-group">
+                                <label>确认新密码</label>
+                                <input type="password" id="confirm-password" class="form-input" placeholder="请再次输入新密码">
+                            </div>
+                            <button class="btn btn-primary" onclick="changePassword()">修改密码</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 管理员控制台面板 -->
+            <div class="tab-panel" id="admin-panel">
+                <div class="admin-section">
+                    <div class="section-header">
+                        <h2 class="section-title">
+                            待审核请求
+                            <span class="pending-count" id="pending-count">0</span>
+                        </h2>
+                        <button class="btn btn-secondary btn-sm" onclick="loadPendingRequests()">
+                            <span class="inline-icon icon-refresh"></span>
+                            <span>刷新</span>
+                        </button>
+                    </div>
+                    
+                    <div class="request-list" id="request-list">
+                        <div class="empty-state">
+                            <div class="empty-icon">📭</div>
+                            <p>暂无待审核请求</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Root控制台面板 -->
+            <div class="tab-panel" id="root-panel">
+                <div class="admin-section">
+                    <div class="section-header">
+                        <h2 class="section-title">管理员列表</h2>
+                    </div>
+                    
+                    <div class="admin-list" id="admin-list">
+                        <!-- 管理员卡片将动态生成 -->
+                    </div>
+
+                    <div class="add-admin-card">
+                        <h3 class="card-title">➕ 添加管理员</h3>
+                        <div class="add-admin-form">
+                            <div class="form-group">
+                                <label>QQ号码</label>
+                                <input type="text" id="new-admin-qq" class="form-input" placeholder="输入QQ号码">
+                            </div>
+                            <button class="btn btn-primary" onclick="addAdmin()">添加</button>
+                        </div>
+                        <p style="margin-top: 12px; color: var(--text-secondary); font-size: 13px;">
+                            * 新管理员的默认密码为: admin
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        let currentUser = null;
+
+        // Toast通知
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast ${type} show`;
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        // 标签页切换
+        document.querySelectorAll('.profile-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                if (tab.classList.contains('hidden')) return;
+                
+                document.querySelectorAll('.profile-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+                
+                tab.classList.add('active');
+                document.getElementById(`${tab.dataset.tab}-panel`).classList.add('active');
+                
+                // 切换到管理员面板时加载请求
+                if (tab.dataset.tab === 'admin') {
+                    loadPendingRequests();
+                }
+                // 切换到root面板时加载管理员列表
+                if (tab.dataset.tab === 'root') {
+                    loadAdminList();
+                }
+            });
+        });
+
+        // 获取用户信息
+        async function loadUserInfo() {
+            try {
+                const response = await fetch('/auth/me');
+                if (!response.ok) {
+                    window.location.href = '/login';
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (data.is_guest) {
+                    // 游客视图
+                    document.getElementById('guest-view').style.display = 'block';
+                    document.getElementById('user-view').style.display = 'none';
+                    document.getElementById('guest-ip-display').textContent = data.guest_ip || '--';
+                    document.getElementById('remaining-ops').textContent = data.remaining_operations;
+                    
+                    const percent = (data.remaining_operations / data.daily_limit) * 100;
+                    document.getElementById('limit-bar').style.width = `${percent}%`;
+                } else {
+                    // 用户视图
+                    currentUser = data.user;
+                    document.getElementById('guest-view').style.display = 'none';
+                    document.getElementById('user-view').style.display = 'block';
+                    
+                    document.getElementById('user-avatar').src = currentUser.avatar_url || '';
+                    document.getElementById('user-nickname').textContent = currentUser.nickname || '--';
+                    document.getElementById('user-qq').textContent = currentUser.qq_number;
+                    
+                    const roleEl = document.getElementById('user-role');
+                    const roleMap = {
+                        'root': { text: 'Root管理员', class: 'role-root' },
+                        'admin': { text: '管理员', class: 'role-admin' },
+                        'user': { text: '普通用户', class: 'role-user' }
+                    };
+                    const roleInfo = roleMap[currentUser.role] || { text: '普通用户', class: 'role-user' };
+                    roleEl.textContent = roleInfo.text;
+                    roleEl.className = `user-role-badge ${roleInfo.class}`;
+
+                    // 格式化注册时间
+                    const joinDate = new Date(currentUser.created_at);
+                    document.getElementById('stat-joined').textContent = 
+                        joinDate.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+
+                    // 显示管理员专属功能
+                    if (currentUser.role === 'root' || currentUser.role === 'admin') {
+                        document.getElementById('password-section').style.display = 'block';
+                        document.getElementById('admin-tab').classList.remove('hidden');
+                    }
+
+                    // 显示Root专属功能
+                    if (currentUser.role === 'root') {
+                        document.getElementById('root-tab').classList.remove('hidden');
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load user info:', error);
+                window.location.href = '/login';
+            }
+        }
+
+        // 切换昵称编辑模式
+        function toggleEditNickname() {
+            const form = document.getElementById('edit-nickname-form');
+            const input = document.getElementById('new-nickname-input');
+            
+            if (form.style.display === 'none') {
+                form.style.display = 'flex';
+                input.value = document.getElementById('user-nickname').textContent;
+                input.focus();
+            } else {
+                form.style.display = 'none';
+            }
+        }
+
+        // 保存新昵称
+        async function saveNickname() {
+            const newNickname = document.getElementById('new-nickname-input').value.trim();
+            
+            if (!newNickname) {
+                showToast('昵称不能为空', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/auth/set-nickname', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ nickname: newNickname })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || '保存失败');
+                }
+
+                const user = data.user;
+                document.getElementById('user-nickname').textContent = user.nickname;
+                showToast(data.message);
+                toggleEditNickname();
+            } catch (error) {
+                showToast('保存失败: ' + error.message, 'error');
+            }
+        }
+
+        // 刷新QQ昵称
+        async function refreshNickname() {
+            try {
+                const btn = document.getElementById('refresh-nickname-btn');
+                btn.disabled = true;
+                btn.textContent = '刷新中...';
+
+                const response = await fetch('/auth/refresh-nickname', {
+                    method: 'POST'
+                });
+
+                if (!response.ok) {
+                    throw new Error('刷新失败');
+                }
+
+                const data = await response.json();
+                const user = data.user;
+
+                // 更新页面显示
+                document.getElementById('user-nickname').textContent = user.nickname;
+                document.getElementById('user-avatar').src = user.avatar_url;
+
+                showToast('昵称已更新: ' + user.nickname);
+                
+                btn.textContent = '自动';
+                btn.disabled = false;
+            } catch (error) {
+                showToast('刷新失败: ' + error.message, 'error');
+                document.getElementById('refresh-nickname-btn').textContent = '自动';
+                document.getElementById('refresh-nickname-btn').disabled = false;
+            }
+        }
+
+        // 修改密码
+        async function changePassword() {
+            const oldPassword = document.getElementById('old-password').value;
+            const newPassword = document.getElementById('new-password').value;
+            const confirmPassword = document.getElementById('confirm-password').value;
+
+            if (!oldPassword || !newPassword || !confirmPassword) {
+                showToast('请填写所有字段', 'error');
+                return;
+            }
+
+            if (newPassword !== confirmPassword) {
+                showToast('两次输入的新密码不一致', 'error');
+                return;
+            }
+
+            if (newPassword.length < 4) {
+                showToast('新密码长度至少4位', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/auth/password', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        old_password: oldPassword,
+                        new_password: newPassword
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || '修改失败');
+                }
+
+                showToast('密码修改成功');
+                document.getElementById('old-password').value = '';
+                document.getElementById('new-password').value = '';
+                document.getElementById('confirm-password').value = '';
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // 加载待审核请求
+        async function loadPendingRequests() {
+            try {
+                const response = await fetch('/admin/pending');
+                if (!response.ok) {
+                    throw new Error('加载失败');
+                }
+
+                const requests = await response.json();
+                document.getElementById('pending-count').textContent = requests.length;
+
+                const container = document.getElementById('request-list');
+                
+                if (requests.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-icon">📭</div>
+                            <p>暂无待审核请求</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = requests.map(req => {
+                    const typeMap = {
+                        'add': { text: '添加图片', class: 'type-add' },
+                        'edit': { text: '编辑图片', class: 'type-edit' },
+                        'delete': { text: '删除图片', class: 'type-delete' },
+                        'group_add': { text: '添加分组', class: 'type-add' },
+                        'group_edit': { text: '编辑分组', class: 'type-edit' },
+                        'group_delete': { text: '删除分组', class: 'type-delete' },
+                        'character_add': { text: '添加角色', class: 'type-add' },
+                        'character_edit': { text: '编辑角色', class: 'type-edit' },
+                        'character_delete': { text: '删除角色', class: 'type-delete' }
+                    };
+                    const typeInfo = typeMap[req.request_type] || { text: req.request_type, class: '' };
+
+                    const avatar = req.user_avatar || 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%23ccc"/></svg>';
+                    const userName = req.user_nickname || req.user_qq || `游客(${req.guest_ip})`;
+                    const userQQ = req.user_qq || req.guest_ip;
+
+                    let contentHtml = '';
+                    if (req.temp_file_path && req.request_type === 'add') {
+                        const filename = req.temp_file_path.split(/[/\\]/).pop();
+                        contentHtml = `
+                            <img src="/resource/pending/${filename}" class="request-image-preview" alt="预览图" onerror="this.style.display='none'">
+                            <div class="request-detail">
+                                <strong>原始文件名:</strong> ${req.original_filename || '--'}<br>
+                                ${req.image_data ? `
+                                    <strong>分组:</strong> ${req.group_info ? req.group_info.name : '未选择'}<br>
+                                    <strong>角色:</strong> ${req.character_names && req.character_names.length > 0 ? req.character_names.join(', ') : '未选择'}<br>
+                                    <strong>PID:</strong> ${req.image_data.pid || '--'}<br>
+                                    <strong>描述:</strong> ${req.image_data.description || '--'}
+                                ` : '--'}
+                            </div>
+                        `;
+                    } else if (req.request_type === 'edit') {
+                        let originalImageHtml = '';
+                        if (req.original_image) {
+                            originalImageHtml = `
+                                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+                                    <strong style="color: #666;">【原图信息】</strong><br>
+                                    <strong>原PID:</strong> ${req.original_image.pid || '--'}<br>
+                                    <strong>原描述:</strong> ${req.original_image.description || '--'}<br>
+                                    <strong>原角色:</strong> ${req.original_image.character_names && req.original_image.character_names.length > 0 ? req.original_image.character_names.join(', ') : '--'}<br>
+                                    <div style="margin-top: 10px;">
+                                        <img src="/resource/store/${req.original_image.image_id}.${req.original_image.file_extension}" 
+                                             class="request-image-preview" alt="原图" onerror="this.style.display='none'">
+                                    </div>
+                                </div>
+                            `;
+                        }
+                        contentHtml = `
+                            <div class="request-detail">
+                                <strong>图片ID:</strong> ${req.image_id || '--'}<br>
+                                ${req.image_data ? `
+                                    <strong>新分组:</strong> ${req.group_info ? req.group_info.name : '(不变)'}<br>
+                                    <strong>新角色:</strong> ${req.character_names && req.character_names.length > 0 ? req.character_names.join(', ') : '(不变)'}<br>
+                                    <strong>新PID:</strong> ${req.image_data.pid || '(不变)'}<br>
+                                    <strong>新描述:</strong> ${req.image_data.description || '(不变)'}
+                                ` : '--'}
+                                ${originalImageHtml}
+                            </div>
+                        `;
+                    } else if (req.request_type === 'delete') {
+                        let originalImageHtml = '';
+                        if (req.original_image) {
+                            originalImageHtml = `
+                                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+                                    <strong style="color: #666;">【原图信息】</strong><br>
+                                    <strong>原PID:</strong> ${req.original_image.pid || '--'}<br>
+                                    <strong>原描述:</strong> ${req.original_image.description || '--'}<br>
+                                    <strong>原角色:</strong> ${req.original_image.character_names && req.original_image.character_names.length > 0 ? req.original_image.character_names.join(', ') : '--'}<br>
+                                    <div style="margin-top: 10px;">
+                                        <img src="/resource/store/${req.original_image.image_id}.${req.original_image.file_extension}" 
+                                             class="request-image-preview" alt="原图" onerror="this.style.display='none'">
+                                    </div>
+                                </div>
+                            `;
+                        }
+                        contentHtml = `
+                            <div class="request-detail">
+                                <strong>请求删除图片ID:</strong> ${req.image_id || '--'}<br>
+                                <em style="color: var(--warning-color);">* 批准后该图片将被删除</em>
+                                ${originalImageHtml}
+                            </div>
+                        `;
+                    } else if (req.request_type === 'group_add') {
+                        contentHtml = `
+                            <div class="request-detail">
+                                <strong>分组名称:</strong> ${req.group_info ? req.group_info.name : '--'}<br>
+                                <strong>描述:</strong> ${req.image_data ? req.image_data.description || '--' : '--'}
+                            </div>
+                        `;
+                    } else if (req.request_type === 'group_edit') {
+                        const originalGroup = req.original_group || {};
+                        contentHtml = `
+                            <div class="request-detail">
+                                <strong>分组ID:</strong> ${req.image_data ? req.image_data.group_id || '--' : '--'}<br>
+                                <strong>新名称:</strong> ${req.image_data ? req.image_data.name || '(不变)' : '--'}<br>
+                                <strong>新描述:</strong> ${req.image_data ? req.image_data.description || '(不变)' : '--'}<br>
+                                <div style="margin-top: 10px; color: #666;">
+                                    <strong>原分组:</strong> ${originalGroup.name || '--'}<br>
+                                    <strong>原描述:</strong> ${originalGroup.description || '--'}
+                                </div>
+                            </div>
+                        `;
+                    } else if (req.request_type === 'group_delete') {
+                        const originalGroup = req.original_group || {};
+                        contentHtml = `
+                            <div class="request-detail">
+                                <strong>请求删除分组ID:</strong> ${req.image_data ? req.image_data.group_id || '--' : '--'}<br>
+                                <strong>分组名称:</strong> ${originalGroup.name || '--'}<br>
+                                <em style="color: var(--warning-color);">* 批准后该分组将被删除</em>
+                            </div>
+                        `;
+                    } else if (req.request_type === 'character_add') {
+                        const charInfo = req.character_info || {};
+                        contentHtml = `
+                            <div class="request-detail">
+                                <strong>角色名称:</strong> ${charInfo.name || '--'}<br>
+                                <strong>所属分组:</strong> ${charInfo.group_name || '--'}<br>
+                                <strong>昵称:</strong> ${(charInfo.nicknames && charInfo.nicknames.length) ? charInfo.nicknames.join(', ') : '--'}<br>
+                                <strong>描述:</strong> ${charInfo.description || '--'}
+                            </div>
+                        `;
+                    } else if (req.request_type === 'character_edit') {
+                        const charInfo = req.character_info || {};
+                        const originalChar = req.original_character || {};
+                        contentHtml = `
+                            <div class="request-detail">
+                                <strong>角色ID:</strong> ${req.image_data ? req.image_data.character_id || '--' : '--'}<br>
+                                <strong>新名称:</strong> ${charInfo.name || '(不变)'}<br>
+                                <strong>新分组:</strong> ${charInfo.group_name || '(不变)'}<br>
+                                <strong>新昵称:</strong> ${(charInfo.nicknames && charInfo.nicknames.length) ? charInfo.nicknames.join(', ') : '(不变)'}<br>
+                                <strong>新描述:</strong> ${charInfo.description || '(不变)'}
+                                <div style="margin-top: 10px; color: #666;">
+                                    <strong>原角色:</strong> ${originalChar.name || '--'}<br>
+                                    <strong>原分组:</strong> ${originalChar.group_name || '--'}<br>
+                                    <strong>原昵称:</strong> ${(originalChar.nicknames && originalChar.nicknames.length) ? originalChar.nicknames.join(', ') : '--'}<br>
+                                    <strong>原描述:</strong> ${originalChar.description || '--'}
+                                </div>
+                            </div>
+                        `;
+                    } else if (req.request_type === 'character_delete') {
+                        const originalChar = req.original_character || {};
+                        contentHtml = `
+                            <div class="request-detail">
+                                <strong>请求删除角色ID:</strong> ${req.image_data ? req.image_data.character_id || '--' : '--'}<br>
+                                <strong>角色名称:</strong> ${originalChar.name || '--'}<br>
+                                <strong>所属分组:</strong> ${originalChar.group_name || '--'}<br>
+                                <em style="color: var(--warning-color);">* 批准后该角色将被删除</em>
+                            </div>
+                        `;
+                    }
+
+                    if (!contentHtml) {
+                        const raw = req.image_data ? JSON.stringify(req.image_data, null, 2) : '--';
+                        contentHtml = `
+                            <div class="request-detail">
+                                <strong>请求内容:</strong>
+                                <pre style="white-space: pre-wrap; margin-top: 8px;">${raw}</pre>
+                            </div>
+                        `;
+                    }
+
+                    return `
+                        <div class="request-card">
+                            <div class="request-header">
+                                <div class="request-user">
+                                    <img src="${avatar}" class="request-avatar" alt="头像">
+                                    <div class="request-user-info">
+                                        <span class="request-user-name">${userName}</span>
+                                        <span class="request-user-qq">${userQQ}</span>
+                                    </div>
+                                </div>
+                                <span class="request-type ${typeInfo.class}">${typeInfo.text}</span>
+                            </div>
+                            <div class="request-content">
+                                ${contentHtml}
+                            </div>
+                            <div class="request-actions">
+                                <button class="btn btn-danger btn-sm" onclick="handleRequest(${req.id}, 'reject')">拒绝</button>
+                                <button class="btn btn-success btn-sm" onclick="handleRequest(${req.id}, 'approve')">批准</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+            } catch (error) {
+                console.error('Failed to load pending requests:', error);
+                showToast('加载待审核请求失败', 'error');
+            }
+        }
+
+        // 处理审核请求
+        async function handleRequest(requestId, action) {
+            try {
+                const response = await fetch(`/admin/pending/${requestId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || '操作失败');
+                }
+
+                showToast(data.message);
+                loadPendingRequests();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // 加载管理员列表
+        async function loadAdminList() {
+            try {
+                const response = await fetch('/admin/admins');
+                if (!response.ok) {
+                    throw new Error('加载失败');
+                }
+
+                const admins = await response.json();
+                const container = document.getElementById('admin-list');
+
+                container.innerHTML = admins.map(admin => {
+                    const isRoot = admin.role === 'root';
+                    const avatar = admin.avatar_url || `https://q1.qlogo.cn/g?b=qq&nk=${admin.qq_number}&s=640`;
+                    
+                    return `
+                        <div class="admin-card">
+                            <img src="${avatar}" class="admin-avatar" alt="头像">
+                            <div class="admin-info">
+                                <div class="admin-name">${admin.nickname || admin.qq_number}</div>
+                                <div class="admin-qq">QQ: ${admin.qq_number}</div>
+                                <span class="user-role-badge ${isRoot ? 'role-root' : 'role-admin'}">
+                                    ${isRoot ? 'Root' : '管理员'}
+                                </span>
+                            </div>
+                            ${!isRoot ? `
+                                <button class="btn btn-danger btn-xs" onclick="removeAdmin('${admin.qq_number}')">
+                                    移除
+                                </button>
+                            ` : ''}
+                        </div>
+                    `;
+                }).join('');
+
+            } catch (error) {
+                console.error('Failed to load admin list:', error);
+                showToast('加载管理员列表失败', 'error');
+            }
+        }
+
+        // 添加管理员
+        async function addAdmin() {
+            const qq = document.getElementById('new-admin-qq').value.trim();
+
+            if (!qq) {
+                showToast('请输入QQ号码', 'error');
+                return;
+            }
+
+            if (!/^\d{5,12}$/.test(qq)) {
+                showToast('请输入有效的QQ号码', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/admin/admins', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ qq_number: qq })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || '添加失败');
+                }
+
+                showToast(data.message);
+                document.getElementById('new-admin-qq').value = '';
+                loadAdminList();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // 移除管理员
+        async function removeAdmin(qq) {
+            if (!confirm(`确定要移除管理员 ${qq} 吗？`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/admin/admins/${qq}`, {
+                    method: 'DELETE'
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || '移除失败');
+                }
+
+                showToast(data.message);
+                loadAdminList();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // 退出登录
+        async function handleLogout() {
+            try {
+                await fetch('/auth/logout', { method: 'POST' });
+                window.location.href = '/login';
+            } catch (error) {
+                window.location.href = '/login';
+            }
+        }
+
+        // 页面加载
+        loadUserInfo();
+    </script>
+</body>
+</html>

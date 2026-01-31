@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - PicManager</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="icon" href="/static/icon/Pic.ico" type="image/x-icon">
+    <style>
+        .login-container {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+            padding: 20px;
+        }
+
+        .login-card {
+            background: var(--bg-secondary);
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            width: 100%;
+            max-width: 420px;
+            overflow: hidden;
+        }
+
+        .login-header {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+            padding: 30px;
+            text-align: center;
+        }
+
+        .login-header h1 {
+            color: white;
+            margin: 0 0 8px 0;
+            font-size: 28px;
+            font-weight: 600;
+        }
+
+        .login-header p {
+            color: rgba(255, 255, 255, 0.85);
+            margin: 0;
+            font-size: 14px;
+        }
+
+        .login-body {
+            padding: 30px;
+        }
+
+        .login-tabs {
+            display: flex;
+            margin-bottom: 25px;
+            border-radius: 10px;
+            overflow: hidden;
+            background: var(--bg-primary);
+        }
+
+        .login-tab {
+            flex: 1;
+            padding: 12px 16px;
+            text-align: center;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .login-tab:hover {
+            color: var(--text-primary);
+        }
+
+        .login-tab.active {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+            color: white;
+        }
+
+        .login-form {
+            display: none;
+        }
+
+        .login-form.active {
+            display: block;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid var(--border-color);
+            border-radius: 10px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 15px;
+            transition: all 0.3s ease;
+            box-sizing: border-box;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+        }
+
+        .form-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .login-btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+            border: none;
+            border-radius: 10px;
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+        }
+
+        .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+        }
+
+        .login-btn:active {
+            transform: translateY(0);
+        }
+
+        .login-btn.guest-btn {
+            background: linear-gradient(135deg, var(--text-secondary) 0%, #6b7280 100%);
+            box-shadow: 0 4px 15px rgba(107, 114, 128, 0.3);
+        }
+
+        .login-btn.guest-btn:hover {
+            box-shadow: 0 6px 20px rgba(107, 114, 128, 0.4);
+        }
+
+        .login-divider {
+            display: flex;
+            align-items: center;
+            margin: 25px 0;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+
+        .login-divider::before,
+        .login-divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border-color);
+        }
+
+        .login-divider span {
+            padding: 0 15px;
+        }
+
+        .login-info {
+            background: var(--bg-primary);
+            padding: 16px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+
+        .login-info h4 {
+            color: var(--primary-color);
+            margin: 0 0 10px 0;
+            font-size: 14px;
+        }
+
+        .login-info ul {
+            margin: 0;
+            padding-left: 18px;
+            color: var(--text-secondary);
+            font-size: 13px;
+            line-height: 1.8;
+        }
+
+        .login-info li {
+            margin-bottom: 4px;
+        }
+
+        .password-field {
+            display: none;
+        }
+
+        .password-field.show {
+            display: block;
+        }
+
+        .login-card .form-input {
+            background: #ffffff;
+            border: 1px solid #cfd4dc;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+        }
+
+        .login-card .form-input::placeholder {
+            color: #8a94a6;
+        }
+
+        .login-card .form-input:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.18);
+        }
+
+        .guest-info {
+            text-align: center;
+            padding: 20px;
+        }
+
+        .guest-info p {
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+
+        .guest-warning {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 20px;
+            color: #f59e0b;
+            font-size: 13px;
+        }
+
+        .error-message {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 20px;
+            color: var(--danger-color);
+            font-size: 14px;
+            display: none;
+        }
+
+        .error-message.show {
+            display: block;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <h1>
+                    <img class="logo-image login-logo-image" src="/static/icon/Pic.ico" alt="PicManager">
+                    <span>PicManager</span>
+                </h1>
+                <p>图片编号管理系统</p>
+            </div>
+            
+            <div class="login-body">
+                <div class="login-tabs">
+                    <button class="login-tab active" data-tab="user">QQ登录</button>
+                    <button class="login-tab" data-tab="guest">游客访问</button>
+                </div>
+
+                <div class="error-message" id="error-message"></div>
+
+                <!-- QQ登录表单 -->
+                <div class="login-form active" id="user-form">
+                    <div class="form-group">
+                        <label for="qq-number">QQ号码</label>
+                        <input type="text" id="qq-number" class="form-input" placeholder="请输入您的QQ号" autocomplete="off">
+                    </div>
+                    
+                    <div class="form-group password-field" id="password-field">
+                        <label for="password">管理员密码</label>
+                        <input type="password" id="password" class="form-input" placeholder="请输入密码">
+                    </div>
+
+                    <button class="login-btn" id="login-btn" onclick="handleLogin()">
+                        登录
+                    </button>
+
+                    <div class="login-info">
+                        <h4>💡 登录说明</h4>
+                        <ul>
+                            <li>普通用户：输入QQ号即可登录</li>
+                            <li>管理员：需要输入QQ号和密码</li>
+                            <li>首次登录的QQ号将自动注册为普通用户</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- 游客登录 -->
+                <div class="login-form" id="guest-form">
+                    <div class="guest-info">
+                        <p>游客模式允许您快速浏览和体验系统功能，无需注册账号。</p>
+                        
+                        <div class="guest-warning">
+                            ⚠️ 游客模式下，每天仅有5次上传/修改/删除操作机会
+                        </div>
+
+                        <button class="login-btn guest-btn" onclick="handleGuestLogin()">
+                            以游客身份进入
+                        </button>
+                    </div>
+
+                    <div class="login-info">
+                        <h4>🔒 游客限制</h4>
+                        <ul>
+                            <li>无法直接上传图片，需等待管理员审核</li>
+                            <li>无法直接修改或删除图片</li>
+                            <li>无法查看temp目录上传功能</li>
+                            <li>每日操作次数有限（5次）</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 标签页切换
+        document.querySelectorAll('.login-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.login-form').forEach(f => f.classList.remove('active'));
+                
+                tab.classList.add('active');
+                document.getElementById(`${tab.dataset.tab}-form`).classList.add('active');
+                
+                hideError();
+            });
+        });
+
+        // QQ号输入监听 - 检测是否需要密码
+        const qqInput = document.getElementById('qq-number');
+        const passwordField = document.getElementById('password-field');
+        let checkTimeout = null;
+
+        qqInput.addEventListener('input', () => {
+            clearTimeout(checkTimeout);
+            const qq = qqInput.value.trim();
+            
+            if (qq.length >= 5) {
+                checkTimeout = setTimeout(() => checkIfAdmin(qq), 500);
+            } else {
+                passwordField.classList.remove('show');
+            }
+        });
+
+        async function checkIfAdmin(qq) {
+            // 简单检测：如果是已知的管理员QQ，显示密码框
+            // 实际会在登录时服务端验证
+            try {
+                const response = await fetch(`/auth/check-admin?qq=${qq}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.is_admin) {
+                        passwordField.classList.add('show');
+                    } else {
+                        passwordField.classList.remove('show');
+                    }
+                }
+            } catch (e) {
+                // 如果检查失败，先不显示密码框
+                passwordField.classList.remove('show');
+            }
+        }
+
+        function showError(message) {
+            const errorEl = document.getElementById('error-message');
+            errorEl.textContent = message;
+            errorEl.classList.add('show');
+        }
+
+        function hideError() {
+            document.getElementById('error-message').classList.remove('show');
+        }
+
+        function setLoading(btn, loading) {
+            if (loading) {
+                btn.disabled = true;
+                btn.innerHTML = '<span class="loading"></span>登录中...';
+            } else {
+                btn.disabled = false;
+                btn.innerHTML = '登录';
+            }
+        }
+
+        async function handleLogin() {
+            const qq = document.getElementById('qq-number').value.trim();
+            const password = document.getElementById('password').value;
+            const btn = document.getElementById('login-btn');
+
+            hideError();
+
+            if (!qq) {
+                showError('请输入QQ号码');
+                return;
+            }
+
+            if (!/^\d{5,12}$/.test(qq)) {
+                showError('请输入有效的QQ号码');
+                return;
+            }
+
+            setLoading(btn, true);
+
+            try {
+                const response = await fetch('/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        qq_number: qq,
+                        password: password || null
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || '登录失败');
+                }
+
+                // 登录成功，跳转到主页
+                window.location.href = '/';
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                setLoading(btn, false);
+            }
+        }
+
+        async function handleGuestLogin() {
+            hideError();
+            
+            try {
+                const response = await fetch('/auth/guest', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || '游客登录失败');
+                }
+
+                // 登录成功，跳转到主页
+                window.location.href = '/';
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        // 回车登录
+        document.getElementById('qq-number').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                if (passwordField.classList.contains('show')) {
+                    document.getElementById('password').focus();
+                } else {
+                    handleLogin();
+                }
+            }
+        });
+
+        document.getElementById('password').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                handleLogin();
+            }
+        });
+
+        // 检查是否已登录
+        async function checkAuth() {
+            try {
+                const response = await fetch('/auth/me');
+                if (response.ok) {
+                    // 已登录，跳转到主页
+                    window.location.href = '/';
+                }
+            } catch (e) {
+                // 未登录，保持在登录页
+            }
+        }
+
+        // 页面加载时检查
+        checkAuth();
+    </script>
+</body>
+</html>

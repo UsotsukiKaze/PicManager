@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from contextlib import contextmanager
 import os
@@ -50,4 +50,45 @@ def get_db_context():
 def init_database():
     """初始化数据库"""
     create_tables()
+    apply_migrations()
     log_success(f"数据库初始化完成: {DATABASE_PATH}")
+
+
+def apply_migrations():
+    """对SQLite执行必要的结构迁移（增量）"""
+    with engine.connect() as conn:
+        # users.last_notice_at
+        user_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(users)"))]
+        if "last_notice_at" not in user_columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN last_notice_at DATETIME"))
+
+        # pending_requests.rejection_reason
+        pending_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(pending_requests)"))]
+        if "rejection_reason" not in pending_columns:
+            conn.execute(text("ALTER TABLE pending_requests ADD COLUMN rejection_reason TEXT"))
+
+        # image_view_counts table
+        conn.execute(text(
+            """
+            CREATE TABLE IF NOT EXISTS image_view_counts (
+                image_id VARCHAR(10) PRIMARY KEY,
+                view_count INTEGER DEFAULT 0,
+                updated_at DATETIME,
+                FOREIGN KEY(image_id) REFERENCES images(image_id)
+            )
+            """
+        ))
+
+        # character_query_counts table
+        conn.execute(text(
+            """
+            CREATE TABLE IF NOT EXISTS character_query_counts (
+                character_id INTEGER PRIMARY KEY,
+                query_count INTEGER DEFAULT 0,
+                updated_at DATETIME,
+                FOREIGN KEY(character_id) REFERENCES characters(id)
+            )
+            """
+        ))
+
+        conn.commit()

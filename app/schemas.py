@@ -207,12 +207,15 @@ class PendingRequestInfo(BaseModel):
     original_group: Optional[dict] = None  # 原分组信息: {id, name, description}
     original_character: Optional[dict] = None  # 原角色信息: {id, name, group_name, nicknames, description}
     created_at: datetime
+    reviewed_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
     
     class Config:
         from_attributes = True
 
 class PendingRequestAction(BaseModel):
     action: str  # approve 或 reject
+    reason: Optional[str] = None
 
 class SetNickname(BaseModel):
     nickname: str

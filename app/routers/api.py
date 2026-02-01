@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Union
 from ..database import get_db_context
 from ..services import GroupService, CharacterService, ImageService, SystemService
-from ..models import User, UserRole, PendingRequest, GuestLimit
+from ..models import User, UserRole, PendingRequest, GuestLimit, ImageViewCount, CharacterQueryCount, RequestStatus, Group, Character
 from .. import models
 from .. import schemas
 from ..config import settings
@@ -13,7 +13,7 @@ import tempfile
 import os
 import json
 import shutil
-from datetime import date
+from datetime import date, datetime
 
 router = APIRouter()
 
@@ -56,7 +56,7 @@ def create_group(group: schemas.GroupCreate, request: Request):
         )
         db.add(pending_request)
         db.commit()
-        return {"message": "创建分组请求已提交，等待管理员审核"}
+        return {"message": "待审核你的提交，可到个人中心查看进度"}
 
 @router.get("/groups/", response_model=List[schemas.Group])
 def get_groups(skip: int = 0, limit: int = 100):
@@ -112,7 +112,7 @@ def update_group(group_id: int, group_update: schemas.GroupUpdate, request: Requ
         )
         db.add(pending_request)
         db.commit()
-        return {"message": "分组更新请求已提交，等待管理员审核"}
+        return {"message": "待审核你的提交，可到个人中心查看进度"}
 
 @router.delete("/groups/{group_id}")
 def delete_group(group_id: int, request: Request):
@@ -155,7 +155,7 @@ def delete_group(group_id: int, request: Request):
         )
         db.add(pending_request)
         db.commit()
-        return {"message": "删除分组请求已提交，等待管理员审核"}
+        return {"message": "待审核你的提交，可到个人中心查看进度"}
 
 # 角色相关路由
 @router.post("/characters/", response_model=Union[schemas.CharacterWithGroupName, dict])
@@ -206,7 +206,7 @@ def create_character(character: schemas.CharacterCreate, request: Request):
         )
         db.add(pending_request)
         db.commit()
-        return {"message": "创建角色请求已提交，等待管理员审核"}
+        return {"message": "待审核你的提交，可到个人中心查看进度"}
 
 @router.get("/characters/", response_model=List[schemas.CharacterWithGroupName])
 def get_characters(group_id: Optional[int] = None, skip: int = 0, limit: int = 100):
@@ -267,7 +267,7 @@ def update_character(character_id: int, character_update: schemas.CharacterUpdat
         )
         db.add(pending_request)
         db.commit()
-        return {"message": "角色更新请求已提交，等待管理员审核"}
+        return {"message": "待审核你的提交，可到个人中心查看进度"}
 
 @router.delete("/characters/{character_id}")
 def delete_character(character_id: int, request: Request):
@@ -310,7 +310,7 @@ def delete_character(character_id: int, request: Request):
         )
         db.add(pending_request)
         db.commit()
-        return {"message": "删除角色请求已提交，等待管理员审核"}
+        return {"message": "待审核你的提交，可到个人中心查看进度"}
 
 # 图片相关路由
 @router.get("/images/search", response_model=schemas.ImageSearchResult)
@@ -324,6 +324,18 @@ def search_images(
 ):
     """搜索图片"""
     with get_db_context() as db:
+        # 仅在明确按角色查询时统计角色查询次数（排除随机抽取）
+        if character_id:
+            character = db.query(models.Character).filter(models.Character.id == character_id).first()
+            if character:
+                record = db.query(CharacterQueryCount).filter(
+                    CharacterQueryCount.character_id == character_id
+                ).first()
+                if not record:
+                    record = CharacterQueryCount(character_id=character_id, query_count=0)
+                    db.add(record)
+                record.query_count += 1
+
         params = schemas.ImageSearchParams(
             group_id=group_id,
             character_id=character_id,
@@ -357,10 +369,139 @@ def get_random_image(
 def get_image(image_id: str):
     """获取单个图片信息"""
     with get_db_context() as db:
+        record = db.query(ImageViewCount).filter(ImageViewCount.image_id == image_id).first()
+        if not record:
+            record = ImageViewCount(image_id=image_id, view_count=0)
+            db.add(record)
+        record.view_count += 1
+
         image = ImageService.get_image(db, image_id)
         if not image:
             raise HTTPException(status_code=404, detail="Image not found")
         return image
+
+
+@router.get("/rankings")
+def get_rankings(limit: int = 10):
+    """获取贡献榜、角色人气榜、图片人气榜"""
+    with get_db_context() as db:
+        # 贡献榜（仅登录用户）
+        approved_requests = db.query(PendingRequest).filter(
+            PendingRequest.user_id.isnot(None),
+            PendingRequest.status == RequestStatus.APPROVED.value
+        ).all()
+
+        weights = {
+            "add": 3,
+            "edit": 1,
+            "delete": 1,
+            "group_add": 2,
+            "group_edit": 1,
+            "group_delete": 1,
+            "character_add": 2,
+            "character_edit": 1,
+            "character_delete": 1
+        }
+
+        contribution_map = {}
+        for req in approved_requests:
+            if not req.user_id:
+                continue
+            user_score = contribution_map.setdefault(req.user_id, {
+                "score": 0,
+                "counts": {}
+            })
+            user_score["score"] += weights.get(req.request_type, 0)
+
+        user_ids = list(contribution_map.keys())
+        users = db.query(User).filter(User.id.in_(user_ids)).all() if user_ids else []
+        user_map = {user.id: user for user in users}
+
+        contribution_list = []
+        for user_id, info in contribution_map.items():
+            user = user_map.get(user_id)
+            if not user:
+                continue
+            contribution_list.append({
+                "user_id": user_id,
+                "nickname": user.nickname or user.qq_number,
+                "qq_number": user.qq_number,
+                "avatar_url": user.avatar_url,
+                "role": user.role,
+                "score": info["score"]
+            })
+
+        contribution_list.sort(key=lambda item: item["score"], reverse=True)
+        contribution_list = contribution_list[:limit]
+
+        # 角色人气榜（无统计时回退到最新角色）
+        character_query_rows = db.query(CharacterQueryCount).order_by(
+            CharacterQueryCount.query_count.desc()
+        ).limit(limit).all()
+        if character_query_rows:
+            character_ids = [row.character_id for row in character_query_rows]
+            characters = db.query(Character).filter(Character.id.in_(character_ids)).all()
+            character_map = {c.id: c for c in characters}
+
+            character_rank = []
+            for row in character_query_rows:
+                character = character_map.get(row.character_id)
+                if not character:
+                    continue
+                group = db.query(Group).filter(Group.id == character.group_id).first()
+                character_rank.append({
+                    "character_id": character.id,
+                    "name": character.name,
+                    "group_name": group.name if group else None,
+                    "count": row.query_count
+                })
+        else:
+            latest_characters = db.query(Character).order_by(Character.created_at.desc()).limit(limit).all()
+            character_rank = []
+            for character in latest_characters:
+                group = db.query(Group).filter(Group.id == character.group_id).first()
+                character_rank.append({
+                    "character_id": character.id,
+                    "name": character.name,
+                    "group_name": group.name if group else None,
+                    "count": 0
+                })
+
+        # 图片人气榜（无统计时回退到最新图片）
+        image_view_rows = db.query(ImageViewCount).order_by(
+            ImageViewCount.view_count.desc()
+        ).limit(limit).all()
+        if image_view_rows:
+            image_ids = [row.image_id for row in image_view_rows]
+            images = db.query(models.Image).filter(models.Image.image_id.in_(image_ids)).all()
+            image_map = {img.image_id: img for img in images}
+
+            image_rank = []
+            for row in image_view_rows:
+                image = image_map.get(row.image_id)
+                if not image:
+                    continue
+                image_rank.append({
+                    "image_id": image.image_id,
+                    "file_extension": image.file_extension,
+                    "count": row.view_count
+                })
+        else:
+            latest_images = db.query(models.Image).order_by(models.Image.created_at.desc()).limit(limit).all()
+            image_rank = [
+                {
+                    "image_id": image.image_id,
+                    "file_extension": image.file_extension,
+                    "count": 0
+                }
+                for image in latest_images
+            ]
+
+        return {
+            "contribution": contribution_list,
+            "characters": character_rank,
+            "images": image_rank
+        }
 
 @router.put("/images/{image_id}")
 def update_image(image_id: str, image_update: schemas.ImageUpdate, request: Request):
@@ -426,7 +567,7 @@ def update_image(image_id: str, image_update: schemas.ImageUpdate, request: Requ
             db.add(pending_request)
             db.commit()
             
-            return {"message": "修改请求已提交，等待管理员审核"}
+            return {"message": "待审核你的提交，可到个人中心查看进度"}
 
 @router.delete("/images/{image_id}")
 def delete_image(image_id: str, request: Request):
@@ -472,7 +613,7 @@ def delete_image(image_id: str, request: Request):
             db.add(pending_request)
             db.commit()
             
-            return {"message": "删除请求已提交，等待管理员审核"}
+            return {"message": "待审核你的提交，可到个人中心查看进度"}
 
 # 上传相关路由
 @router.post("/upload/single", response_model=schemas.UploadImageResponse)
@@ -542,6 +683,25 @@ async def upload_single_image(
                 image = ImageService.create_image(
                     db, image_create, temp_file_path, file.filename, file_extension, store_path
                 )
+
+                # 记录贡献度（管理员/Root直接通过）
+                if user_id:
+                    pending_request = PendingRequest(
+                        request_type="add",
+                        user_id=user_id,
+                        status=RequestStatus.APPROVED.value,
+                        image_id=image.image_id,
+                        image_data=json.dumps({
+                            "character_ids": character_id_list,
+                            "group_id": int(group_id) if group_id else None,
+                            "pid": pid,
+                            "description": description
+                        }),
+                        reviewed_at=datetime.utcnow(),
+                        reviewed_by=user_id
+                    )
+                    db.add(pending_request)
+                    db.commit()
                 
                 return schemas.UploadImageResponse(
                     image_id=image.image_id,
@@ -613,7 +773,7 @@ async def upload_single_image(
                 
                 return schemas.UploadImageResponse(
                     image_id="pending",
-                    message="上传请求已提交，等待管理员审核"
+                    message="待审核你的提交，可到个人中心查看进度"
                 )
             except Exception as e:
                 # 如果数据库操作失败，清理临时文件
@@ -655,7 +815,7 @@ def get_temp_images():
     return {"images": images}
 
 @router.post("/upload/temp", response_model=schemas.UploadImageResponse)
-def upload_temp_image(temp_upload: schemas.TempImageUpload):
+def upload_temp_image(temp_upload: schemas.TempImageUpload, request: Request):
     """从temp目录上传图片到系统"""
     temp_path = settings.TEMP_PATH
     image_path = os.path.join(temp_path, temp_upload.filename)
@@ -671,6 +831,16 @@ def upload_temp_image(temp_upload: schemas.TempImageUpload):
         raise HTTPException(status_code=400, detail="Unsupported file type")
     
     with get_db_context() as db:
+        # 获取当前用户（用于管理员贡献度记录）
+        session = get_current_session(request, db)
+        user_id = None
+        is_admin = False
+        if session and not session.get("is_guest"):
+            user = db.query(User).filter(User.id == session["user_id"]).first()
+            if user:
+                user_id = user.id
+                is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
+
         # 验证character_ids是否存在
         if temp_upload.character_ids:
             existing_characters = db.query(models.Character).filter(
@@ -691,6 +861,25 @@ def upload_temp_image(temp_upload: schemas.TempImageUpload):
         image = ImageService.create_image(
             db, image_create, image_path, temp_upload.filename, file_extension, store_path
         )
+
+        # 记录贡献度（管理员/Root直接通过）
+        if is_admin and user_id:
+            pending_request = PendingRequest(
+                request_type="add",
+                user_id=user_id,
+                status=RequestStatus.APPROVED.value,
+                image_id=image.image_id,
+                image_data=json.dumps({
+                    "character_ids": temp_upload.character_ids,
+                    "group_id": None,
+                    "pid": temp_upload.pid,
+                    "description": temp_upload.description
+                }),
+                reviewed_at=datetime.utcnow(),
+                reviewed_by=user_id
+            )
+            db.add(pending_request)
+            db.commit()
         
         # 成功后删除temp目录中的原文件
         try:

@@ -113,6 +113,26 @@ class UIManager {
                 this.filterCharacters(e.target.value);
             }
         });
+
+        // 榜单标签切换
+        document.addEventListener('click', (e) => {
+            const tab = e.target.closest('.leaderboard-tab');
+            if (!tab) return;
+            const board = tab.getAttribute('data-board');
+            if (!board) return;
+            this.switchLeaderboard(board);
+        });
+    }
+
+    switchLeaderboard(board) {
+        document.querySelectorAll('.leaderboard-tab').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('.leaderboard-panel').forEach(panel => panel.classList.remove('active'));
+
+        const activeTab = document.querySelector(`.leaderboard-tab[data-board="${board}"]`);
+        if (activeTab) activeTab.classList.add('active');
+
+        const panel = document.getElementById(`leaderboard-${board}`);
+        if (panel) panel.classList.add('active');
     }
 
     switchPage(page) {
@@ -185,6 +205,9 @@ class UIManager {
                 break;
             case 'settings':
                 this.loadSystemStatus();
+                break;
+            case 'rankings':
+                this.loadRankings();
                 break;
         }
     }
@@ -670,6 +693,93 @@ class UIManager {
         
         // 初始化分组筛选器
         this.initializeCharacterGroupFilter();
+    }
+
+    async loadRankings() {
+        try {
+            console.log('开始加载榜单数据...');
+            const data = await api.getRankings(10);
+            console.log('榜单数据:', data);
+            
+            // 渲染各榜单
+            this.renderContributionRankings(data.contribution || []);
+            this.renderCharacterRankings(data.characters || []);
+            this.renderImageRankings(data.images || []);
+            console.log('榜单渲染完成');
+        } catch (error) {
+            console.error('加载榜单失败:', error);
+            // 显示更详细的错误信息
+            const errorMsg = error.message || '未知错误';
+            this.showToast(`加载榜单失败: ${errorMsg}`, 'error');
+        }
+    }
+
+    renderContributionRankings(items) {
+        const container = document.getElementById('leaderboard-contribution-list');
+        if (!container) return;
+
+        if (!items.length) {
+            container.innerHTML = '<div class="empty-state">暂无贡献数据</div>';
+            return;
+        }
+
+        container.innerHTML = items.map((item, index) => {
+            const avatar = item.avatar_url || `https://q1.qlogo.cn/g?b=qq&nk=${item.qq_number}&s=100`;
+            return `
+                <div class="leaderboard-item">
+                    <div class="leaderboard-rank">${index + 1}</div>
+                    <img class="leaderboard-avatar" src="${avatar}" alt="头像" onerror="this.style.display='none'">
+                    <div class="leaderboard-info">
+                        <div class="leaderboard-name">${item.nickname}</div>
+                        <div class="leaderboard-sub">QQ: ${item.qq_number}</div>
+                    </div>
+                    <div class="leaderboard-score">${item.score}</div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    renderCharacterRankings(items) {
+        const container = document.getElementById('leaderboard-characters-list');
+        if (!container) return;
+
+        if (!items.length) {
+            container.innerHTML = '<div class="empty-state">暂无角色数据</div>';
+            return;
+        }
+
+        container.innerHTML = items.map((item, index) => `
+            <div class="leaderboard-item">
+                <div class="leaderboard-rank">${index + 1}</div>
+                <div class="leaderboard-info">
+                    <div class="leaderboard-name">${item.name}</div>
+                    <div class="leaderboard-sub">${item.group_name || '未分组'}</div>
+                </div>
+                <div class="leaderboard-score">${item.count}</div>
+            </div>
+        `).join('');
+    }
+
+    renderImageRankings(items) {
+        const container = document.getElementById('leaderboard-images-list');
+        if (!container) return;
+
+        if (!items.length) {
+            container.innerHTML = '<div class="empty-state">暂无图片数据</div>';
+            return;
+        }
+
+        container.innerHTML = items.map((item, index) => `
+            <div class="leaderboard-item">
+                <div class="leaderboard-rank">${index + 1}</div>
+                <img class="leaderboard-thumb" src="/resource/store/${item.image_id}.${item.file_extension}" alt="图片" onerror="this.style.display='none'">
+                <div class="leaderboard-info">
+                    <div class="leaderboard-name">图片 ${item.image_id}</div>
+                    <div class="leaderboard-sub">浏览次数</div>
+                </div>
+                <div class="leaderboard-score">${item.count}</div>
+            </div>
+        `).join('');
     }
     
     filterCharacters(query) {

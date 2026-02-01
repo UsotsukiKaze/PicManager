@@ -70,13 +70,15 @@ async def get_pending_requests(request: Request):
                 "image_data": json.loads(req.image_data) if req.image_data else None,
                 "temp_file_path": req.temp_file_path,
                 "original_filename": req.original_filename,
+                "rejection_reason": req.rejection_reason,
                 "group_info": None,
                 "character_names": None,
                 "character_info": None,
                 "original_image": None,
                 "original_group": None,
                 "original_character": None,
-                "created_at": req.created_at
+                "created_at": req.created_at,
+                "reviewed_at": req.reviewed_at
             }
             
             if req.user_id:
@@ -198,6 +200,7 @@ async def handle_pending_request(
         
         if action.action == "approve":
             # 批准请求
+            pending_req.rejection_reason = None
             if pending_req.request_type == "add":
                 # 处理添加图片请求
                 image_data = json.loads(pending_req.image_data) if pending_req.image_data else {}
@@ -337,6 +340,7 @@ async def handle_pending_request(
         elif action.action == "reject":
             # 拒绝请求
             pending_req.status = RequestStatus.REJECTED.value
+            pending_req.rejection_reason = action.reason.strip() if action.reason else None
             
             # 如果是添加请求，删除临时文件
             if pending_req.request_type == "add" and pending_req.temp_file_path:

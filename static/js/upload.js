@@ -346,20 +346,37 @@ class UploadManager {
 
     clearSingleUpload() {
         // 清空文件输入
-        document.getElementById('single-file-input').value = '';
+        const fileInput = document.getElementById('single-file-input');
+        if (fileInput) fileInput.value = '';
         
         // 隐藏预览
-        document.getElementById('single-preview').style.display = 'none';
-        document.querySelector('#single-upload-area .upload-placeholder').style.display = 'flex';
+        const preview = document.getElementById('single-preview');
+        if (preview) preview.style.display = 'none';
+        
+        const placeholder = document.querySelector('#single-upload-area .upload-placeholder');
+        if (placeholder) placeholder.style.display = 'flex';
         
         // 隐藏表单
-        document.getElementById('single-upload-form').style.display = 'none';
+        const form = document.getElementById('single-upload-form');
+        if (form) form.style.display = 'none';
         
         // 清空表单内容
-        document.getElementById('single-group-select').value = '';
-        document.getElementById('single-character-select').innerHTML = '';
-        document.getElementById('single-pid').value = '';
-        document.getElementById('single-description').value = '';
+        const groupSelect = document.getElementById('single-group-select');
+        if (groupSelect) groupSelect.value = '';
+        
+        // 清空角色选择器（使用正确的容器 ID）
+        if (this.singleCharacterSelector) {
+            this.singleCharacterSelector.clear();
+        }
+        
+        const pidInput = document.getElementById('single-pid');
+        if (pidInput) pidInput.value = '';
+        
+        const descInput = document.getElementById('single-description');
+        if (descInput) descInput.value = '';
+        
+        // 重置文件引用
+        this.singleFile = null;
     }
 
     async loadTempImages() {

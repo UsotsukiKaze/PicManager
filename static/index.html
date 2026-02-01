@@ -46,6 +46,10 @@
                         <span class="menu-icon"></span>
                         <span class="menu-text">图片管理</span>
                     </a>
+                    <a href="#" class="menu-item" data-page="rankings" style="display: none;">
+                        <span class="menu-icon"></span>
+                        <span class="menu-text">榜上有名</span>
+                    </a>
                     <a href="#" class="menu-item" data-page="upload">
                         <span class="menu-icon"></span>
                         <span class="menu-text">上传图片</span>
@@ -345,6 +349,39 @@
                             <div class="stat-card">
                                 <div class="stat-value" id="stat-temp">0</div>
                                 <div class="stat-label">待处理图片</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 榜单页面 -->
+            <div class="page-content" id="page-rankings" style="display: none;">
+                <div class="page-header">
+                    <h2>榜上有名</h2>
+                    <div class="header-actions">
+                        <button class="btn btn-secondary" onclick="ui.loadRankings()">
+                            刷新
+                        </button>
+                    </div>
+                </div>
+
+                <div class="leaderboard-section">
+                    <div class="leaderboard-card">
+                        <div class="leaderboard-tabs">
+                            <button type="button" class="leaderboard-tab active" data-board="contribution">贡献榜</button>
+                            <button type="button" class="leaderboard-tab" data-board="characters">最佳人气角色榜</button>
+                            <button type="button" class="leaderboard-tab" data-board="images">最佳人气图片榜</button>
+                        </div>
+                        <div class="leaderboard-content">
+                            <div class="leaderboard-panel active" id="leaderboard-contribution">
+                                <div class="leaderboard-list" id="leaderboard-contribution-list"></div>
+                            </div>
+                            <div class="leaderboard-panel" id="leaderboard-characters">
+                                <div class="leaderboard-list" id="leaderboard-characters-list"></div>
+                            </div>
+                            <div class="leaderboard-panel" id="leaderboard-images">
+                                <div class="leaderboard-list" id="leaderboard-images-list"></div>
                             </div>
                         </div>
                     </div>

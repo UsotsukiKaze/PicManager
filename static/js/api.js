@@ -18,12 +18,23 @@ class API {
             const response = await fetch(url, config);
             
             if (!response.ok) {
-                const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-                throw new Error(error.detail || `HTTP ${response.status}`);
+                let errorMessage = `HTTP ${response.status}`;
+                try {
+                    const errorData = await response.json();
+                    errorMessage = errorData.detail || errorMessage;
+                } catch {
+                    // 无法解析JSON，使用默认错误消息
+                }
+                throw new Error(errorMessage);
             }
 
             return await response.json();
         } catch (error) {
+            // 区分网络错误和HTTP错误
+            if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
+                console.error(`API Network Error (${endpoint}):`, error);
+                throw new Error('网络连接失败，请检查网络');
+            }
             console.error(`API Error (${endpoint}):`, error);
             throw error;
         }
@@ -151,6 +162,11 @@ class API {
         return this.request('/system/cleanup', {
             method: 'POST',
         });
+    }
+
+    // 榜单
+    async getRankings(limit = 10) {
+        return this.request(`/rankings?limit=${limit}`);
     }
 }
 

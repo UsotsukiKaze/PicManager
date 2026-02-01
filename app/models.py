@@ -46,6 +46,7 @@ class User(Base):
     avatar_url = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_notice_at = Column(DateTime, default=datetime.utcnow)
     
     # 关联待审核请求（指定外键以避免歧义）
     pending_requests = relationship(
@@ -76,6 +77,7 @@ class PendingRequest(Base):
     # 临时文件路径（用于add）
     temp_file_path = Column(String(500), nullable=True)
     original_filename = Column(String(500), nullable=True)
+    rejection_reason = Column(Text, nullable=True)
     
     created_at = Column(DateTime, default=datetime.utcnow)
     reviewed_at = Column(DateTime, nullable=True)
@@ -189,3 +191,25 @@ class Image(Base):
     
     def __repr__(self):
         return f"<Image(image_id='{self.image_id}', pid='{self.pid}')>"
+
+
+class ImageViewCount(Base):
+    """图片浏览计数"""
+    __tablename__ = 'image_view_counts'
+
+    image_id = Column(String(10), ForeignKey('images.image_id'), primary_key=True)
+    view_count = Column(Integer, default=0)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    image = relationship("Image")
+
+
+class CharacterQueryCount(Base):
+    """角色查询计数"""
+    __tablename__ = 'character_query_counts'
+
+    character_id = Column(Integer, ForeignKey('characters.id'), primary_key=True)
+    query_count = Column(Integer, default=0)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    character = relationship("Character")

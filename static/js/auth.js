@@ -7,8 +7,21 @@ class AuthManager {
     }
 
     async init() {
-        await this.checkAuth();
+        const authSuccess = await this.checkAuth();
+        if (!authSuccess) {
+            // 认证失败，已重定向到登录页
+            return;
+        }
+        
         this.updateUI();
+        
+        // 认证成功后再初始化应用
+        if (typeof initializeApp === 'function') {
+            await initializeApp();
+        }
+        
+        // 检查通知
+        await this.checkNotifications();
     }
 
     async checkAuth() {
@@ -17,7 +30,7 @@ class AuthManager {
             if (!response.ok) {
                 // 未登录，跳转到登录页
                 window.location.href = '/login';
-                return;
+                return false;
             }
 
             const data = await response.json();
@@ -31,9 +44,11 @@ class AuthManager {
                 this.currentUser = data.user;
                 this.guestInfo = null;
             }
+            return true;
         } catch (error) {
             console.error('Auth check failed:', error);
             window.location.href = '/login';
+            return false;
         }
     }
 
@@ -81,6 +96,33 @@ class AuthManager {
             } else {
                 tempUploadTab.style.display = '';
             }
+        }
+    }
+
+    async checkNotifications() {
+        if (this.isGuest || !this.currentUser) {
+            return;
+        }
+
+        try {
+            const response = await fetch('/auth/notifications');
+            if (!response.ok) return;
+
+            const data = await response.json();
+            const approved = data.approved || 0;
+            const rejected = data.rejected || 0;
+            const total = approved + rejected;
+
+            if (total > 0) {
+                const message = `有 ${total} 条审核结果更新（通过 ${approved}，驳回 ${rejected}），可到个人中心查看详情`;
+                if (window.ui && typeof window.ui.showToast === 'function') {
+                    window.ui.showToast(message, 'info');
+                } else {
+                    console.log(message);
+                }
+            }
+        } catch (error) {
+            console.error('通知检查失败:', error);
         }
     }
 

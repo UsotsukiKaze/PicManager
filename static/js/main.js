@@ -2,8 +2,8 @@
 document.addEventListener('DOMContentLoaded', function() {
     console.log('PicManager 系统已加载');
     
-    // 初始化应用
-    initializeApp();
+    // 等待 auth 初始化完成后再初始化应用
+    // auth.js 会在用户认证后调用 initializeApp
 });
 
 async function initializeApp() {
@@ -18,6 +18,8 @@ async function initializeApp() {
         
         // 预先初始化搜索选项（不等待切换标签页）
         await ui.initializeSearchSelectors();
+
+        // 榜单功能暂时隐藏，后续再启用
         
         // 默认加载图片列表（首次进入强制加载）
         ui.currentTab = null; // 重置以确保能加载
@@ -67,14 +69,14 @@ async function preheatData() {
     }
 }
 
-// 全局错误处理
+// 全局错误处理 - 只处理真正的意外错误
 window.addEventListener('error', (event) => {
     console.error('全局错误:', event.error);
-    ui.showToast('发生未知错误，请查看控制台', 'error');
+    // 不显示通用toast，让具体的catch块处理
 });
 
-// 全局未处理的Promise拒绝
+// 全局未处理的Promise拒绝 - 只记录日志
 window.addEventListener('unhandledrejection', (event) => {
     console.error('未处理的Promise拒绝:', event.reason);
-    ui.showToast('网络请求失败，请检查网络连接', 'error');
+    // 不显示通用toast，让具体的catch块处理
 });

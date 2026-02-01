@@ -7,6 +7,13 @@
     <link rel="icon" href="/static/icon/Pic.ico" type="image/x-icon">
     <link rel="stylesheet" href="/static/css/style.css">
     <style>
+        :root {
+            --bg-primary: var(--background);
+            --bg-secondary: var(--surface);
+            --border-color: var(--border);
+            --text-muted: var(--text-tertiary);
+        }
+
         .profile-container {
             min-height: 100vh;
             background: var(--bg-primary);
@@ -219,6 +226,150 @@
             font-size: 13px;
         }
 
+        /* 贡献与偏好卡片 */
+        .contribution-card,
+        .preference-card {
+            background: var(--bg-secondary);
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            margin-bottom: 25px;
+        }
+
+        .contribution-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .contribution-score {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            background: var(--bg-primary);
+            border-radius: 12px;
+            padding: 18px 20px;
+        }
+
+        .score-main {
+            min-width: 120px;
+            text-align: center;
+        }
+
+        .score-value {
+            font-size: 30px;
+            font-weight: 700;
+            color: var(--primary-color);
+            margin-bottom: 4px;
+        }
+
+        .score-label {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .score-progress {
+            flex: 1;
+        }
+
+        .score-bar {
+            width: 100%;
+            height: 10px;
+            border-radius: 999px;
+            background: rgba(0, 0, 0, 0.08);
+            overflow: hidden;
+        }
+
+        .score-fill {
+            height: 100%;
+            width: 0;
+            background: linear-gradient(135deg, var(--primary-color) 0%, #5AC8FA 100%);
+            border-radius: 999px;
+            transition: width 0.3s ease;
+        }
+
+        .score-hint {
+            margin-top: 10px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .contribution-note {
+            margin-top: 14px;
+            font-size: 12px;
+            color: var(--text-tertiary);
+            line-height: 1.6;
+        }
+
+        .preference-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 16px;
+        }
+
+        .preference-block {
+            background: var(--bg-primary);
+            border-radius: 12px;
+            padding: 16px;
+        }
+
+        .preference-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+        }
+
+        .preference-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .preference-item {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .preference-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .preference-name {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .preference-meter {
+            width: 100%;
+            height: 8px;
+            border-radius: 999px;
+            background: rgba(0, 0, 0, 0.08);
+            overflow: hidden;
+        }
+
+        .preference-fill {
+            height: 100%;
+            width: 0;
+            background: linear-gradient(135deg, var(--secondary-color) 0%, #8E8CFF 100%);
+            border-radius: 999px;
+            transition: width 0.3s ease;
+        }
+
+        .preference-empty,
+        .preference-empty-item {
+            font-size: 13px;
+            color: var(--text-tertiary);
+            text-align: center;
+            padding: 12px 0;
+        }
+
         /* 修改密码卡片 */
         .password-card {
             background: var(--bg-secondary);
@@ -397,6 +548,54 @@
             justify-content: flex-end;
         }
 
+        .request-status {
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-pending {
+            background: rgba(59, 130, 246, 0.15);
+            color: #3b82f6;
+        }
+
+        .status-approved {
+            background: rgba(34, 197, 94, 0.15);
+            color: #22c55e;
+        }
+
+        .status-rejected {
+            background: rgba(239, 68, 68, 0.15);
+            color: #ef4444;
+        }
+
+        .reject-reason {
+            width: 100%;
+            margin-top: 10px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-primary);
+            font-size: 13px;
+            color: var(--text-primary);
+        }
+
+        .reject-reason:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+        }
+
+        .request-meta {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 10px;
+        }
+
         .empty-state {
             text-align: center;
             padding: 60px 20px;
@@ -547,6 +746,95 @@
         .toast.error {
             background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
         }
+
+        /* 个人中心移动端适配 */
+        @media (max-width: 768px) {
+            .profile-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+                padding: 16px 18px;
+            }
+
+            .header-actions {
+                width: 100%;
+                flex-wrap: wrap;
+            }
+
+            .header-btn {
+                flex: 1;
+                justify-content: center;
+            }
+
+            .profile-content {
+                padding: 18px;
+            }
+
+            .profile-tabs {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            .profile-tab {
+                flex: 0 0 auto;
+                white-space: nowrap;
+                padding: 12px 16px;
+                font-size: 14px;
+            }
+
+            .user-avatar-section {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .user-avatar {
+                width: 80px;
+                height: 80px;
+            }
+
+            .user-card,
+            .password-card,
+            .contribution-card,
+            .preference-card {
+                padding: 20px;
+            }
+
+            .user-stats,
+            .contribution-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 12px;
+            }
+
+            .contribution-score {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .score-main {
+                text-align: left;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .profile-content {
+                padding: 14px;
+            }
+
+            .user-stats,
+            .contribution-grid,
+            .preference-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .header-btn {
+                padding: 10px 12px;
+                font-size: 13px;
+            }
+
+            .profile-header h1 {
+                font-size: 20px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -565,6 +853,7 @@
         <div class="profile-content">
             <div class="profile-tabs">
                 <button class="profile-tab active" data-tab="personal">个人信息</button>
+                <button class="profile-tab hidden" id="my-requests-tab" data-tab="my-requests">我的审核</button>
                 <button class="profile-tab hidden" id="admin-tab" data-tab="admin">管理员控制台</button>
                 <button class="profile-tab hidden" id="root-tab" data-tab="root">Root控制台</button>
             </div>
@@ -597,10 +886,6 @@
                             <div class="user-basic-info">
                                 <div style="display: flex; align-items: center; gap: 10px;">
                                     <h2 class="user-nickname" id="user-nickname">--</h2>
-                                    <button class="btn btn-sm btn-secondary" id="refresh-nickname-btn" onclick="refreshNickname()" title="从QQ号自动获取昵称" style="padding: 4px 8px; font-size: 12px;">
-                                        <span class="inline-icon icon-refresh"></span>
-                                        <span>自动</span>
-                                    </button>
                                     <button class="btn btn-sm btn-secondary" id="edit-nickname-btn" onclick="toggleEditNickname()" title="手动编辑昵称" style="padding: 4px 8px; font-size: 12px;">
                                         <span class="inline-icon icon-edit"></span>
                                         <span>编辑</span>
@@ -625,6 +910,72 @@
                         </div>
                     </div>
 
+                    <!-- 贡献概览 -->
+                    <div class="contribution-card" id="contribution-card" style="display: none;">
+                        <h3 class="card-title">
+                            <span class="inline-icon icon-image"></span>
+                            <span>贡献概览</span>
+                        </h3>
+                        <div class="contribution-grid">
+                            <div class="stat-item">
+                                <div class="stat-value" id="stat-approved-total">0</div>
+                                <div class="stat-label">审核通过的有效提交</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value" id="stat-approved-add">0</div>
+                                <div class="stat-label">图片添加次数</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value" id="stat-approved-edit">0</div>
+                                <div class="stat-label">图片编辑次数</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value" id="stat-approved-group">0</div>
+                                <div class="stat-label">分组相关提交</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value" id="stat-approved-character">0</div>
+                                <div class="stat-label">角色相关提交</div>
+                            </div>
+                        </div>
+                        <div class="contribution-score">
+                            <div class="score-main">
+                                <div class="score-value" id="contribution-score">0</div>
+                                <div class="score-label">贡献度</div>
+                            </div>
+                            <div class="score-progress">
+                                <div class="score-bar">
+                                    <div class="score-fill" id="contribution-bar"></div>
+                                </div>
+                                <div class="score-hint">
+                                    当前贡献度 <span id="contribution-percent">0%</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="contribution-note" id="contribution-note" style="display: none;"></div>
+                    </div>
+
+                    <!-- 上传偏好 -->
+                    <div class="preference-card" id="preference-card" style="display: none;">
+                        <h3 class="card-title">
+                            <span class="inline-icon icon-image"></span>
+                            <span>上传偏好</span>
+                        </h3>
+                        <div class="preference-grid" id="preference-grid">
+                            <div class="preference-block">
+                                <div class="preference-title">偏好分组</div>
+                                <div class="preference-list" id="preference-groups"></div>
+                            </div>
+                            <div class="preference-block">
+                                <div class="preference-title">偏好角色</div>
+                                <div class="preference-list" id="preference-characters"></div>
+                            </div>
+                        </div>
+                        <div class="preference-empty" id="preference-empty" style="display: none;">
+                            暂无偏好数据
+                        </div>
+                    </div>
+
                     <!-- 修改密码（管理员专用） -->
                     <div class="password-card" id="password-section" style="display: none;">
                         <h3 class="card-title">
@@ -645,6 +996,28 @@
                                 <input type="password" id="confirm-password" class="form-input" placeholder="请再次输入新密码">
                             </div>
                             <button class="btn btn-primary" onclick="changePassword()">修改密码</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 我的审核面板 -->
+            <div class="tab-panel" id="my-requests-panel">
+                <div class="admin-section">
+                    <div class="section-header">
+                        <h2 class="section-title">
+                            我的待审核记录
+                        </h2>
+                        <button class="btn btn-secondary btn-sm" onclick="loadMyRequests()">
+                            <span class="inline-icon icon-refresh"></span>
+                            <span>刷新</span>
+                        </button>
+                    </div>
+
+                    <div class="request-list" id="my-request-list">
+                        <div class="empty-state">
+                            <div class="empty-icon">📭</div>
+                            <p>暂无提交记录</p>
                         </div>
                     </div>
                 </div>
@@ -734,6 +1107,9 @@
                 if (tab.dataset.tab === 'root') {
                     loadAdminList();
                 }
+                if (tab.dataset.tab === 'my-requests') {
+                    loadMyRequests();
+                }
             });
         });
 
@@ -752,6 +1128,8 @@
                     // 游客视图
                     document.getElementById('guest-view').style.display = 'block';
                     document.getElementById('user-view').style.display = 'none';
+                    document.getElementById('contribution-card').style.display = 'none';
+                    document.getElementById('preference-card').style.display = 'none';
                     document.getElementById('guest-ip-display').textContent = data.guest_ip || '--';
                     document.getElementById('remaining-ops').textContent = data.remaining_operations;
                     
@@ -788,15 +1166,202 @@
                         document.getElementById('admin-tab').classList.remove('hidden');
                     }
 
+                    // 显示普通用户审核列表
+                    document.getElementById('my-requests-tab').classList.remove('hidden');
+
                     // 显示Root专属功能
                     if (currentUser.role === 'root') {
                         document.getElementById('root-tab').classList.remove('hidden');
                     }
+
+                    // 加载贡献与偏好数据
+                    loadProfileStats();
+                    loadMyRequests();
                 }
             } catch (error) {
                 console.error('Failed to load user info:', error);
                 window.location.href = '/login';
             }
+        }
+
+        async function loadMyRequests() {
+            try {
+                const response = await fetch('/auth/my-requests');
+                if (!response.ok) {
+                    return;
+                }
+
+                const requests = await response.json();
+                const container = document.getElementById('my-request-list');
+
+                if (!requests.length) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-icon">📭</div>
+                            <p>暂无提交记录</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                const statusMap = {
+                    pending: { text: '待审核', class: 'status-pending' },
+                    approved: { text: '已通过', class: 'status-approved' },
+                    rejected: { text: '已驳回', class: 'status-rejected' }
+                };
+
+                container.innerHTML = requests.map(req => {
+                    const statusInfo = statusMap[req.status] || { text: req.status, class: 'status-pending' };
+                    const typeMap = {
+                        'add': '添加图片',
+                        'edit': '编辑图片',
+                        'delete': '删除图片',
+                        'group_add': '添加分组',
+                        'group_edit': '编辑分组',
+                        'group_delete': '删除分组',
+                        'character_add': '添加角色',
+                        'character_edit': '编辑角色',
+                        'character_delete': '删除角色'
+                    };
+                    const typeText = typeMap[req.request_type] || req.request_type;
+                    const createdAt = new Date(req.created_at).toLocaleString();
+                    const reviewedAt = req.reviewed_at ? new Date(req.reviewed_at).toLocaleString() : '--';
+
+                    return `
+                        <div class="request-card">
+                            <div class="request-header">
+                                <div class="request-user">
+                                    <div class="request-user-info">
+                                        <span class="request-user-name">${typeText}</span>
+                                        <span class="request-user-qq">提交时间：${createdAt}</span>
+                                    </div>
+                                </div>
+                                <span class="request-status ${statusInfo.class}">${statusInfo.text}</span>
+                            </div>
+                            <div class="request-content">
+                                <div class="request-detail">
+                                    ${req.image_id ? `<strong>图片ID:</strong> ${req.image_id}<br>` : ''}
+                                    ${req.group_info ? `<strong>分组:</strong> ${req.group_info.name}<br>` : ''}
+                                    ${req.character_names && req.character_names.length ? `<strong>角色:</strong> ${req.character_names.join(', ')}<br>` : ''}
+                                    <strong>审核时间:</strong> ${reviewedAt}
+                                    ${req.rejection_reason ? `<div class="request-meta">驳回理由：${req.rejection_reason}</div>` : ''}
+                                </div>
+                            </div>
+                            ${req.status === 'pending' ? `
+                                <div class="request-actions">
+                                    <button class="btn btn-secondary btn-sm" onclick="cancelMyRequest(${req.id})">撤销申请</button>
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                }).join('');
+            } catch (error) {
+                console.error('Failed to load my requests:', error);
+            }
+        }
+
+        async function cancelMyRequest(requestId) {
+            if (!confirm('确定要撤销该申请吗？')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/auth/pending/${requestId}`, { method: 'DELETE' });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.detail || '撤销失败');
+                }
+                showToast(data.message || '请求已撤销');
+                loadMyRequests();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // 加载贡献与偏好统计
+        async function loadProfileStats() {
+            const contributionCard = document.getElementById('contribution-card');
+            const preferenceCard = document.getElementById('preference-card');
+            const preferenceGrid = document.getElementById('preference-grid');
+            const preferenceEmpty = document.getElementById('preference-empty');
+
+            try {
+                const response = await fetch('/auth/profile-stats');
+                if (!response.ok) {
+                    contributionCard.style.display = 'none';
+                    preferenceCard.style.display = 'none';
+                    return;
+                }
+
+                const data = await response.json();
+
+                contributionCard.style.display = 'block';
+                preferenceCard.style.display = 'block';
+
+                document.getElementById('stat-approved-total').textContent = data.approved_total ?? 0;
+                document.getElementById('stat-approved-add').textContent = data.approved_add ?? 0;
+                const approvedEdit = data.approved_edit ?? 0;
+                const approvedDelete = data.approved_delete ?? 0;
+                document.getElementById('stat-approved-edit').textContent = approvedEdit + approvedDelete;
+
+                const groupTotal = (data.approved_group_add ?? 0) + (data.approved_group_edit ?? 0) + (data.approved_group_delete ?? 0);
+                const characterTotal = (data.approved_character_add ?? 0) + (data.approved_character_edit ?? 0) + (data.approved_character_delete ?? 0);
+                document.getElementById('stat-approved-group').textContent = groupTotal;
+                document.getElementById('stat-approved-character').textContent = characterTotal;
+
+                const contribution = data.contribution || {};
+                const contributionScore = contribution.score ?? 0;
+                const contributionPercent = contribution.percent ?? 0;
+
+                document.getElementById('contribution-score').textContent = contributionScore;
+                document.getElementById('contribution-percent').textContent = `${contributionPercent}%`;
+                document.getElementById('contribution-bar').style.width = `${contributionPercent}%`;
+                document.getElementById('contribution-note').textContent = '';
+
+                const preferences = data.preferences || {};
+                const groups = preferences.groups || [];
+                const characters = preferences.characters || [];
+                const totalGroup = preferences.total_group || 0;
+                const totalCharacter = preferences.total_character || 0;
+
+                renderPreferenceList('preference-groups', groups, totalGroup, '暂无分组数据');
+                renderPreferenceList('preference-characters', characters, totalCharacter, '暂无角色数据');
+
+                if (totalGroup + totalCharacter === 0) {
+                    preferenceGrid.style.display = 'none';
+                    preferenceEmpty.style.display = 'block';
+                } else {
+                    preferenceGrid.style.display = 'grid';
+                    preferenceEmpty.style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Failed to load profile stats:', error);
+                contributionCard.style.display = 'none';
+                preferenceCard.style.display = 'none';
+            }
+        }
+
+        function renderPreferenceList(containerId, items, total, emptyText) {
+            const container = document.getElementById(containerId);
+            if (!items.length) {
+                container.innerHTML = `<div class="preference-empty-item">${emptyText}</div>`;
+                return;
+            }
+
+            container.innerHTML = items.map(item => {
+                const percent = total > 0 ? Math.round((item.count / total) * 100) : 0;
+                return `
+                    <div class="preference-item">
+                        <div class="preference-info">
+                            <span class="preference-name">${item.name}</span>
+                            <span>${item.count} 次 · ${percent}%</span>
+                        </div>
+                        <div class="preference-meter">
+                            <div class="preference-fill" style="width: ${percent}%;"></div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
         }
 
         // 切换昵称编辑模式
@@ -841,39 +1406,6 @@
                 toggleEditNickname();
             } catch (error) {
                 showToast('保存失败: ' + error.message, 'error');
-            }
-        }
-
-        // 刷新QQ昵称
-        async function refreshNickname() {
-            try {
-                const btn = document.getElementById('refresh-nickname-btn');
-                btn.disabled = true;
-                btn.textContent = '刷新中...';
-
-                const response = await fetch('/auth/refresh-nickname', {
-                    method: 'POST'
-                });
-
-                if (!response.ok) {
-                    throw new Error('刷新失败');
-                }
-
-                const data = await response.json();
-                const user = data.user;
-
-                // 更新页面显示
-                document.getElementById('user-nickname').textContent = user.nickname;
-                document.getElementById('user-avatar').src = user.avatar_url;
-
-                showToast('昵称已更新: ' + user.nickname);
-                
-                btn.textContent = '自动';
-                btn.disabled = false;
-            } catch (error) {
-                showToast('刷新失败: ' + error.message, 'error');
-                document.getElementById('refresh-nickname-btn').textContent = '自动';
-                document.getElementById('refresh-nickname-btn').disabled = false;
             }
         }
 
@@ -1128,6 +1660,7 @@
                                 <button class="btn btn-danger btn-sm" onclick="handleRequest(${req.id}, 'reject')">拒绝</button>
                                 <button class="btn btn-success btn-sm" onclick="handleRequest(${req.id}, 'approve')">批准</button>
                             </div>
+                            <textarea class="reject-reason" id="reject-reason-${req.id}" placeholder="驳回理由（可选）"></textarea>
                         </div>
                     `;
                 }).join('');
@@ -1141,10 +1674,15 @@
         // 处理审核请求
         async function handleRequest(requestId, action) {
             try {
+                let reason = null;
+                if (action === 'reject') {
+                    const input = document.getElementById(`reject-reason-${requestId}`);
+                    reason = input ? input.value.trim() : '';
+                }
                 const response = await fetch(`/admin/pending/${requestId}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action })
+                    body: JSON.stringify({ action, reason })
                 });
 
                 const data = await response.json();

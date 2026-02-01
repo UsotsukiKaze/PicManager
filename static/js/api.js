@@ -164,6 +164,12 @@ class API {
         });
     }
 
+    async scanStoreOrphans() {
+        return this.request('/system/scan-store-orphans', {
+            method: 'POST',
+        });
+    }
+
     // 榜单
     async getRankings(limit = 10) {
         return this.request(`/rankings?limit=${limit}`);

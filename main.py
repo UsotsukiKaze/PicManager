@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 import time
 import os
 import uvicorn
-from app.database import init_database
+from app.database import init_database, create_db_snapshot
 from app.config import settings
 from app.logger import log_info, log_success, log_error
 from app.routers.api import router as api_router
@@ -22,6 +22,7 @@ async def lifespan(app: FastAPI):
     log_success("数据库初始化完成!")
     yield
     # 关闭时执行（如果需要的话）
+    create_db_snapshot()
 
 # 创建FastAPI应用
 app = FastAPI(

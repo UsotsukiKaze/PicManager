@@ -2,6 +2,9 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from contextlib import contextmanager
 import os
+import shutil
+import hashlib
+import threading
 from .models import Base
 from .config import settings
 from .logger import log_success
@@ -19,6 +22,9 @@ engine = create_engine(
 
 # 创建会话工厂
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+_snapshot_lock = threading.Lock()
+_commit_counter = 0
 
 def create_tables():
     """创建所有数据表"""
@@ -41,6 +47,7 @@ def get_db_context():
     try:
         yield db
         db.commit()
+        register_db_commit()
     except Exception:
         db.rollback()
         raise
@@ -49,9 +56,67 @@ def get_db_context():
 
 def init_database():
     """初始化数据库"""
+    restore_snapshot_if_needed()
     create_tables()
     apply_migrations()
     log_success(f"数据库初始化完成: {DATABASE_PATH}")
+
+
+def get_snapshot_path() -> str:
+    return f"{DATABASE_PATH}.snapshot"
+
+
+def file_hash(path: str) -> str:
+    hasher = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def restore_snapshot_if_needed() -> None:
+    """启动时检查快照与当前数据库是否一致，不一致则用快照替换"""
+    snapshot_path = get_snapshot_path()
+    if not os.path.exists(snapshot_path):
+        return
+
+    if not os.path.exists(DATABASE_PATH):
+        shutil.copy2(snapshot_path, DATABASE_PATH)
+        return
+
+    try:
+        current_hash = file_hash(DATABASE_PATH)
+        snapshot_hash = file_hash(snapshot_path)
+    except Exception:
+        return
+
+    if current_hash != snapshot_hash:
+        try:
+            engine.dispose()
+        except Exception:
+            pass
+        shutil.copy2(snapshot_path, DATABASE_PATH)
+
+
+def create_db_snapshot() -> None:
+    """创建数据库快照"""
+    if not os.path.exists(DATABASE_PATH):
+        return
+    snapshot_path = get_snapshot_path()
+    try:
+        shutil.copy2(DATABASE_PATH, snapshot_path)
+    except Exception:
+        pass
+
+
+def register_db_commit() -> None:
+    """记录一次数据库提交，累计到阈值后更新快照"""
+    global _commit_counter
+    with _snapshot_lock:
+        _commit_counter += 1
+        if _commit_counter >= 10:
+            _commit_counter = 0
+            create_db_snapshot()
 
 
 def apply_migrations():

@@ -7,6 +7,7 @@ import os
 import secrets
 from PIL import Image as PILImage
 import shutil
+import uuid
 
 class GroupService:
     """分组服务"""
@@ -510,6 +511,44 @@ class ImageService:
             db.commit()
         
         return count
+
+    @staticmethod
+    def move_orphaned_files_to_temp(db: Session, store_path: str, temp_path: str) -> int:
+        """扫描store目录，将数据库中不存在的图片移入temp目录"""
+        if not os.path.exists(store_path):
+            return 0
+
+        os.makedirs(temp_path, exist_ok=True)
+
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'}
+        existing_ids = {row[0] for row in db.query(models.Image.image_id).all()}
+
+        moved = 0
+        for filename in os.listdir(store_path):
+            ext = os.path.splitext(filename)[1].lower()
+            if ext not in allowed_extensions:
+                continue
+
+            image_id = os.path.splitext(filename)[0]
+            if image_id in existing_ids:
+                continue
+
+            src_path = os.path.join(store_path, filename)
+            if not os.path.isfile(src_path):
+                continue
+
+            dest_path = os.path.join(temp_path, filename)
+            if os.path.exists(dest_path):
+                base, ext = os.path.splitext(filename)
+                dest_path = os.path.join(temp_path, f"{base}_{uuid.uuid4().hex}{ext}")
+
+            try:
+                shutil.move(src_path, dest_path)
+                moved += 1
+            except Exception:
+                continue
+
+        return moved
 
 
 class SystemService:

@@ -1800,5 +1800,16 @@ async function cleanupOrphaned() {
     }
 }
 
+async function scanStoreOrphans() {
+    try {
+        const result = await api.scanStoreOrphans();
+        ui.showToast(result.message, 'success');
+        ui.updateTempCount();
+        ui.loadSystemStatus();
+    } catch (error) {
+        ui.showToast(`扫描失败: ${error.message}`, 'error');
+    }
+}
+
 // 创建全局UI实例
 window.ui = new UIManager();

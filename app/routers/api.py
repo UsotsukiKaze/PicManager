@@ -930,3 +930,12 @@ def cleanup_orphaned_records():
         store_path = settings.STORE_PATH
         count = ImageService.cleanup_orphaned_records(db, store_path)
         return {"message": f"Cleaned up {count} orphaned records"}
+
+@router.post("/system/scan-store-orphans")
+def scan_store_orphans():
+    """扫描store目录，将数据库不存在的图片移动到temp目录"""
+    with get_db_context() as db:
+        store_path = settings.STORE_PATH
+        temp_path = settings.TEMP_PATH
+        moved = ImageService.move_orphaned_files_to_temp(db, store_path, temp_path)
+        return {"message": f"Moved {moved} orphaned files to temp", "moved": moved}

@@ -17,6 +17,7 @@ example/
 # Image storage
 resource/store/
 resource/temp/
+resource/pending/
 
 logs/
 *.log

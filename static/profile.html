@@ -927,15 +927,7 @@
                             </div>
                             <div class="stat-item">
                                 <div class="stat-value" id="stat-approved-edit">0</div>
-                                <div class="stat-label">图片编辑次数</div>
-                            </div>
-                            <div class="stat-item">
-                                <div class="stat-value" id="stat-approved-group">0</div>
-                                <div class="stat-label">分组相关提交</div>
-                            </div>
-                            <div class="stat-item">
-                                <div class="stat-value" id="stat-approved-character">0</div>
-                                <div class="stat-label">角色相关提交</div>
+                                <div class="stat-label">图片修改次数</div>
                             </div>
                         </div>
                         <div class="contribution-score">
@@ -1301,13 +1293,7 @@
                 document.getElementById('stat-approved-total').textContent = data.approved_total ?? 0;
                 document.getElementById('stat-approved-add').textContent = data.approved_add ?? 0;
                 const approvedEdit = data.approved_edit ?? 0;
-                const approvedDelete = data.approved_delete ?? 0;
-                document.getElementById('stat-approved-edit').textContent = approvedEdit + approvedDelete;
-
-                const groupTotal = (data.approved_group_add ?? 0) + (data.approved_group_edit ?? 0) + (data.approved_group_delete ?? 0);
-                const characterTotal = (data.approved_character_add ?? 0) + (data.approved_character_edit ?? 0) + (data.approved_character_delete ?? 0);
-                document.getElementById('stat-approved-group').textContent = groupTotal;
-                document.getElementById('stat-approved-character').textContent = characterTotal;
+                document.getElementById('stat-approved-edit').textContent = approvedEdit;
 
                 const contribution = data.contribution || {};
                 const contributionScore = contribution.score ?? 0;

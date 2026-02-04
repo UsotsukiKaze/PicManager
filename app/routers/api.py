@@ -28,6 +28,7 @@ def create_group(group: schemas.GroupCreate, request: Request):
 
         session = get_current_session(request, db)
         is_admin = False
+        is_logged_in_user = False
         user_id = None
         guest_ip = None
 
@@ -41,8 +42,9 @@ def create_group(group: schemas.GroupCreate, request: Request):
                 if user:
                     user_id = user.id
                     is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
+                    is_logged_in_user = True
 
-        if is_admin:
+        if is_admin or is_logged_in_user:
             return GroupService.create_group(db, group)
 
         pending_request = PendingRequest(
@@ -79,6 +81,7 @@ def update_group(group_id: int, group_update: schemas.GroupUpdate, request: Requ
     with get_db_context() as db:
         session = get_current_session(request, db)
         is_admin = False
+        is_logged_in_user = False
         user_id = None
         guest_ip = None
 
@@ -92,6 +95,7 @@ def update_group(group_id: int, group_update: schemas.GroupUpdate, request: Requ
                 if user:
                     user_id = user.id
                     is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
+                    is_logged_in_user = True
 
         # 校验分组是否存在
         existing = db.query(models.Group).filter(models.Group.id == group_id).first()
@@ -120,6 +124,7 @@ def delete_group(group_id: int, request: Request):
     with get_db_context() as db:
         session = get_current_session(request, db)
         is_admin = False
+        is_logged_in_user = False
         user_id = None
         guest_ip = None
 
@@ -133,6 +138,7 @@ def delete_group(group_id: int, request: Request):
                 if user:
                     user_id = user.id
                     is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
+                    is_logged_in_user = True
 
         # 校验分组是否存在
         existing = db.query(models.Group).filter(models.Group.id == group_id).first()
@@ -171,6 +177,7 @@ def create_character(character: schemas.CharacterCreate, request: Request):
 
         session = get_current_session(request, db)
         is_admin = False
+        is_logged_in_user = False
         user_id = None
         guest_ip = None
 
@@ -184,13 +191,14 @@ def create_character(character: schemas.CharacterCreate, request: Request):
                 if user:
                     user_id = user.id
                     is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
+                    is_logged_in_user = True
 
         # 校验分组是否存在
         group_exists = db.query(models.Group).filter(models.Group.id == character.group_id).first()
         if not group_exists:
             raise HTTPException(status_code=400, detail="选中的分组不存在")
 
-        if is_admin:
+        if is_admin or is_logged_in_user:
             return CharacterService.create_character(db, character)
 
         pending_request = PendingRequest(
@@ -392,15 +400,8 @@ def get_rankings(limit: int = 10):
         ).all()
 
         weights = {
-            "add": 3,
-            "edit": 1,
-            "delete": 1,
-            "group_add": 2,
-            "group_edit": 1,
-            "group_delete": 1,
-            "character_add": 2,
-            "character_edit": 1,
-            "character_delete": 1
+            "add": 2,
+            "edit": 1
         }
 
         contribution_map = {}
@@ -545,7 +546,7 @@ def update_image(image_id: str, image_update: schemas.ImageUpdate, request: Requ
                     raise HTTPException(status_code=400, detail=f"选中的某些角色不存在: {missing_ids}")
             image_update.character_ids = character_ids
         
-        if is_admin:
+        if is_admin or is_logged_in_user:
             # 管理员直接更新
             image = ImageService.update_image(db, image_id, image_update)
             if not image:
@@ -576,6 +577,7 @@ def delete_image(image_id: str, request: Request):
     with get_db_context() as db:
         session = get_current_session(request, db)
         is_admin = False
+        is_logged_in_user = False
         user_id = None
         guest_ip = None
         
@@ -589,13 +591,14 @@ def delete_image(image_id: str, request: Request):
                 if user:
                     user_id = user.id
                     is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
+                    is_logged_in_user = True
 
         # 校验图片是否存在
         db_image = db.query(models.Image).filter(models.Image.image_id == image_id).first()
         if not db_image:
             raise HTTPException(status_code=404, detail="Image not found")
         
-        if is_admin:
+        if is_admin or is_logged_in_user:
             # 管理员直接删除
             store_path = settings.STORE_PATH
             success = ImageService.delete_image(db, image_id, store_path)
@@ -666,7 +669,7 @@ async def upload_single_image(
         # 读取文件内容
         content = await file.read()
         
-        if is_admin:
+        if is_admin or is_logged_in_user:
             # 管理员直接上传
             with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_extension}') as temp_file:
                 temp_file.write(content)
@@ -684,7 +687,7 @@ async def upload_single_image(
                     db, image_create, temp_file_path, file.filename, file_extension, store_path
                 )
 
-                # 记录贡献度（管理员/Root直接通过）
+                # 记录贡献度（直接通过）
                 if user_id:
                     pending_request = PendingRequest(
                         request_type="add",
@@ -840,6 +843,9 @@ def upload_temp_image(temp_upload: schemas.TempImageUpload, request: Request):
             if user:
                 user_id = user.id
                 is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
+
+        if not is_admin:
+            raise HTTPException(status_code=403, detail="仅管理员可使用 temp 目录上传")
 
         # 验证character_ids是否存在
         if temp_upload.character_ids:

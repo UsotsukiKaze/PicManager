@@ -535,14 +535,7 @@ async def get_profile_stats(request: Request):
 
         weights = {
             "add": 3,
-            "edit": 1,
-            "delete": 1,
-            "group_add": 2,
-            "group_edit": 1,
-            "group_delete": 1,
-            "character_add": 2,
-            "character_edit": 1,
-            "character_delete": 1
+            "edit": 1
         }
 
         contribution_score = sum(

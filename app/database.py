@@ -5,6 +5,8 @@ import os
 import shutil
 import hashlib
 import threading
+import time
+from datetime import datetime, timedelta
 from .models import Base
 from .config import settings
 from .logger import log_success
@@ -25,6 +27,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 _snapshot_lock = threading.Lock()
 _commit_counter = 0
+_snapshot_daily_thread_started = False
 
 def create_tables():
     """创建所有数据表"""
@@ -59,6 +62,7 @@ def init_database():
     restore_snapshot_if_needed()
     create_tables()
     apply_migrations()
+    start_daily_snapshot_scheduler()
     log_success(f"数据库初始化完成: {DATABASE_PATH}")
 
 
@@ -114,9 +118,30 @@ def register_db_commit() -> None:
     global _commit_counter
     with _snapshot_lock:
         _commit_counter += 1
-        if _commit_counter >= 10:
+        if _commit_counter >= 50:
             _commit_counter = 0
             create_db_snapshot()
+
+
+def _seconds_until_next_midnight() -> float:
+    now = datetime.now()
+    next_midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return max((next_midnight - now).total_seconds(), 1.0)
+
+
+def start_daily_snapshot_scheduler() -> None:
+    """每天 0 点创建一次快照"""
+    global _snapshot_daily_thread_started
+    if _snapshot_daily_thread_started:
+        return
+    _snapshot_daily_thread_started = True
+
+    def _worker():
+        while True:
+            time.sleep(_seconds_until_next_midnight())
+            create_db_snapshot()
+
+    threading.Thread(target=_worker, name="db_snapshot_scheduler", daemon=True).start()
 
 
 def apply_migrations():

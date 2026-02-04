@@ -22,3 +22,5 @@ resource/pending/
 logs/
 *.log
 *.db
+*.db.snapshot
+

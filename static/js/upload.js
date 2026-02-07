@@ -291,6 +291,7 @@ class UploadManager {
     async processBatchUpload() {
         const batchItems = document.querySelectorAll('.batch-item');
         let successCount = 0;
+        let pendingCount = 0;
         let failedCount = 0;
 
         for (let i = 0; i < batchItems.length; i++) {
@@ -321,10 +322,17 @@ class UploadManager {
                     description: item.querySelector('.batch-description').value || null
                 };
 
-                await api.uploadSingleImage(file, metadata);
-                successCount++;
-                
-                ui.showToast(`已上传 ${successCount} / ${this.batchFiles.length} 张图片`, 'info');
+                const result = await api.uploadSingleImage(file, metadata);
+                const message = result && result.message ? result.message : '上传成功';
+                const isPending = message.includes('审核');
+                if (isPending) {
+                    pendingCount++;
+                } else {
+                    successCount++;
+                }
+
+                ui.showToast(message, isPending ? 'info' : 'success');
+                ui.showToast(`已处理 ${successCount + pendingCount} / ${this.batchFiles.length} 张图片`, 'info');
                 
             } catch (error) {
                 console.error(`上传第 ${i + 1} 张图片失败:`, error);
@@ -332,7 +340,7 @@ class UploadManager {
             }
         }
 
-        ui.showToast(`批量上传完成! 成功: ${successCount}, 失败: ${failedCount}`, 'success');
+        ui.showToast(`批量处理完成! 成功: ${successCount}, 待审核: ${pendingCount}, 失败: ${failedCount}`, 'success');
         
         // 清空批量上传列表
         this.batchFiles = [];

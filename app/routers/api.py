@@ -58,7 +58,7 @@ def create_group(group: schemas.GroupCreate, request: Request):
         )
         db.add(pending_request)
         db.commit()
-        return {"message": "待审核你的提交，可到个人中心查看进度"}
+        return {"message": "提交成功，等待管理员审核"}
 
 @router.get("/groups/", response_model=List[schemas.Group])
 def get_groups(skip: int = 0, limit: int = 100):
@@ -116,7 +116,7 @@ def update_group(group_id: int, group_update: schemas.GroupUpdate, request: Requ
         )
         db.add(pending_request)
         db.commit()
-        return {"message": "待审核你的提交，可到个人中心查看进度"}
+        return {"message": "提交成功，等待管理员审核"}
 
 @router.delete("/groups/{group_id}")
 def delete_group(group_id: int, request: Request):
@@ -149,7 +149,7 @@ def delete_group(group_id: int, request: Request):
             success = GroupService.delete_group(db, group_id)
             if not success:
                 raise HTTPException(status_code=404, detail="Group not found")
-            return {"message": "Group deleted successfully"}
+            return {"message": "分组删除成功"}
 
         pending_request = PendingRequest(
             request_type="group_delete",
@@ -161,7 +161,7 @@ def delete_group(group_id: int, request: Request):
         )
         db.add(pending_request)
         db.commit()
-        return {"message": "待审核你的提交，可到个人中心查看进度"}
+        return {"message": "提交成功，等待管理员审核"}
 
 # 角色相关路由
 @router.post("/characters/", response_model=Union[schemas.CharacterWithGroupName, dict])
@@ -214,7 +214,7 @@ def create_character(character: schemas.CharacterCreate, request: Request):
         )
         db.add(pending_request)
         db.commit()
-        return {"message": "待审核你的提交，可到个人中心查看进度"}
+        return {"message": "提交成功，等待管理员审核"}
 
 @router.get("/characters/", response_model=List[schemas.CharacterWithGroupName])
 def get_characters(group_id: Optional[int] = None, skip: int = 0, limit: int = 100):
@@ -237,6 +237,7 @@ def update_character(character_id: int, character_update: schemas.CharacterUpdat
     with get_db_context() as db:
         session = get_current_session(request, db)
         is_admin = False
+        is_logged_in_user = False
         user_id = None
         guest_ip = None
 
@@ -250,6 +251,7 @@ def update_character(character_id: int, character_update: schemas.CharacterUpdat
                 if user:
                     user_id = user.id
                     is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
+                    is_logged_in_user = True
 
         # 校验角色是否存在
         existing = db.query(models.Character).filter(models.Character.id == character_id).first()
@@ -275,7 +277,7 @@ def update_character(character_id: int, character_update: schemas.CharacterUpdat
         )
         db.add(pending_request)
         db.commit()
-        return {"message": "待审核你的提交，可到个人中心查看进度"}
+        return {"message": "提交成功，等待管理员审核"}
 
 @router.delete("/characters/{character_id}")
 def delete_character(character_id: int, request: Request):
@@ -283,6 +285,7 @@ def delete_character(character_id: int, request: Request):
     with get_db_context() as db:
         session = get_current_session(request, db)
         is_admin = False
+        is_logged_in_user = False
         user_id = None
         guest_ip = None
 
@@ -296,6 +299,7 @@ def delete_character(character_id: int, request: Request):
                 if user:
                     user_id = user.id
                     is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
+                    is_logged_in_user = True
 
         # 校验角色是否存在
         existing = db.query(models.Character).filter(models.Character.id == character_id).first()
@@ -306,7 +310,7 @@ def delete_character(character_id: int, request: Request):
             success = CharacterService.delete_character(db, character_id)
             if not success:
                 raise HTTPException(status_code=404, detail="Character not found")
-            return {"message": "Character deleted successfully"}
+            return {"message": "角色删除成功"}
 
         pending_request = PendingRequest(
             request_type="character_delete",
@@ -318,7 +322,7 @@ def delete_character(character_id: int, request: Request):
         )
         db.add(pending_request)
         db.commit()
-        return {"message": "待审核你的提交，可到个人中心查看进度"}
+        return {"message": "提交成功，等待管理员审核"}
 
 # 图片相关路由
 @router.get("/images/search", response_model=schemas.ImageSearchResult)
@@ -546,29 +550,29 @@ def update_image(image_id: str, image_update: schemas.ImageUpdate, request: Requ
                     raise HTTPException(status_code=400, detail=f"选中的某些角色不存在: {missing_ids}")
             image_update.character_ids = character_ids
         
-        if is_admin or is_logged_in_user:
+        if is_admin:
             # 管理员直接更新
             image = ImageService.update_image(db, image_id, image_update)
             if not image:
                 raise HTTPException(status_code=404, detail="Image not found")
-            return image
-        else:
-            # 非管理员，创建待审核请求
-            pending_request = PendingRequest(
-                request_type="edit",
-                user_id=user_id,
-                guest_ip=guest_ip,
-                image_id=image_id,
-                image_data=json.dumps({
-                    "pid": image_update.pid,
-                    "description": image_update.description,
-                    "character_ids": image_update.character_ids
-                })
-            )
-            db.add(pending_request)
-            db.commit()
-            
-            return {"message": "待审核你的提交，可到个人中心查看进度"}
+            return {"message": "图片信息更新成功", "status": "success"}
+
+        # 非管理员，创建待审核请求
+        pending_request = PendingRequest(
+            request_type="edit",
+            user_id=user_id,
+            guest_ip=guest_ip,
+            image_id=image_id,
+            image_data=json.dumps({
+                "pid": image_update.pid,
+                "description": image_update.description,
+                "character_ids": image_update.character_ids
+            })
+        )
+        db.add(pending_request)
+        db.commit()
+
+        return {"message": "已提交，等待管理员审核", "status": "pending"}
 
 @router.delete("/images/{image_id}")
 def delete_image(image_id: str, request: Request):
@@ -577,7 +581,6 @@ def delete_image(image_id: str, request: Request):
     with get_db_context() as db:
         session = get_current_session(request, db)
         is_admin = False
-        is_logged_in_user = False
         user_id = None
         guest_ip = None
         
@@ -591,32 +594,31 @@ def delete_image(image_id: str, request: Request):
                 if user:
                     user_id = user.id
                     is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
-                    is_logged_in_user = True
 
         # 校验图片是否存在
         db_image = db.query(models.Image).filter(models.Image.image_id == image_id).first()
         if not db_image:
             raise HTTPException(status_code=404, detail="Image not found")
         
-        if is_admin or is_logged_in_user:
+        if is_admin:
             # 管理员直接删除
             store_path = settings.STORE_PATH
             success = ImageService.delete_image(db, image_id, store_path)
             if not success:
                 raise HTTPException(status_code=404, detail="Image not found")
-            return {"message": "Image deleted successfully"}
-        else:
-            # 非管理员，创建待审核请求
-            pending_request = PendingRequest(
-                request_type="delete",
-                user_id=user_id,
-                guest_ip=guest_ip,
-                image_id=image_id
-            )
-            db.add(pending_request)
-            db.commit()
-            
-            return {"message": "待审核你的提交，可到个人中心查看进度"}
+            return {"message": "图片删除成功", "status": "success"}
+
+        # 非管理员，创建待审核请求
+        pending_request = PendingRequest(
+            request_type="delete",
+            user_id=user_id,
+            guest_ip=guest_ip,
+            image_id=image_id
+        )
+        db.add(pending_request)
+        db.commit()
+
+        return {"message": "已提交，等待管理员审核", "status": "pending"}
 
 # 上传相关路由
 @router.post("/upload/single", response_model=schemas.UploadImageResponse)
@@ -669,7 +671,7 @@ async def upload_single_image(
         # 读取文件内容
         content = await file.read()
         
-        if is_admin or is_logged_in_user:
+        if is_admin:
             # 管理员直接上传
             with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_extension}') as temp_file:
                 temp_file.write(content)
@@ -708,84 +710,84 @@ async def upload_single_image(
                 
                 return schemas.UploadImageResponse(
                     image_id=image.image_id,
-                    message="Image uploaded successfully"
+                    message="图片上传成功"
                 )
             finally:
                 try:
                     os.unlink(temp_file_path)
                 except:
                     pass
-        else:
-            # 非管理员，创建待审核请求
-            pending_path = settings.PENDING_PATH
-            os.makedirs(pending_path, exist_ok=True)
-            
-            # 验证character_ids是否存在（如果提供了）
-            validation_error = None
-            if character_id_list:
-                try:
-                    existing_characters = db.query(models.Character).filter(
-                        models.Character.id.in_(character_id_list)
-                    ).all()
-                    if len(existing_characters) != len(character_id_list):
-                        missing_ids = set(character_id_list) - set(c.id for c in existing_characters)
-                        validation_error = f"选中的某些角色不存在，无效ID: {missing_ids}"
-                except Exception as e:
-                    validation_error = f"角色验证失败: {str(e)}"
-            
-            # 验证group_id是否存在（如果提供了）
-            if not validation_error and group_id:
-                try:
-                    group_id_int = int(group_id)
-                    group_exists = db.query(models.Group).filter(
-                        models.Group.id == group_id_int
-                    ).first()
-                    if not group_exists:
-                        validation_error = f"选中的分组不存在 (ID: {group_id_int})"
-                except (ValueError, TypeError) as e:
-                    validation_error = f"分组ID格式错误: {str(e)}"
-            
-            if validation_error:
-                raise HTTPException(status_code=400, detail=validation_error)
-            
-            # 生成唯一文件名
-            import uuid
-            unique_filename = f"{uuid.uuid4().hex}.{file_extension}"
-            pending_file_path = os.path.join(pending_path, unique_filename)
-            
-            with open(pending_file_path, 'wb') as f:
-                f.write(content)
-            
-            # 创建待审核记录
+
+        # 非管理员，创建待审核请求
+        pending_path = settings.PENDING_PATH
+        os.makedirs(pending_path, exist_ok=True)
+
+        # 验证character_ids是否存在（如果提供了）
+        validation_error = None
+        if character_id_list:
             try:
-                pending_request = PendingRequest(
-                    request_type="add",
-                    user_id=user_id,
-                    guest_ip=guest_ip,
-                    image_data=json.dumps({
-                        "character_ids": character_id_list,
-                        "group_id": int(group_id) if group_id else None,
-                        "pid": pid,
-                        "description": description
-                    }),
-                    temp_file_path=pending_file_path,
-                    original_filename=file.filename
-                )
-                db.add(pending_request)
-                db.commit()
-                
-                return schemas.UploadImageResponse(
-                    image_id="pending",
-                    message="待审核你的提交，可到个人中心查看进度"
-                )
+                existing_characters = db.query(models.Character).filter(
+                    models.Character.id.in_(character_id_list)
+                ).all()
+                if len(existing_characters) != len(character_id_list):
+                    missing_ids = set(character_id_list) - set(c.id for c in existing_characters)
+                    validation_error = f"选中的某些角色不存在，无效ID: {missing_ids}"
             except Exception as e:
-                # 如果数据库操作失败，清理临时文件
-                try:
-                    if os.path.exists(pending_file_path):
-                        os.unlink(pending_file_path)
-                except:
-                    pass
-                raise HTTPException(status_code=500, detail=f"创建待审核请求失败: {str(e)}")
+                validation_error = f"角色验证失败: {str(e)}"
+
+        # 验证group_id是否存在（如果提供了）
+        if not validation_error and group_id:
+            try:
+                group_id_int = int(group_id)
+                group_exists = db.query(models.Group).filter(
+                    models.Group.id == group_id_int
+                ).first()
+                if not group_exists:
+                    validation_error = f"选中的分组不存在 (ID: {group_id_int})"
+            except (ValueError, TypeError) as e:
+                validation_error = f"分组ID格式错误: {str(e)}"
+
+        if validation_error:
+            raise HTTPException(status_code=400, detail=validation_error)
+
+        # 生成唯一文件名
+        import uuid
+        unique_filename = f"{uuid.uuid4().hex}.{file_extension}"
+        pending_file_path = os.path.join(pending_path, unique_filename)
+
+        with open(pending_file_path, 'wb') as f:
+            f.write(content)
+
+        # 创建待审核记录
+        try:
+            pending_request = PendingRequest(
+                request_type="add",
+                user_id=user_id,
+                guest_ip=guest_ip,
+                image_data=json.dumps({
+                    "character_ids": character_id_list,
+                    "group_id": int(group_id) if group_id else None,
+                    "pid": pid,
+                    "description": description
+                }),
+                temp_file_path=pending_file_path,
+                original_filename=file.filename
+            )
+            db.add(pending_request)
+            db.commit()
+
+            return schemas.UploadImageResponse(
+                image_id="pending",
+                message="提交成功，等待管理员审核"
+            )
+        except Exception as e:
+            # 如果数据库操作失败，清理临时文件
+            try:
+                if os.path.exists(pending_file_path):
+                    os.unlink(pending_file_path)
+            except:
+                pass
+            raise HTTPException(status_code=500, detail=f"创建待审核请求失败: {str(e)}")
 
 @router.get("/upload/temp-count")
 def get_temp_images_count():
@@ -895,7 +897,7 @@ def upload_temp_image(temp_upload: schemas.TempImageUpload, request: Request):
         
         return schemas.UploadImageResponse(
             image_id=image.image_id,
-            message="Image uploaded successfully from temp directory"
+            message="从临时目录上传成功"
         )
 
 @router.delete("/upload/temp/{filename}")
@@ -916,7 +918,7 @@ def delete_temp_image(filename: str):
     
     try:
         os.unlink(image_path)
-        return {"message": f"Image {filename} deleted successfully"}
+        return {"message": f"临时图片 {filename} 删除成功"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete image: {str(e)}")
 

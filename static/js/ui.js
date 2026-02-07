@@ -1646,8 +1646,11 @@ class UIManager {
                 description: document.getElementById('edit-image-description').value || null
             };
             
-            await api.updateImage(imageId, data);
-            this.showToast('图片更新成功', 'success');
+            const result = await api.updateImage(imageId, data);
+            const message = result && result.message ? result.message : '图片更新成功';
+            const status = result && result.status ? result.status : null;
+            const toastType = status === 'pending' || message.includes('审核') ? 'info' : 'success';
+            this.showToast(message, toastType);
             this.closeModal();
             this.loadImages();
         } catch (error) {
@@ -1661,8 +1664,11 @@ class UIManager {
         }
         
         try {
-            await api.deleteImage(imageId);
-            this.showToast('图片删除成功', 'success');
+            const result = await api.deleteImage(imageId);
+            const message = result && result.message ? result.message : '图片删除成功';
+            const status = result && result.status ? result.status : null;
+            const toastType = status === 'pending' || message.includes('审核') ? 'info' : 'success';
+            this.showToast(message, toastType);
             this.closeModal();
             this.loadImages();
             this.loadSystemStatus();

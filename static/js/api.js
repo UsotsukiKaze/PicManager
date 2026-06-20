@@ -66,9 +66,17 @@ class API {
     }
 
     // 角色相关API
-    async getCharacters(groupId = null) {
-        const params = groupId ? `?group_id=${groupId}` : '';
-        return this.request(`/characters/${params}`);
+    async getCharacters(groupId = null, options = {}) {
+        const params = new URLSearchParams();
+        const limit = options.limit || 1000;
+        const skip = options.skip || 0;
+        params.set('limit', limit);
+        params.set('skip', skip);
+        if (groupId) {
+            params.set('group_id', groupId);
+        }
+        const queryString = params.toString();
+        return this.request(queryString ? `/characters/?${queryString}` : '/characters/');
     }
 
     async createCharacter(data) {

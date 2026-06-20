@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     STORE_PATH: str = os.path.join(RESOURCE_PATH, "store")
     TEMP_PATH: str = os.path.join(RESOURCE_PATH, "temp")
     PENDING_PATH: str = os.path.join(RESOURCE_PATH, "pending")
+    THUMB_PATH: str = os.path.join(RESOURCE_PATH, "thumbs")
     
     # 数据库配置
     DATABASE_URL: str = f"sqlite:///{os.path.join(DATA_PATH, 'picmanager.db')}"
@@ -20,6 +21,7 @@ class Settings(BaseSettings):
     # 上传配置
     MAX_FILE_SIZE: int = 50 * 1024 * 1024  # 50MB
     ALLOWED_EXTENSIONS: set = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
+    THUMBNAIL_SIZE: int = 360
     
     # 分页配置
     DEFAULT_PAGE_SIZE: int = 50
@@ -32,6 +34,13 @@ class Settings(BaseSettings):
     
     # 安全配置
     SECRET_KEY: str = "your-secret-key-here"  # 在生产环境中应该设置为随机字符串
+    BOT_API_TOKEN: str = ""
+    PUBLIC_BASE_URL: str = ""
+    LOGIN_TICKET_TTL_SECONDS: int = 300
+    ROOT_QQ: str = "1356890337"
+    CORS_ALLOW_ORIGINS: str = "http://127.0.0.1:8000,http://localhost:8000"
+    SESSION_COOKIE_SECURE: bool = False
+    TRUST_PROXY_HEADERS: bool = False
     
     class Config:
         env_file = ".env"

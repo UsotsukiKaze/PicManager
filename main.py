@@ -3,15 +3,19 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-import time
+from pathlib import Path
 import os
 import uvicorn
+from PIL import Image, UnidentifiedImageError
 from app.database import init_database, create_db_snapshot
 from app.config import settings
-from app.logger import log_info, log_success, log_error
-from app.routers.api import router as api_router
-from app.routers.auth import router as auth_router
-from app.routers.admin import router as admin_router
+from app.logger import log_http_request, log_info, log_success
+from app.routers.admin_routes import router as admin_router
+from app.routers.auth_routes import router as auth_router
+from app.routers.integrations.bot import router as bot_router
+from app.routers.public import router as public_router
+from app.routers.system import router as system_router
+from app.security.permissions import require_admin_user_id
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,30 +36,67 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+def _cors_origins() -> list[str]:
+    return [origin.strip() for origin in settings.CORS_ALLOW_ORIGINS.split(",") if origin.strip()]
+
+
+def _safe_resource_file(base_path: str, filename: str) -> Path:
+    if "/" in filename or "\\" in filename or "\x00" in filename:
+        raise FileNotFoundError
+    root = Path(base_path).resolve()
+    path = (root / filename).resolve()
+    path.relative_to(root)
+    if not path.is_file():
+        raise FileNotFoundError
+    return path
+
+
+def _safe_store_resource_path(resource_path: str) -> Path:
+    if "\x00" in resource_path:
+        raise FileNotFoundError
+    normalized = resource_path.replace("\\", "/").lstrip("/")
+    if normalized.startswith("resource/store/"):
+        normalized = normalized.removeprefix("resource/store/")
+    if normalized.startswith("store/"):
+        normalized = normalized.removeprefix("store/")
+    if not normalized or normalized.startswith("../") or "/../" in normalized:
+        raise FileNotFoundError
+
+    root = Path(settings.STORE_PATH).resolve()
+    path = (root / normalized).resolve()
+    path.relative_to(root)
+    if not path.is_file():
+        raise FileNotFoundError
+    return path
+
+
+def _thumbnail_path(resource_path: str) -> Path:
+    source = _safe_store_resource_path(resource_path)
+    thumb_root = Path(settings.THUMB_PATH).resolve()
+    thumb_root.mkdir(parents=True, exist_ok=True)
+    thumb = (thumb_root / f"{source.stem}.webp").resolve()
+    thumb.relative_to(thumb_root)
+    if thumb.exists() and thumb.stat().st_mtime >= source.stat().st_mtime:
+        return thumb
+
+    try:
+        with Image.open(source) as image:
+            image.thumbnail((settings.THUMBNAIL_SIZE, settings.THUMBNAIL_SIZE))
+            if image.mode not in ("RGB", "RGBA"):
+                image = image.convert("RGB")
+            image.save(thumb, "WEBP", quality=78, method=6)
+    except (UnidentifiedImageError, OSError):
+        raise FileNotFoundError
+    return thumb
+
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    start = time.perf_counter()
-    client = request.client.host if request.client else "unknown"
-    log_info(f"请求开始 {request.method} {request.url.path} from {client}")
-
-    try:
-        response = await call_next(request)
-        duration_ms = (time.perf_counter() - start) * 1000
-        if response.status_code >= 400:
-            log_error(f"请求结束 {request.method} {request.url.path} {response.status_code} {duration_ms:.2f}ms")
-        else:
-            log_success(f"请求结束 {request.method} {request.url.path} {response.status_code} {duration_ms:.2f}ms")
-        return response
-    except Exception as exc:
-        duration_ms = (time.perf_counter() - start) * 1000
-        log_error(f"请求异常 {request.method} {request.url.path} 500 {duration_ms:.2f}ms: {exc}")
-        raise
-
+    return await log_http_request(request, call_next)
 # 配置CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 在生产环境中应该设置具体的域名
+    allow_origins=_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -68,12 +109,50 @@ app.mount("/static", StaticFiles(directory=os.path.join(settings.BASE_DIR, "stat
 os.makedirs(settings.STORE_PATH, exist_ok=True)
 os.makedirs(settings.TEMP_PATH, exist_ok=True)
 os.makedirs(settings.PENDING_PATH, exist_ok=True)  # 待审核文件目录
+os.makedirs(settings.THUMB_PATH, exist_ok=True)
 
 # 提供resource目录的静态文件服务
-app.mount("/resource", StaticFiles(directory=settings.RESOURCE_PATH), name="resource")
+@app.get("/resource/temp/{filename}")
+async def protected_temp_file(filename: str, request: Request):
+    """Serve temp files only to admins."""
+    require_admin_user_id(request)
+    try:
+        return FileResponse(_safe_resource_file(settings.TEMP_PATH, filename))
+    except Exception:
+        return FileResponse(os.path.join(settings.BASE_DIR, "static", "images", "placeholder.png"))
+
+
+@app.get("/resource/pending/{filename}")
+async def protected_pending_file(filename: str, request: Request):
+    """Serve pending files only to admins."""
+    require_admin_user_id(request)
+    try:
+        return FileResponse(_safe_resource_file(settings.PENDING_PATH, filename))
+    except Exception:
+        return FileResponse(os.path.join(settings.BASE_DIR, "static", "images", "placeholder.png"))
+
+
+@app.get("/resource/thumbs/{resource_path:path}")
+async def thumbnail_file(resource_path: str):
+    """Serve locally cached thumbnails generated from published store images."""
+    try:
+        return FileResponse(_thumbnail_path(resource_path), media_type="image/webp")
+    except Exception:
+        try:
+            return FileResponse(_safe_store_resource_path(resource_path))
+        except Exception:
+            pass
+        return FileResponse(os.path.join(settings.BASE_DIR, "static", "images", "placeholder.png"))
+
+
+# Only published store images are public.
+app.mount("/resource/store", StaticFiles(directory=settings.STORE_PATH), name="resource_store")
 
 # 注册API路由
-app.include_router(api_router, prefix="/api")
+app.include_router(public_router, prefix="/api")
+app.include_router(system_router, prefix="/api/system")
+app.include_router(bot_router, prefix="/api/bot")
+app.include_router(admin_router, prefix="/api/admin")
 app.include_router(auth_router, prefix="/auth")
 app.include_router(admin_router, prefix="/admin")
 

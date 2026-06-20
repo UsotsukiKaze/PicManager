@@ -18,9 +18,9 @@ example/
 resource/store/
 resource/temp/
 resource/pending/
+resource/thumbs/
 
 logs/
 *.log
 *.db
 *.db.snapshot
-

@@ -117,6 +117,21 @@ class UserSession(Base):
     user = relationship("User")
 
 
+class LoginTicket(Base):
+    """One-time QQ login ticket issued by trusted bot-side services."""
+    __tablename__ = 'login_tickets'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticket_hash = Column(String(64), unique=True, nullable=False, index=True)
+    qq_number = Column(String(20), nullable=False, index=True)
+    purpose = Column(String(50), nullable=False, default="login", index=True)
+    redirect_path = Column(String(500), nullable=True)
+    created_by = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    used_at = Column(DateTime, nullable=True)
+
+
 class Group(Base):
     """分组表 - 游戏/IP分组"""
     __tablename__ = 'groups'

@@ -280,7 +280,7 @@ class UploadManager {
             
             // 切换到图片管理页面并刷新
             ui.switchPage('management');
-            ui.loadImages();
+            ui.loadImages(null);
             ui.loadSystemStatus();
             
         } catch (error) {
@@ -348,7 +348,7 @@ class UploadManager {
         document.getElementById('batch-file-input').value = '';
         
         // 刷新数据
-        ui.loadImages();
+        ui.loadImages(null);
         ui.loadSystemStatus();
     }
 

@@ -4,6 +4,7 @@ from typing import List, Optional, Tuple
 from . import models, schemas
 from .config import settings
 import os
+import random
 import secrets
 from PIL import Image as PILImage
 import shutil
@@ -231,8 +232,46 @@ class CharacterService:
 
 
 class ImageService:
-    """图片服务"""
+    """Image service helpers."""
     
+    @staticmethod
+    def image_full_path(image: models.Image) -> str:
+        file_path = (image.file_path or "").replace("\\", "/").lstrip("/")
+        return os.path.join(settings.BASE_DIR, *file_path.split("/"))
+
+    @staticmethod
+    def image_file_exists(image: models.Image) -> bool:
+        return bool(image.file_path) and os.path.isfile(ImageService.image_full_path(image))
+
+    @staticmethod
+    def image_to_dict(image: models.Image) -> dict:
+        return {
+            "image_id": image.image_id,
+            "pid": image.pid,
+            "description": image.description,
+            "original_filename": image.original_filename,
+            "file_extension": image.file_extension,
+            "file_size": image.file_size,
+            "width": image.width,
+            "height": image.height,
+            "file_path": image.file_path,
+            "created_at": image.created_at,
+            "updated_at": image.updated_at,
+            "characters": [
+                {
+                    "id": char.id,
+                    "name": char.name,
+                    "nicknames": CharacterService._get_nicknames(char),
+                    "group_id": char.group_id,
+                    "description": char.description,
+                    "created_at": char.created_at,
+                    "updated_at": char.updated_at,
+                    "group_name": char.group.name if char.group else ""
+                }
+                for char in image.characters
+            ]
+        }
+
     @staticmethod
     def generate_image_id() -> str:
         """生成10位十六进制图片ID"""
@@ -303,43 +342,14 @@ class ImageService:
     
     @staticmethod
     def get_image(db: Session, image_id: str) -> Optional[dict]:
-        """获取图片"""
+        """Return image metadata only when the stored file exists."""
         image = db.query(models.Image).options(
             joinedload(models.Image.characters).joinedload(models.Character.group)
         ).filter(models.Image.image_id == image_id).first()
         
-        if not image:
+        if not image or not ImageService.image_file_exists(image):
             return None
-        
-        # 转换为字典格式
-        image_dict = {
-            "image_id": image.image_id,
-            "pid": image.pid,
-            "description": image.description,
-            "original_filename": image.original_filename,
-            "file_extension": image.file_extension,
-            "file_size": image.file_size,
-            "width": image.width,
-            "height": image.height,
-            "file_path": image.file_path,
-            "created_at": image.created_at,
-            "updated_at": image.updated_at,
-            "characters": [
-                {
-                    "id": char.id,
-                    "name": char.name,
-                    "nicknames": CharacterService._get_nicknames(char),
-                    "group_id": char.group_id,
-                    "description": char.description,
-                    "created_at": char.created_at,
-                    "updated_at": char.updated_at,
-                    "group_name": char.group.name if char.group else ""
-                }
-                for char in image.characters
-            ]
-        }
-        
-        return image_dict
+        return ImageService.image_to_dict(image)
 
     @staticmethod
     def get_random_image(
@@ -348,7 +358,7 @@ class ImageService:
         character_id: Optional[int] = None,
         exclude_group_id: Optional[int] = None
     ) -> Optional[dict]:
-        """获取随机图片"""
+        """Return a random image whose stored file still exists."""
         query = db.query(models.Image).options(
             joinedload(models.Image.characters).joinedload(models.Character.group)
         )
@@ -368,37 +378,30 @@ class ImageService:
                 models.Group.id != exclude_group_id
             )
 
-        image = query.distinct(models.Image.image_id).order_by(func.random()).first()
+        candidates = [
+            image
+            for image in query.distinct(models.Image.image_id).all()
+            if ImageService.image_file_exists(image)
+        ]
+        image = random.choice(candidates) if candidates else None
         if not image:
             return None
 
+        image_dict = ImageService.image_to_dict(image)
         return {
-            "image_id": image.image_id,
-            "file_path": image.file_path,
-            "pid": image.pid,
-            "characters": [
-                {
-                    "id": char.id,
-                    "name": char.name,
-                    "nicknames": CharacterService._get_nicknames(char),
-                    "group_id": char.group_id,
-                    "description": char.description,
-                    "created_at": char.created_at,
-                    "updated_at": char.updated_at,
-                    "group_name": char.group.name if char.group else ""
-                }
-                for char in image.characters
-            ]
+            "image_id": image_dict["image_id"],
+            "file_path": image_dict["file_path"],
+            "pid": image_dict["pid"],
+            "characters": image_dict["characters"],
         }
     
     @staticmethod
     def search_images(db: Session, params: schemas.ImageSearchParams) -> Tuple[List[dict], int]:
-        """搜索图片"""
+        """Search images and ignore records whose files are missing."""
         query = db.query(models.Image).options(
             joinedload(models.Image.characters).joinedload(models.Character.group)
         )
         
-        # 构建查询条件
         if params.group_id:
             query = query.join(models.Image.characters).join(models.Character.group).filter(
                 models.Group.id == params.group_id
@@ -415,45 +418,14 @@ class ImageService:
         if params.description:
             query = query.filter(models.Image.description.like(f"%{params.description}%"))
         
-        # 去重并获取总数
         query = query.distinct(models.Image.image_id)
-        total = query.count()
-        
-        # 分页
-        images = query.offset(params.offset).limit(params.limit).all()
-        
-        # 转换为字典列表
-        images_dict = [
-            {
-                "image_id": img.image_id,
-                "pid": img.pid,
-                "description": img.description,
-                "original_filename": img.original_filename,
-                "file_extension": img.file_extension,
-                "file_size": img.file_size,
-                "width": img.width,
-                "height": img.height,
-                "file_path": img.file_path,
-                "created_at": img.created_at,
-                "updated_at": img.updated_at,
-                "characters": [
-                    {
-                        "id": char.id,
-                        "name": char.name,
-                        "nicknames": CharacterService._get_nicknames(char),
-                        "group_id": char.group_id,
-                        "description": char.description,
-                        "created_at": char.created_at,
-                        "updated_at": char.updated_at,
-                        "group_name": char.group.name if char.group else ""
-                    }
-                    for char in img.characters
-                ]
-            }
-            for img in images
-        ]
-        
-        return images_dict, total
+        existing_images = [img for img in query.all() if ImageService.image_file_exists(img)]
+        total = len(existing_images)
+
+        offset = params.offset or 0
+        limit = params.limit or settings.DEFAULT_PAGE_SIZE
+        images = existing_images[offset: offset + limit]
+        return [ImageService.image_to_dict(img) for img in images], total
     
     @staticmethod
     def update_image(db: Session, image_id: str, image_update: schemas.ImageUpdate) -> Optional[models.Image]:

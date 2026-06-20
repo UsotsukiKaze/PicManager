@@ -224,3 +224,23 @@ class SetNickname(BaseModel):
 class GuestLimitInfo(BaseModel):
     remaining_operations: int
     daily_limit: int
+
+
+class BotLoginTicketCreate(BaseModel):
+    qq_number: str
+    purpose: str = "login"
+    redirect_path: Optional[str] = "/"
+    created_by: Optional[str] = None
+
+
+class BotLoginTicketResponse(BaseModel):
+    ticket: str
+    login_url: str
+    expires_at: datetime
+    purpose: str
+    qq_number: str
+
+
+class QQTicketLogin(BaseModel):
+    ticket: str
+    purpose: str = "login"

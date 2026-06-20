@@ -1801,3 +1801,181 @@ body {
         height: 180px;
     }
 }
+
+/* UI refinement pass: denser cards, stable thumbnails, clearer paging. */
+.tab-container,
+.search-section,
+.modal,
+.list-item,
+.image-card,
+.stat-card,
+.upload-section,
+.temp-image-card,
+.leaderboard-item {
+    border-radius: 8px;
+}
+
+.tab-container,
+.search-section,
+.modal,
+.upload-section {
+    border: 1px solid rgba(229, 229, 231, 0.92);
+    box-shadow: 0 8px 28px rgba(29, 29, 31, 0.06);
+}
+
+.search-section {
+    background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+}
+
+.btn,
+.pagination-btn,
+.action-btn,
+.modal-close {
+    border-radius: 8px;
+}
+
+.image-grid {
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 18px;
+}
+
+.image-card {
+    overflow: hidden;
+    border: 1px solid rgba(229, 229, 231, 0.95);
+    background: #fff;
+    box-shadow: 0 4px 18px rgba(29, 29, 31, 0.06);
+    transform: translateY(0);
+    animation: cardFadeIn 220ms ease-out both;
+}
+
+.image-card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(0, 122, 255, 0.38);
+    box-shadow: 0 14px 34px rgba(29, 29, 31, 0.12);
+}
+
+.image-card-media {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    overflow: hidden;
+    background: linear-gradient(135deg, #f2f4f7, #eef6f3);
+}
+
+.image-card-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform 240ms ease, filter 240ms ease;
+}
+
+.image-card:hover .image-card-img {
+    transform: scale(1.035);
+    filter: saturate(1.04);
+}
+
+.image-card-info {
+    min-height: 88px;
+    padding: 12px;
+}
+
+.image-card-id {
+    font-size: 13px;
+    letter-spacing: 0;
+}
+
+.image-card-characters,
+.image-card-pid {
+    word-break: break-word;
+}
+
+.modal-overlay {
+    backdrop-filter: blur(8px);
+}
+
+.modal {
+    animation: modalLift 180ms ease-out both;
+}
+
+.modal-body img {
+    max-height: min(70vh, 760px);
+    object-fit: contain;
+    background: #f5f5f7;
+}
+
+.pagination {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 24px;
+}
+
+.pagination-btn {
+    min-width: 38px;
+    height: 36px;
+    padding: 0 12px;
+    border: 1px solid rgba(229, 229, 231, 0.95);
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(29, 29, 31, 0.04);
+}
+
+.pagination-edge {
+    min-width: 54px;
+}
+
+.pagination-ellipsis,
+.pagination-summary {
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+.pagination-ellipsis {
+    width: 28px;
+}
+
+.pagination-summary {
+    padding: 0 4px 0 8px;
+    white-space: nowrap;
+}
+
+.leaderboard-thumb {
+    object-fit: cover;
+    background: #f5f5f7;
+}
+
+@keyframes cardFadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes modalLift {
+    from { opacity: 0; transform: translateY(8px) scale(0.99); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 640px) {
+    .image-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .image-card-info {
+        min-height: 78px;
+        padding: 10px;
+    }
+
+    .pagination-btn {
+        min-width: 34px;
+        height: 34px;
+        padding: 0 9px;
+    }
+
+    .pagination-edge,
+    .pagination-summary {
+        display: none;
+    }
+}

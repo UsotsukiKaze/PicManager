@@ -6,8 +6,10 @@ class UIManager {
         this.pagination = {
             currentPage: 1,
             totalPages: 1,
-            limit: 50
+            limit: 50,
+            maxButtons: 11
         };
+        this.activeImageSearchParams = {};
         
         // 存储所有分组和角色数据用于搜索
         this.allGroups = [];
@@ -553,24 +555,62 @@ class UIManager {
         }
     }
 
-    async loadImages(params = {}) {
+    async loadImages(params = undefined) {
         try {
+            if (params !== undefined && params !== null) {
+                this.activeImageSearchParams = { ...params };
+            }
+
             const searchParams = {
+                ...(this.activeImageSearchParams || {}),
                 limit: this.pagination.limit,
-                offset: (this.pagination.currentPage - 1) * this.pagination.limit,
-                ...params
+                offset: (this.pagination.currentPage - 1) * this.pagination.limit
             };
 
             const result = await api.searchImages(searchParams);
-            this.renderImageGrid(result.images);
+            const totalPages = Math.max(1, Math.ceil((result.total || 0) / this.pagination.limit));
+            if ((result.images || []).length === 0 && (result.total || 0) > 0 && this.pagination.currentPage > totalPages) {
+                this.pagination.currentPage = totalPages;
+                return this.loadImages(null);
+            }
+
+            this.renderImageGrid(result.images || []);
             this.updatePagination(result);
         } catch (error) {
             this.showToast('加载图片失败', 'error');
         }
     }
 
+    getImageFilename(image) {
+        return `${image.image_id}.${image.file_extension}`;
+    }
+
+    getImagePath(image) {
+        return (image.file_path || `resource/store/${this.getImageFilename(image)}`).replace(/^\/+/, '');
+    }
+
+    getImageUrl(image) {
+        return `/${this.getImagePath(image)}`;
+    }
+
+    getThumbnailUrl(image) {
+        return `/resource/thumbs/${this.getImagePath(image)}`;
+    }
+
+    handleImageFallback(img) {
+        const fallback = img.dataset.fullSrc;
+        if (fallback && img.src !== new URL(fallback, window.location.origin).href) {
+            img.src = fallback;
+            img.dataset.fullSrc = '';
+            return;
+        }
+        img.onerror = null;
+        img.src = '/static/images/placeholder.png';
+    }
+
     renderImageGrid(images) {
         const grid = document.getElementById('image-grid');
+        if (!grid) return;
         
         if (images.length === 0) {
             grid.innerHTML = '<div class="empty-state">未找到图片</div>';
@@ -579,8 +619,12 @@ class UIManager {
 
         grid.innerHTML = images.map(image => `
             <div class="image-card" data-image-id="${image.image_id}">
-                <img class="image-card-img" src="/resource/store/${image.image_id}.${image.file_extension}" 
-                     alt="Image ${image.image_id}" onerror="this.src='/static/images/placeholder.png'">
+                <div class="image-card-media">
+                    <img class="image-card-img" src="${this.getThumbnailUrl(image)}"
+                         data-full-src="${this.getImageUrl(image)}"
+                         alt="Image ${image.image_id}" loading="lazy" decoding="async"
+                         onerror="ui.handleImageFallback(this)">
+                </div>
                 <div class="image-card-info">
                     <div class="image-card-id">${image.image_id}</div>
                     <div class="image-card-characters">
@@ -594,7 +638,6 @@ class UIManager {
             </div>
         `).join('');
 
-        // 添加点击事件
         grid.querySelectorAll('.image-card').forEach(card => {
             card.addEventListener('click', () => {
                 const imageId = card.getAttribute('data-image-id');
@@ -603,34 +646,64 @@ class UIManager {
         });
     }
 
+    buildPageWindow(totalPages, currentPage) {
+        const maxButtons = Math.max(7, this.pagination.maxButtons || 11);
+        if (totalPages <= maxButtons) {
+            return Array.from({ length: totalPages }, (_, index) => index + 1);
+        }
+
+        const dynamicRadius = Math.min(4, Math.max(2, Math.floor(totalPages * 0.04)));
+        let start = Math.max(2, currentPage - dynamicRadius);
+        let end = Math.min(totalPages - 1, currentPage + dynamicRadius);
+        const innerLimit = maxButtons - 2;
+
+        while ((end - start + 1) < innerLimit && start > 2) start--;
+        while ((end - start + 1) < innerLimit && end < totalPages - 1) end++;
+
+        const pages = [1];
+        if (start > 2) pages.push('gap-start');
+        for (let page = start; page <= end; page++) pages.push(page);
+        if (end < totalPages - 1) pages.push('gap-end');
+        pages.push(totalPages);
+        return pages;
+    }
+
     updatePagination(result) {
-        this.pagination.totalPages = Math.ceil(result.total / this.pagination.limit);
+        const total = result.total || 0;
+        this.pagination.totalPages = Math.max(1, Math.ceil(total / this.pagination.limit));
         
         const paginationContainer = document.getElementById('pagination');
-        if (this.pagination.totalPages <= 1) {
+        if (!paginationContainer) return;
+        if (this.pagination.totalPages <= 1 && total <= this.pagination.limit) {
             paginationContainer.innerHTML = '';
             return;
         }
 
+        const pageItems = this.buildPageWindow(this.pagination.totalPages, this.pagination.currentPage);
         let html = `
+            <button class="pagination-btn pagination-edge" ${this.pagination.currentPage === 1 ? 'disabled' : ''} 
+                    onclick="ui.changePage(1)">首页</button>
             <button class="pagination-btn" ${this.pagination.currentPage === 1 ? 'disabled' : ''} 
                     onclick="ui.changePage(${this.pagination.currentPage - 1})">上一页</button>
         `;
 
-        // 页码按钮
-        const startPage = Math.max(1, this.pagination.currentPage - 2);
-        const endPage = Math.min(this.pagination.totalPages, this.pagination.currentPage + 2);
-
-        for (let i = startPage; i <= endPage; i++) {
+        pageItems.forEach((item) => {
+            if (typeof item === 'string') {
+                html += '<span class="pagination-ellipsis">...</span>';
+                return;
+            }
             html += `
-                <button class="pagination-btn ${i === this.pagination.currentPage ? 'active' : ''}" 
-                        onclick="ui.changePage(${i})">${i}</button>
+                <button class="pagination-btn ${item === this.pagination.currentPage ? 'active' : ''}" 
+                        onclick="ui.changePage(${item})">${item}</button>
             `;
-        }
+        });
 
         html += `
             <button class="pagination-btn" ${this.pagination.currentPage === this.pagination.totalPages ? 'disabled' : ''} 
                     onclick="ui.changePage(${this.pagination.currentPage + 1})">下一页</button>
+            <button class="pagination-btn pagination-edge" ${this.pagination.currentPage === this.pagination.totalPages ? 'disabled' : ''} 
+                    onclick="ui.changePage(${this.pagination.totalPages})">末页</button>
+            <span class="pagination-summary">${this.pagination.currentPage} / ${this.pagination.totalPages} · ${total}</span>
         `;
 
         paginationContainer.innerHTML = html;
@@ -638,11 +711,9 @@ class UIManager {
 
     changePage(page) {
         if (page < 1 || page > this.pagination.totalPages) return;
-        
         this.pagination.currentPage = page;
-        this.loadImages(this.getSearchParams());
+        this.loadImages(null);
     }
-
     getSearchParams() {
         return {
             group_id: document.getElementById('search-group').value || null,
@@ -772,7 +843,7 @@ class UIManager {
         container.innerHTML = items.map((item, index) => `
             <div class="leaderboard-item">
                 <div class="leaderboard-rank">${index + 1}</div>
-                <img class="leaderboard-thumb" src="/resource/store/${item.image_id}.${item.file_extension}" alt="图片" onerror="this.style.display='none'">
+                <img class="leaderboard-thumb" src="${this.getThumbnailUrl(item)}" data-full-src="${this.getImageUrl(item)}" alt="图片" onerror="ui.handleImageFallback(this)">
                 <div class="leaderboard-info">
                     <div class="leaderboard-name">图片 ${item.image_id}</div>
                     <div class="leaderboard-sub">浏览次数</div>
@@ -1652,7 +1723,7 @@ class UIManager {
             const toastType = status === 'pending' || message.includes('审核') ? 'info' : 'success';
             this.showToast(message, toastType);
             this.closeModal();
-            this.loadImages();
+            this.loadImages(null);
         } catch (error) {
             this.showToast(`更新图片失败: ${error.message}`, 'error');
         }
@@ -1670,7 +1741,7 @@ class UIManager {
             const toastType = status === 'pending' || message.includes('审核') ? 'info' : 'success';
             this.showToast(message, toastType);
             this.closeModal();
-            this.loadImages();
+            this.loadImages(null);
             this.loadSystemStatus();
         } catch (error) {
             this.showToast(`删除图片失败: ${error.message}`, 'error');
@@ -1682,7 +1753,7 @@ class UIManager {
             const image = await api.getImage(imageId);
             const content = `
                 <div class="image-detail">
-                    <img src="/resource/store/${image.image_id}.${image.file_extension}" 
+                    <img src="${this.getImageUrl(image)}" loading="eager" decoding="async" 
                          alt="Image ${image.image_id}" style="max-width: 100%; height: auto; border-radius: 8px; margin-bottom: 16px;">
                     
                     <div class="detail-info">
@@ -1737,7 +1808,8 @@ function clearSearch() {
     
     // 重新加载图片
     ui.pagination.currentPage = 1;
-    ui.loadImages();
+    ui.activeImageSearchParams = {};
+    ui.loadImages({});
     ui.showToast('搜索条件已清空', 'info');
 }
 
@@ -1799,7 +1871,7 @@ async function cleanupOrphaned() {
     try {
         const result = await api.cleanupOrphaned();
         ui.showToast(result.message, 'success');
-        ui.loadImages();
+        ui.loadImages(null);
         ui.loadSystemStatus();
     } catch (error) {
         ui.showToast(`清理失败: ${error.message}`, 'error');

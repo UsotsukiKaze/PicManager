@@ -61,7 +61,7 @@ class AuthManager {
         if (this.isGuest) {
             headerAvatar.style.display = 'none';
             headerUsername.textContent = `游客 (${this.guestInfo.guest_ip})`;
-            headerRole.textContent = `剩余操作: ${this.guestInfo.remaining_operations}`;
+            headerRole.textContent = `今天还能提交: ${this.guestInfo.remaining_operations}`;
             headerRole.className = 'user-role-small role-guest';
         } else if (this.currentUser) {
             if (this.currentUser.avatar_url) {
@@ -96,6 +96,14 @@ class AuthManager {
             } else {
                 tempUploadTab.style.display = '';
             }
+        }
+
+        document.querySelectorAll('.admin-maintenance').forEach(section => {
+            section.style.display = isAdmin ? '' : 'none';
+        });
+
+        if (window.ui && typeof window.ui.applyRolePreferences === 'function') {
+            window.ui.applyRolePreferences();
         }
     }
 
@@ -172,7 +180,7 @@ class AuthManager {
                 const data = await response.json();
                 this.guestInfo.remaining_operations = data.remaining_operations;
                 document.getElementById('header-role').textContent = 
-                    `剩余操作: ${data.remaining_operations}`;
+                    `今天还能提交: ${data.remaining_operations}`;
             }
         }
     }
@@ -180,6 +188,7 @@ class AuthManager {
 
 // 全局认证管理器
 const auth = new AuthManager();
+window.auth = auth;
 
 // 退出登录
 async function handleLogout() {

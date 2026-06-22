@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PicManager - 图片管理系统</title>
+    <title>PicManager - 小爱图库</title>
     <link rel="icon" href="/static/icon/Pic.ico" type="image/x-icon">
-    <link rel="stylesheet" href="/static/css/style.css">
-    <link rel="stylesheet" href="/static/css/icons.css">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260622a">
+    <link rel="stylesheet" href="/static/css/icons.css?v=20260622a">
 </head>
 <body>
     <div class="app-container">
@@ -18,9 +18,9 @@
                 <span class="user-role-small" id="header-role"></span>
             </div>
             <div class="user-actions-compact">
-                <a href="/profile" class="header-link">
+                <a href="/profile?v=20260622a" class="header-link">
                     <span class="inline-icon icon-user"></span>
-                    <span>个人中心</span>
+                    <span>我的</span>
                 </a>
                 <button class="header-link" id="logout-btn" onclick="handleLogout()">
                     <span class="inline-icon icon-logout"></span>
@@ -34,15 +34,16 @@
             <!-- 侧边导航栏 -->
             <nav class="sidebar">
                 <div class="sidebar-header">
-                    <div class="logo">
+                    <button class="logo logo-button" type="button" onclick="ui.switchPage('home')" aria-label="返回主页">
                         <span class="logo-icon"></span>
                         <img class="logo-image" src="/static/icon/Pic.ico" alt="PicManager">
                         <h1 class="logo-text">PicManager</h1>
-                    </div>
+                    </button>
                 </div>
                 
                 <div class="sidebar-menu">
-                    <a href="#" class="menu-item active" data-page="management">
+                    <span class="menu-indicator" id="menu-indicator"></span>
+                    <a href="#" class="menu-item" data-page="management">
                         <span class="menu-icon"></span>
                         <span class="menu-text">图片管理</span>
                     </a>
@@ -56,18 +57,18 @@
                     </a>
                     <a href="#" class="menu-item" data-page="settings">
                         <span class="menu-icon"></span>
-                        <span class="menu-text">系统设置</span>
+                        <span class="menu-text">设置</span>
                     </a>
                 </div>
                 
                 <div class="sidebar-footer">
                     <div class="system-status">
                         <div class="status-item">
-                            <span class="status-label">图片总数</span>
+                            <span class="status-label">图片</span>
                             <span class="status-value" id="total-images">0</span>
                         </div>
                         <div class="status-item">
-                            <span class="status-label">分组数</span>
+                            <span class="status-label">分组</span>
                             <span class="status-value" id="total-groups">0</span>
                         </div>
                     </div>
@@ -76,19 +77,75 @@
 
             <!-- 主内容区域 -->
             <main class="main-content">
+                <!-- 主页 -->
+                <div class="page-content" id="page-home">
+                    <section class="home-hero">
+                        <div class="home-hero-copy">
+                            <div class="home-kicker">PicManager</div>
+                            <h2>欢迎来到~ 小 · 爱 · 图 · 库</h2>
+                            <p>这里可以快速查看图片数量、处理新上传、整理分组和角色。日常找图、补信息、检查打不开的图，都从这里开始。</p>
+                            <div class="home-actions">
+                                <button class="btn btn-primary" onclick="ui.switchPage('management')">查看图片</button>
+                                <button class="btn btn-secondary" onclick="ui.switchPage('upload')">去上传</button>
+                            </div>
+                        </div>
+                        <div class="home-orbit" id="home-group-orbit" aria-hidden="true">
+                            <div class="home-orbit-core">
+                                <img src="/static/icon/Pic.ico" alt="">
+                            </div>
+                            <span class="orbit-chip chip-one">加载分组...</span>
+                        </div>
+                    </section>
+
+                    <section class="home-dashboard">
+                        <div class="home-stat-tile">
+                            <span class="home-stat-label">全部图片</span>
+                            <strong id="home-total-images">0</strong>
+                            <span class="home-stat-hint">数据库总量</span>
+                        </div>
+                        <div class="home-stat-tile">
+                            <span class="home-stat-label">可用图片</span>
+                            <strong id="home-available-images">0</strong>
+                            <span class="home-stat-hint">已确认实体文件</span>
+                        </div>
+                        <div class="home-stat-tile">
+                            <span class="home-stat-label">分组和角色</span>
+                            <strong><span id="home-total-groups">0</span> / <span id="home-total-characters">0</span></strong>
+                            <span class="home-stat-hint">检索维度</span>
+                        </div>
+                        <div class="home-stat-tile">
+                            <span class="home-stat-label">待补缩略图</span>
+                            <strong id="home-thumb-missing">0</strong>
+                            <span class="home-stat-hint">建议批量补齐</span>
+                        </div>
+                    </section>
+
+                    <section class="home-workbench">
+                        <button class="home-work-item" type="button" onclick="ui.switchPage('management')">
+                            <span class="work-icon icon-image"></span>
+                            <strong>看看图片</strong>
+                            <span>按分组、角色或 PID 找图，也能顺手修改信息。</span>
+                        </button>
+                        <button class="home-work-item" type="button" onclick="ui.switchPage('upload')">
+                            <span class="work-icon icon-upload"></span>
+                            <strong>添加图片</strong>
+                            <span>一张一张传，或一次选多张。</span>
+                        </button>
+                        <button class="home-work-item" type="button" onclick="ui.switchPage('settings')">
+                            <span class="work-icon icon-settings"></span>
+                            <strong>检查整理情况</strong>
+                            <span>看看哪些图片缺文件、哪些小图还没生成。</span>
+                        </button>
+                    </section>
+                </div>
+
                 <!-- 图片管理页面 -->
-                <div class="page-content" id="page-management">
+                <div class="page-content" id="page-management" style="display: none;">
                     <div class="page-header">
                         <h2>图片管理</h2>
                         <div class="header-actions">
                             <button class="btn btn-secondary" onclick="refreshData()">
                             刷新
-                        </button>
-                        <button class="btn btn-secondary" onclick="scanStoreOrphans()">
-                            扫描孤儿图片
-                        </button>
-                        <button class="btn btn-danger" onclick="cleanupOrphaned()">
-                            清理无效记录
                         </button>
                     </div>
                 </div>
@@ -96,9 +153,9 @@
                 <!-- 标签页 -->
                 <div class="tab-container">
                     <div class="tab-header">
-                        <button class="tab-btn active" data-tab="image-list">图片列表</button>
-                        <button class="tab-btn" data-tab="group-management">分组管理</button>
-                        <button class="tab-btn" data-tab="character-management">角色管理</button>
+                        <button class="tab-btn active" data-tab="image-list">图片</button>
+                        <button class="tab-btn" data-tab="group-management">分组</button>
+                        <button class="tab-btn" data-tab="character-management">角色</button>
                     </div>
 
                     <!-- 图片列表标签页 -->
@@ -108,35 +165,35 @@
                                 <!-- 基础搜索 -->
                                 <div class="form-row">
                                     <div class="form-group">
-                                        <label>分组筛选</label>
+                                        <label>按分组找</label>
                                         <div class="searchable-select" id="search-group-container">
-                                            <input type="text" class="form-input searchable-input" id="search-group-input" placeholder="搜索或选择分组..." autocomplete="off">
+                                            <input type="text" class="form-input searchable-input" id="search-group-input" placeholder="输入分组名..." autocomplete="off">
                                             <input type="hidden" id="search-group" value="">
                                             <div class="searchable-dropdown" id="search-group-dropdown"></div>
                                         </div>
                                     </div>
                                     <div class="form-group">
-                                        <label>角色筛选</label>
+                                        <label>按角色找</label>
                                         <div class="searchable-select" id="search-character-container">
-                                            <input type="text" class="form-input searchable-input" id="search-character-input" placeholder="搜索或选择角色..." autocomplete="off">
+                                            <input type="text" class="form-input searchable-input" id="search-character-input" placeholder="输入角色名..." autocomplete="off">
                                             <input type="hidden" id="search-character" value="">
                                             <div class="searchable-dropdown" id="search-character-dropdown"></div>
                                         </div>
                                     </div>
                                     <div class="form-group">
-                                        <label for="search-pid">PID搜索</label>
-                                        <input type="text" id="search-pid" class="form-input" placeholder="输入PID搜索">
+                                        <label for="search-pid">按 PID 找</label>
+                                        <input type="text" id="search-pid" class="form-input" placeholder="输入 PID">
                                     </div>
                                     <div class="form-group form-actions-group">
                                         <button class="btn btn-primary" onclick="searchImages()">
-                                            搜索
+                                            查找
                                         </button>
                                         <button class="btn btn-secondary" onclick="clearSearch()">
-                                            清空
+                                            重置
                                         </button>
                                         <button class="btn btn-outline advanced-toggle-btn" onclick="toggleAdvancedSearch()">
                                             <span class="toggle-icon" id="advanced-toggle-icon">▶</span>
-                                            高级
+                                            更多
                                         </button>
                                     </div>
                                 </div>
@@ -145,12 +202,12 @@
                                 <div class="advanced-search-panel" id="advanced-search-panel" style="display: none;">
                                     <div class="form-row">
                                         <div class="form-group">
-                                            <label for="search-image-id">图片序号 (ID)</label>
-                                            <input type="text" id="search-image-id" class="form-input" placeholder="输入10位图片序号">
+                                            <label for="search-image-id">图片编号</label>
+                                            <input type="text" id="search-image-id" class="form-input" placeholder="输入图片编号">
                                         </div>
                                         <div class="form-group">
                                             <button class="btn btn-primary" onclick="searchByImageId()">
-                                                序号搜索
+                                                按编号找
                                             </button>
                                         </div>
                                     </div>
@@ -173,11 +230,11 @@
                             <div class="form-row">
                                 <div class="form-group">
                                     <button class="btn btn-primary" onclick="showCreateGroupModal()">
-                                        新建分组
+                                        添加分组
                                     </button>
                                 </div>
                                 <div class="form-group" style="flex: 1;">
-                                    <input type="text" id="group-search-input" class="form-input" placeholder="搜索分组 (支持拼音首字母)">
+                                    <input type="text" id="group-search-input" class="form-input" placeholder="输入分组名">
                                 </div>
                             </div>
                         </div>
@@ -193,18 +250,18 @@
                             <div class="form-row">
                                 <div class="form-group">
                                     <button class="btn btn-primary" onclick="showCreateCharacterModal()">
-                                        新建角色
+                                        添加角色
                                     </button>
                                 </div>
                                 <div class="form-group" style="flex: 1;">
                                     <div class="searchable-select" id="character-group-filter-container">
-                                        <input type="text" class="form-input searchable-input" id="character-group-filter-input" placeholder="搜索或选择分组..." autocomplete="off">
+                                        <input type="text" class="form-input searchable-input" id="character-group-filter-input" placeholder="输入分组名..." autocomplete="off">
                                         <input type="hidden" id="character-group-filter" value="">
                                         <div class="searchable-dropdown" id="character-group-filter-dropdown"></div>
                                     </div>
                                 </div>
                                 <div class="form-group" style="flex: 2;">
-                                    <input type="text" id="character-search-input" class="form-input" placeholder="搜索角色 (支持拼音首字母)">
+                                    <input type="text" id="character-search-input" class="form-input" placeholder="输入角色名">
                                 </div>
                             </div>
                         </div>
@@ -221,24 +278,38 @@
                 <div class="page-header">
                     <h2>上传图片</h2>
                 </div>
+                <div class="upload-intro">
+                    <div>
+                        <span class="home-kicker">添加图片</span>
+                        <h3>选好图片，再补上分组和角色</h3>
+                        <p>拖进来或点一下选择文件，填好信息后提交。管理员会直接入库，普通用户和游客会先交给管理员确认。</p>
+                    </div>
+                    <div class="upload-intro-badges">
+                        <span>格式校验</span>
+                        <span>可选角色</span>
+                        <span>缩略图预生成</span>
+                    </div>
+                </div>
 
                 <!-- 上传标签页 -->
-                <div class="tab-container">
-                    <div class="tab-header">
-                        <button class="tab-btn active" data-tab="single-upload">单张上传</button>
-                        <button class="tab-btn" data-tab="batch-upload">批量上传</button>
+                <div class="tab-container upload-tab-container">
+                    <div class="tab-header upload-tab-header">
+                        <button class="tab-btn active" data-tab="single-upload">传一张</button>
+                        <button class="tab-btn" data-tab="batch-upload">传多张</button>
                         <button class="tab-btn" data-tab="temp-upload">
-                            Temp目录上传
+                            待处理图片
                             <span class="temp-count-badge" id="temp-count-badge" style="display: none;"></span>
                         </button>
                     </div>
 
                     <!-- 单张上传 -->
                     <div class="tab-content" id="tab-single-upload">
-                        <div class="upload-section">
+                        <div class="upload-section upload-workspace">
                             <div class="upload-area" id="single-upload-area">
                                 <div class="upload-placeholder">
-                                    <p>拖拽图片到此处或点击选择</p>
+                                    <span class="upload-drop-icon"></span>
+                                    <p>把图片拖到这里，或点这里选择</p>
+                                    <span>支持 jpg、png、webp、gif、bmp</span>
                                     <input type="file" id="single-file-input" accept="image/*" style="display: none;">
                                 </div>
                                 <div class="upload-preview" id="single-preview" style="display: none;">
@@ -252,32 +323,32 @@
                             <div class="upload-form" id="single-upload-form" style="display: none;">
                                 <div class="single-filename-info" id="single-filename-info"></div>
                                 <div class="form-group">
-                                    <label for="single-group-select">选择分组</label>
+                                    <label for="single-group-select">分组</label>
                                     <select id="single-group-select" class="form-select" required>
-                                        <option value="">请选择分组</option>
+                                        <option value="">先选分组</option>
                                     </select>
-                                    <button type="button" class="btn-link" onclick="showCreateGroupModal(true)">新建分组</button>
+                                    <button type="button" class="btn-link" onclick="showCreateGroupModal(true)">添加分组</button>
                                 </div>
 
                                 <div class="form-group">
-                                    <label>选择角色</label>
+                                    <label>角色</label>
                                     <div id="single-character-selector"></div>
-                                    <button type="button" class="btn-link" onclick="showCreateCharacterModal(true)">新建角色</button>
+                                    <button type="button" class="btn-link" onclick="showCreateCharacterModal(true)">添加角色</button>
                                 </div>
 
                                 <div class="form-group">
-                                    <label for="single-pid">PID (可选)</label>
-                                    <input type="text" id="single-pid" class="form-input" placeholder="输入PID">
+                                    <label for="single-pid">PID（可不填）</label>
+                                    <input type="text" id="single-pid" class="form-input" placeholder="输入 PID">
                                 </div>
 
                                 <div class="form-group">
-                                    <label for="single-description">描述 (可选)</label>
-                                    <textarea id="single-description" class="form-textarea" placeholder="输入图片描述"></textarea>
+                                    <label for="single-description">备注（可不填）</label>
+                                    <textarea id="single-description" class="form-textarea" placeholder="写点备注"></textarea>
                                 </div>
 
                                 <div class="form-actions">
                                     <button type="button" class="btn btn-secondary" onclick="clearSingleUpload()">清空</button>
-                                    <button type="button" class="btn btn-primary" onclick="uploadSingleImage()">上传图片</button>
+                                    <button type="button" class="btn btn-primary" onclick="uploadSingleImage()">提交</button>
                                 </div>
                             </div>
                         </div>
@@ -285,10 +356,12 @@
 
                     <!-- 批量上传 -->
                     <div class="tab-content" id="tab-batch-upload" style="display: none;">
-                        <div class="upload-section">
+                        <div class="upload-section upload-workspace">
                             <div class="upload-area" id="batch-upload-area">
                                 <div class="upload-placeholder">
-                                    <p>选择多张图片进行批量上传</p>
+                                    <span class="upload-drop-icon"></span>
+                                    <p>一次选择多张图片</p>
+                                    <span>选好后可以逐张补信息</span>
                                     <input type="file" id="batch-file-input" accept="image/*" multiple style="display: none;">
                                 </div>
                             </div>
@@ -303,7 +376,7 @@
                     <div class="tab-content" id="tab-temp-upload" style="display: none;">
                         <div class="temp-upload-section">
                             <div class="temp-info">
-                                <p>检测到 <span id="temp-image-count">0</span> 张图片在temp目录中</p>
+                                <p>待处理文件夹里有 <span id="temp-image-count">0</span> 张图片</p>
                                 <button class="btn btn-secondary btn-sm" onclick="refreshTempImages()">刷新</button>
                             </div>
 
@@ -318,41 +391,63 @@
             <!-- 系统设置页面 -->
             <div class="page-content" id="page-settings" style="display: none;">
                 <div class="page-header">
-                    <h2>系统设置</h2>
+                    <h2>设置</h2>
                 </div>
 
                 <div class="settings-section">
                     <div class="settings-group">
-                        <h3>系统信息</h3>
+                        <h3>存放位置</h3>
                         <div class="settings-item">
-                            <label>存储路径</label>
+                            <label>图片文件夹</label>
                             <span id="store-path">/resource/store</span>
                         </div>
                         <div class="settings-item">
-                            <label>临时路径</label>
+                            <label>待处理文件夹</label>
                             <span id="temp-path">/resource/temp</span>
                         </div>
                     </div>
 
                     <div class="settings-group">
-                        <h3>数据统计</h3>
+                        <h3>整理情况</h3>
                         <div class="stats-grid">
                             <div class="stat-card">
                                 <div class="stat-value" id="stat-images">0</div>
-                                <div class="stat-label">图片总数</div>
+                                <div class="stat-label">全部图片</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="stat-available-images">0</div>
+                                <div class="stat-label">可用图片</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="stat-missing-images">0</div>
+                                <div class="stat-label">失效记录</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="stat-thumb-missing">0</div>
+                                <div class="stat-label">待补缩略图</div>
                             </div>
                             <div class="stat-card">
                                 <div class="stat-value" id="stat-groups">0</div>
-                                <div class="stat-label">分组数量</div>
+                                <div class="stat-label">分组数</div>
                             </div>
                             <div class="stat-card">
                                 <div class="stat-value" id="stat-characters">0</div>
-                                <div class="stat-label">角色数量</div>
+                                <div class="stat-label">角色数</div>
                             </div>
                             <div class="stat-card">
                                 <div class="stat-value" id="stat-temp">0</div>
                                 <div class="stat-label">待处理图片</div>
                             </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-group admin-maintenance" style="display: none;">
+                        <h3>维护操作</h3>
+                        <div class="maintenance-actions">
+                            <button class="btn btn-secondary" onclick="syncImageStatus()">重新检查</button>
+                            <button class="btn btn-secondary" onclick="rebuildThumbnails()">生成小图</button>
+                            <button class="btn btn-secondary" onclick="scanStoreOrphans()">找多出来的文件</button>
+                            <button class="btn btn-danger" onclick="cleanupOrphaned()">收起打不开的图</button>
                         </div>
                     </div>
                 </div>
@@ -411,12 +506,12 @@
     <div class="toast-container" id="toast-container"></div>
 
     <!-- JavaScript -->
-    <script src="/static/js/pinyin-search.js"></script>
-    <script src="/static/js/character-selector.js"></script>
-    <script src="/static/js/api.js"></script>
-    <script src="/static/js/ui.js"></script>
-    <script src="/static/js/upload.js"></script>
-    <script src="/static/js/main.js"></script>
-    <script src="/static/js/auth.js"></script>
+    <script src="/static/js/pinyin-search.js?v=20260622a"></script>
+    <script src="/static/js/character-selector.js?v=20260622a"></script>
+    <script src="/static/js/api.js?v=20260622a"></script>
+    <script src="/static/js/ui.js?v=20260622a"></script>
+    <script src="/static/js/upload.js?v=20260622a"></script>
+    <script src="/static/js/main.js?v=20260622a"></script>
+    <script src="/static/js/auth.js?v=20260622a"></script>
 </body>
 </html>

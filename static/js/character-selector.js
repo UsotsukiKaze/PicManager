@@ -18,7 +18,7 @@ class CharacterSelector {
                     <input type="text" 
                            class="character-search-input" 
                            id="${this.container.id}-search"
-                           placeholder="搜索并选择角色 (支持拼音首字母)">
+                           placeholder="输入角色名">
                     <div class="character-dropdown" id="${this.container.id}-dropdown"></div>
                 </div>
             </div>
@@ -141,7 +141,7 @@ class CharacterSelector {
         const tagsContainer = document.getElementById(`${this.container.id}-tags`);
         
         if (this.selectedCharacters.length === 0) {
-            tagsContainer.innerHTML = '<div style="color: var(--text-tertiary); font-size: 14px;">暂无选择角色</div>';
+            tagsContainer.innerHTML = '<div style="color: var(--text-tertiary); font-size: 14px;">还没选角色</div>';
             return;
         }
         

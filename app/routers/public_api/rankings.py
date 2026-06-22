@@ -12,12 +12,23 @@ import tempfile
 import os
 import json
 from datetime import datetime
+import time
 
 router = APIRouter()
+
+_RANKINGS_CACHE = {"key": None, "expires_at": 0.0, "data": None}
 
 
 @router.get("/rankings")
 def get_rankings(limit: int = 10):
+    limit = max(1, min(limit, 50))
+    now = time.time()
+    if (
+        _RANKINGS_CACHE["key"] == limit
+        and _RANKINGS_CACHE["data"] is not None
+        and _RANKINGS_CACHE["expires_at"] > now
+    ):
+        return _RANKINGS_CACHE["data"]
     """获取贡献榜、角色人气榜、图片人气榜"""
     with get_db_context() as db:
         # 贡献榜（仅登录用户）
@@ -101,15 +112,16 @@ def get_rankings(limit: int = 10):
         ).limit(limit).all()
         if image_view_rows:
             image_ids = [row.image_id for row in image_view_rows]
-            images = db.query(models.Image).filter(models.Image.image_id.in_(image_ids)).all()
+            images = db.query(models.Image).filter(
+                models.Image.image_id.in_(image_ids),
+                models.Image.file_status == ImageService.AVAILABLE
+            ).all()
             image_map = {img.image_id: img for img in images}
 
             image_rank = []
             for row in image_view_rows:
                 image = image_map.get(row.image_id)
                 if not image:
-                    continue
-                if not ImageService.image_file_exists(image):
                     continue
                 image_rank.append({
                     "image_id": image.image_id,
@@ -118,11 +130,12 @@ def get_rankings(limit: int = 10):
                     "count": row.view_count
                 })
         else:
-            latest_images = [
-                image
-                for image in db.query(models.Image).order_by(models.Image.created_at.desc()).all()
-                if ImageService.image_file_exists(image)
-            ][:limit]
+            latest_images = db.query(models.Image).filter(
+                models.Image.file_status == ImageService.AVAILABLE
+            ).order_by(
+                models.Image.created_at.desc(),
+                models.Image.image_id.desc()
+            ).limit(limit).all()
             image_rank = [
                 {
                     "image_id": image.image_id,
@@ -133,8 +146,14 @@ def get_rankings(limit: int = 10):
                 for image in latest_images
             ]
 
-        return {
+        data = {
             "contribution": contribution_list,
             "characters": character_rank,
             "images": image_rank
         }
+        _RANKINGS_CACHE.update({
+            "key": limit,
+            "expires_at": time.time() + 60,
+            "data": data,
+        })
+        return data

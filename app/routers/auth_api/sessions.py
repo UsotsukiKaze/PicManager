@@ -23,6 +23,12 @@ from ..auth import (
 router = APIRouter()
 
 
+def _is_debug_loopback(client_ip: str) -> bool:
+    normalized = (client_ip or "").strip().lower()
+    compact = normalized.replace(".", "").replace(":", "")
+    return normalized in {"127.0.0.1", "::1", "localhost"} or compact == "127001"
+
+
 @router.post("/login")
 async def login(login_data: schemas.UserLogin, request: Request, response: Response):
     """Legacy direct QQ/password login is disabled; use QQ ticket login instead."""
@@ -87,7 +93,26 @@ async def guest_login(request: Request, response: Response):
     with get_db_context() as db:
         # 清理过期session
         cleanup_expired_sessions(db)
-        
+
+        if settings.DEBUG and _is_debug_loopback(client_ip):
+            root_user = init_root_user(db)
+            session_id = create_session(db, root_user, timeout=USER_SESSION_TIMEOUT)
+            response.set_cookie(
+                key="session_id",
+                value=session_id,
+                httponly=True,
+                max_age=USER_SESSION_TIMEOUT,
+                samesite="Lax",
+                secure=settings.SESSION_COOKIE_SECURE,
+            )
+
+            return {
+                "message": "已进入本机调试账号",
+                "is_guest": False,
+                "debug_login": True,
+                "user": schemas.UserInfo.model_validate(root_user),
+            }
+
         # 创建持久化游客会话
         session_id = create_session(db, None, guest_ip=client_ip, timeout=GUEST_SESSION_TIMEOUT)
         response.set_cookie(

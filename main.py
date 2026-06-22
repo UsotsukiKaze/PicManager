@@ -5,17 +5,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pathlib import Path
 import os
+import time
 import uvicorn
-from PIL import Image, UnidentifiedImageError
 from app.database import init_database, create_db_snapshot
+from app.database import get_db_context
 from app.config import settings
 from app.logger import log_http_request, log_info, log_success
+from app.models import Image as ImageModel
+from app.services import ImageService
 from app.routers.admin_routes import router as admin_router
 from app.routers.auth_routes import router as auth_router
 from app.routers.integrations.bot import router as bot_router
 from app.routers.public import router as public_router
 from app.routers.system import router as system_router
 from app.security.permissions import require_admin_user_id
+
+UI_ASSET_VERSION = str(int(time.time()))
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -38,6 +44,21 @@ app = FastAPI(
 
 def _cors_origins() -> list[str]:
     return [origin.strip() for origin in settings.CORS_ALLOW_ORIGINS.split(",") if origin.strip()]
+
+
+def _is_ui_cache_sensitive_path(path: str) -> bool:
+    if path in {"/", "/login", "/profile"}:
+        return True
+    if not path.startswith("/static/"):
+        return False
+    return Path(path).suffix.lower() in {".html", ".css", ".js", ".mjs"}
+
+
+def _apply_no_store_headers(response) -> None:
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    response.headers["X-PicManager-Asset-Version"] = UI_ASSET_VERSION
 
 
 def _safe_resource_file(base_path: str, filename: str) -> Path:
@@ -71,28 +92,45 @@ def _safe_store_resource_path(resource_path: str) -> Path:
 
 
 def _thumbnail_path(resource_path: str) -> Path:
-    source = _safe_store_resource_path(resource_path)
     thumb_root = Path(settings.THUMB_PATH).resolve()
     thumb_root.mkdir(parents=True, exist_ok=True)
-    thumb = (thumb_root / f"{source.stem}.webp").resolve()
-    thumb.relative_to(thumb_root)
-    if thumb.exists() and thumb.stat().st_mtime >= source.stat().st_mtime:
-        return thumb
 
-    try:
-        with Image.open(source) as image:
-            image.thumbnail((settings.THUMBNAIL_SIZE, settings.THUMBNAIL_SIZE))
-            if image.mode not in ("RGB", "RGBA"):
-                image = image.convert("RGB")
-            image.save(thumb, "WEBP", quality=78, method=6)
-    except (UnidentifiedImageError, OSError):
+    normalized = resource_path.replace("\\", "/").lstrip("/")
+    image_id = Path(normalized).stem
+    thumb = (thumb_root / f"{image_id}.webp").resolve()
+    thumb.relative_to(thumb_root)
+    if thumb.is_file():
+        return thumb
+    raise FileNotFoundError
+
+
+def _original_from_thumbnail_request(resource_path: str) -> Path:
+    image_id = Path(resource_path.replace("\\", "/").lstrip("/")).stem
+    if not image_id:
         raise FileNotFoundError
-    return thumb
+    with get_db_context() as db:
+        image = db.query(ImageModel).filter(
+            ImageModel.image_id == image_id,
+            ImageModel.file_status == ImageService.AVAILABLE
+        ).first()
+        if not image:
+            raise FileNotFoundError
+        return _safe_store_resource_path(image.file_path)
 
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     return await log_http_request(request, call_next)
+
+
+@app.middleware("http")
+async def prevent_stale_ui_cache(request: Request, call_next):
+    response = await call_next(request)
+    if settings.DEBUG and _is_ui_cache_sensitive_path(request.url.path):
+        _apply_no_store_headers(response)
+    return response
+
+
 # 配置CORS
 app.add_middleware(
     CORSMiddleware,
@@ -139,9 +177,12 @@ async def thumbnail_file(resource_path: str):
         return FileResponse(_thumbnail_path(resource_path), media_type="image/webp")
     except Exception:
         try:
-            return FileResponse(_safe_store_resource_path(resource_path))
+            return FileResponse(_original_from_thumbnail_request(resource_path))
         except Exception:
-            pass
+            try:
+                return FileResponse(_safe_store_resource_path(resource_path))
+            except Exception:
+                pass
         return FileResponse(os.path.join(settings.BASE_DIR, "static", "images", "placeholder.png"))
 
 

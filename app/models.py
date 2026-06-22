@@ -197,6 +197,9 @@ class Image(Base):
     height = Column(Integer, nullable=True)
     # 文件路径（相对路径）
     file_path = Column(String(1000), nullable=False)
+    file_status = Column(String(20), nullable=False, default="available", index=True)
+    file_checked_at = Column(DateTime, nullable=True)
+    thumb_status = Column(String(20), nullable=False, default="pending", index=True)
     # 创建和更新时间
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

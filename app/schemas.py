@@ -132,6 +132,11 @@ class BatchUploadImageResponse(BaseModel):
 # 系统状态
 class SystemStatus(BaseModel):
     total_images: int
+    available_images: int = 0
+    missing_images: int = 0
+    archived_images: int = 0
+    thumb_missing: int = 0
+    thumb_failed: int = 0
     total_groups: int
     total_characters: int
     temp_images_count: int

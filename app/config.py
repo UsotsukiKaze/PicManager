@@ -21,7 +21,9 @@ class Settings(BaseSettings):
     # 上传配置
     MAX_FILE_SIZE: int = 50 * 1024 * 1024  # 50MB
     ALLOWED_EXTENSIONS: set = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
-    THUMBNAIL_SIZE: int = 360
+    THUMBNAIL_SIZE: int = 480
+    THUMBNAIL_QUALITY: int = 86
+    THUMBNAIL_WEBP_METHOD: int = 4
     
     # 分页配置
     DEFAULT_PAGE_SIZE: int = 50

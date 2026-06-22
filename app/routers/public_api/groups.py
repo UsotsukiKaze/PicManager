@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Request
+from sqlalchemy import func
 from typing import List, Optional, Union
 
 from ...database import get_db_context
@@ -64,6 +65,36 @@ def get_groups(skip: int = 0, limit: int = 100):
     """获取分组列表"""
     with get_db_context() as db:
         return GroupService.get_groups(db, skip, limit)
+
+@router.get("/groups/popular")
+def get_popular_groups(limit: int = 5):
+    safe_limit = max(1, min(limit, 8))
+    image_count = func.count(func.distinct(models.Image.image_id))
+
+    with get_db_context() as db:
+        rows = (
+            db.query(
+                models.Group.id,
+                models.Group.name,
+                image_count.label("image_count"),
+            )
+            .join(models.Character, models.Character.group_id == models.Group.id)
+            .join(
+                models.image_character_association,
+                models.image_character_association.c.character_id == models.Character.id,
+            )
+            .join(models.Image, models.Image.image_id == models.image_character_association.c.image_id)
+            .filter(models.Image.file_status == ImageService.AVAILABLE)
+            .group_by(models.Group.id, models.Group.name)
+            .order_by(image_count.desc(), models.Group.name.asc())
+            .limit(safe_limit)
+            .all()
+        )
+
+        return [
+            {"id": group_id, "name": name, "image_count": count}
+            for group_id, name, count in rows
+        ]
 
 @router.get("/groups/{group_id}", response_model=schemas.Group)
 def get_group(group_id: int):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from http import HTTPStatus
 from time import perf_counter
+import time
 from typing import Any, Awaitable, Callable
 import sys
 
@@ -26,6 +27,8 @@ def _default_log_hook(level: str, message: str) -> None:
 
 
 _log_hook: LogHook = _default_log_hook
+_actor_cache: dict[str, tuple[float, str]] = {}
+_ACTOR_CACHE_TTL = 30
 
 
 def set_log_hook(hook: LogHook) -> None:
@@ -63,6 +66,10 @@ def _request_actor(request: Any) -> str:
     session_id = request.cookies.get("session_id")
     if not session_id:
         return "[anonymous]"
+    cached = _actor_cache.get(session_id)
+    now = time.time()
+    if cached and cached[0] > now:
+        return cached[1]
 
     # Local imports avoid a logger -> database -> logger circular import at app startup.
     try:
@@ -75,14 +82,21 @@ def _request_actor(request: Any) -> str:
     try:
         session = db.query(UserSession).filter(UserSession.session_id == session_id).first()
         if not session:
-            return "[anonymous]"
+            actor = "[anonymous]"
+            _actor_cache[session_id] = (now + _ACTOR_CACHE_TTL, actor)
+            return actor
         if session.is_guest == "true":
-            return f"[guest:{session.guest_ip or 'unknown'}]"
+            actor = f"[guest:{session.guest_ip or 'unknown'}]"
+            _actor_cache[session_id] = (now + _ACTOR_CACHE_TTL, actor)
+            return actor
 
         user = db.query(User).filter(User.id == session.user_id).first()
         if not user:
-            return "[anonymous]"
-        return f"[{user.qq_number}]"
+            actor = "[anonymous]"
+        else:
+            actor = f"[{user.qq_number}]"
+        _actor_cache[session_id] = (now + _ACTOR_CACHE_TTL, actor)
+        return actor
     except Exception:
         return "[unknown]"
     finally:
@@ -231,11 +245,20 @@ def _should_skip_success_log(path: str) -> bool:
     )
 
 
+def _should_skip_actor_lookup(path: str) -> bool:
+    return (
+        path.startswith("/static/")
+        or path.startswith("/resource/thumbs/")
+        or path.startswith("/resource/store/")
+        or path == "/favicon.ico"
+    )
+
+
 async def log_http_request(request: Any, call_next: CallNext) -> Any:
     start = perf_counter()
     path = request.url.path
     method = request.method
-    actor = _request_actor(request)
+    actor = "[resource]" if _should_skip_actor_lookup(path) else _request_actor(request)
     domain = _log_domain(path)
     action = _describe_operation(method, path)
 

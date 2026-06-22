@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>个人中心 - PicManager</title>
     <link rel="icon" href="/static/icon/Pic.ico" type="image/x-icon">
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260622a">
     <style>
         :root {
             --bg-primary: var(--background);
@@ -16,20 +16,22 @@
 
         .profile-container {
             min-height: 100vh;
-            background: var(--bg-primary);
+            background:
+                linear-gradient(180deg, #f7fbff 0%, var(--bg-primary) 280px);
         }
 
         .profile-header {
-            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
-            padding: 20px 30px;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 22px 30px 10px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            background: transparent;
         }
 
         .profile-header h1 {
-            color: white;
+            color: var(--text-primary);
             margin: 0;
             font-size: 24px;
             display: flex;
@@ -44,11 +46,11 @@
 
         .header-btn {
             padding: 10px 20px;
-            border-radius: 8px;
+            border-radius: 999px;
             font-size: 14px;
             font-weight: 500;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
             text-decoration: none;
             display: inline-flex;
             align-items: center;
@@ -56,54 +58,78 @@
         }
 
         .header-btn.primary {
-            background: white;
+            background: #fff;
             color: var(--primary-color);
-            border: none;
+            border: 1px solid rgba(0, 122, 255, 0.16);
+            box-shadow: 0 8px 24px rgba(0, 122, 255, 0.12);
         }
 
         .header-btn.primary:hover {
-            background: #f0f0f0;
+            background: #f7fbff;
             transform: translateY(-2px);
         }
 
         .header-btn.danger {
-            background: rgba(255, 255, 255, 0.15);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            background: #fff;
+            color: var(--danger-color);
+            border: 1px solid rgba(255, 59, 48, 0.18);
         }
 
         .header-btn.danger:hover {
             background: var(--danger-color);
+            color: white;
             border-color: var(--danger-color);
+            transform: translateY(-2px);
         }
 
         .profile-content {
             max-width: 1200px;
             margin: 0 auto;
-            padding: 30px;
+            padding: 20px 30px 34px;
         }
 
         .profile-tabs {
             display: flex;
-            background: var(--bg-secondary);
-            border-radius: 12px;
-            padding: 6px;
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            background: rgba(255, 255, 255, 0.82);
+            backdrop-filter: blur(18px);
+            border: 1px solid rgba(229, 229, 231, 0.95);
+            border-radius: 18px;
+            padding: 8px;
             margin-bottom: 30px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 12px 34px rgba(29, 29, 31, 0.08);
+            overflow: hidden;
+        }
+
+        .profile-tab-indicator {
+            position: absolute;
+            left: 8px;
+            top: 8px;
+            height: calc(100% - 16px);
+            border-radius: 14px;
+            background: linear-gradient(135deg, #007AFF 0%, #0A84FF 52%, #20C997 100%);
+            box-shadow: 0 8px 22px rgba(0, 122, 255, 0.24);
+            opacity: 0;
+            pointer-events: none;
+            transition: transform 260ms cubic-bezier(.22, 1, .36, 1), width 260ms ease, opacity 180ms ease;
         }
 
         .profile-tab {
             flex: 1;
+            position: relative;
+            z-index: 1;
             padding: 14px 20px;
             text-align: center;
             background: transparent;
             border: none;
-            border-radius: 8px;
+            border-radius: 14px;
             color: var(--text-secondary);
             cursor: pointer;
             font-size: 15px;
             font-weight: 500;
-            transition: all 0.3s ease;
+            transition: color 180ms ease, background-color 180ms ease;
         }
 
         .profile-tab:hover {
@@ -112,9 +138,8 @@
         }
 
         .profile-tab.active {
-            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+            background: transparent;
             color: white;
-            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
         }
 
         .profile-tab.hidden {
@@ -127,15 +152,45 @@
 
         .tab-panel.active {
             display: block;
+            animation: profilePanelIn 220ms cubic-bezier(.22, 1, .36, 1) both;
+        }
+
+        .profile-lazy-sentinel {
+            height: 1px;
+            margin-bottom: 1px;
+        }
+
+        @keyframes profilePanelIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         /* 个人信息卡片 */
         .user-card {
             background: var(--bg-secondary);
-            border-radius: 16px;
+            border: 1px solid rgba(229, 229, 231, 0.95);
+            border-radius: 24px;
             padding: 30px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 16px 44px rgba(29, 29, 31, 0.08);
             margin-bottom: 25px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .user-card::before {
+            content: "";
+            position: absolute;
+            inset: 0 0 auto 0;
+            height: 96px;
+            background:
+                linear-gradient(135deg, rgba(0, 122, 255, 0.1), rgba(32, 201, 151, 0.12));
+            pointer-events: none;
         }
 
         .user-avatar-section {
@@ -145,6 +200,8 @@
             margin-bottom: 25px;
             padding-bottom: 25px;
             border-bottom: 1px solid var(--border-color);
+            position: relative;
+            z-index: 1;
         }
 
         .user-avatar {
@@ -152,8 +209,9 @@
             height: 100px;
             border-radius: 50%;
             object-fit: cover;
-            border: 4px solid var(--primary-color);
-            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+            border: 4px solid #fff;
+            box-shadow: 0 14px 34px rgba(0, 122, 255, 0.18);
+            background: #f5f5f7;
         }
 
         .user-basic-info {
@@ -205,13 +263,24 @@
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
             gap: 20px;
+            position: relative;
+            z-index: 1;
         }
 
         .stat-item {
-            background: var(--bg-primary);
+            background: #fff;
             padding: 20px;
-            border-radius: 12px;
+            border: 1px solid rgba(229, 229, 231, 0.95);
+            border-radius: 18px;
             text-align: center;
+            box-shadow: 0 8px 24px rgba(29, 29, 31, 0.05);
+            transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+        }
+
+        .stat-item:hover {
+            transform: translateY(-2px);
+            border-color: rgba(0, 122, 255, 0.24);
+            box-shadow: 0 14px 30px rgba(29, 29, 31, 0.08);
         }
 
         .stat-value {
@@ -230,9 +299,10 @@
         .contribution-card,
         .preference-card {
             background: var(--bg-secondary);
-            border-radius: 16px;
+            border: 1px solid rgba(229, 229, 231, 0.95);
+            border-radius: 24px;
             padding: 30px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 16px 44px rgba(29, 29, 31, 0.08);
             margin-bottom: 25px;
         }
 
@@ -247,8 +317,9 @@
             display: flex;
             align-items: center;
             gap: 20px;
-            background: var(--bg-primary);
-            border-radius: 12px;
+            background: #fff;
+            border: 1px solid rgba(229, 229, 231, 0.95);
+            border-radius: 18px;
             padding: 18px 20px;
         }
 
@@ -309,8 +380,9 @@
         }
 
         .preference-block {
-            background: var(--bg-primary);
-            border-radius: 12px;
+            background: #fff;
+            border: 1px solid rgba(229, 229, 231, 0.95);
+            border-radius: 18px;
             padding: 16px;
         }
 
@@ -373,9 +445,10 @@
         /* 修改密码卡片 */
         .password-card {
             background: var(--bg-secondary);
-            border-radius: 16px;
+            border: 1px solid rgba(229, 229, 231, 0.95);
+            border-radius: 24px;
             padding: 30px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 16px 44px rgba(29, 29, 31, 0.08);
         }
 
         .card-title {
@@ -408,7 +481,7 @@
             width: 100%;
             padding: 12px 16px;
             border: 2px solid var(--border-color);
-            border-radius: 10px;
+            border-radius: 14px;
             background: var(--bg-primary);
             color: var(--text-primary);
             font-size: 15px;
@@ -450,6 +523,7 @@
             border-radius: 20px;
             font-size: 13px;
             margin-left: 10px;
+            box-shadow: 0 8px 18px rgba(255, 59, 48, 0.18);
         }
 
         .request-list {
@@ -460,9 +534,17 @@
 
         .request-card {
             background: var(--bg-secondary);
-            border-radius: 12px;
+            border: 1px solid rgba(229, 229, 231, 0.95);
+            border-radius: 20px;
             padding: 20px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 10px 30px rgba(29, 29, 31, 0.06);
+            transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+        }
+
+        .request-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(0, 122, 255, 0.18);
+            box-shadow: 0 16px 38px rgba(29, 29, 31, 0.09);
         }
 
         .request-header {
@@ -483,6 +565,8 @@
             height: 45px;
             border-radius: 50%;
             object-fit: cover;
+            background: #f5f5f7;
+            box-shadow: 0 6px 18px rgba(29, 29, 31, 0.08);
         }
 
         .request-user-info {
@@ -502,7 +586,7 @@
 
         .request-type {
             padding: 6px 12px;
-            border-radius: 6px;
+            border-radius: 999px;
             font-size: 13px;
             font-weight: 500;
         }
@@ -523,17 +607,19 @@
         }
 
         .request-content {
-            background: var(--bg-primary);
+            background: #fbfcfe;
             padding: 15px;
-            border-radius: 8px;
+            border: 1px solid rgba(229, 229, 231, 0.95);
+            border-radius: 16px;
             margin-bottom: 15px;
         }
 
         .request-image-preview {
             max-width: 200px;
             max-height: 150px;
-            border-radius: 8px;
+            border-radius: 14px;
             margin-bottom: 10px;
+            box-shadow: 0 8px 22px rgba(29, 29, 31, 0.08);
         }
 
         .request-detail {
@@ -550,7 +636,7 @@
 
         .request-status {
             padding: 6px 10px;
-            border-radius: 6px;
+            border-radius: 999px;
             font-size: 12px;
             font-weight: 600;
             display: inline-flex;
@@ -617,12 +703,19 @@
 
         .admin-card {
             background: var(--bg-secondary);
-            border-radius: 12px;
+            border: 1px solid rgba(229, 229, 231, 0.95);
+            border-radius: 20px;
             padding: 20px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 10px 30px rgba(29, 29, 31, 0.06);
             display: flex;
             align-items: center;
             gap: 15px;
+            transition: transform 180ms ease, box-shadow 180ms ease;
+        }
+
+        .admin-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 16px 38px rgba(29, 29, 31, 0.09);
         }
 
         .admin-avatar {
@@ -630,6 +723,8 @@
             height: 60px;
             border-radius: 50%;
             object-fit: cover;
+            background: #f5f5f7;
+            box-shadow: 0 8px 22px rgba(29, 29, 31, 0.08);
         }
 
         .admin-info {
@@ -650,9 +745,10 @@
 
         .add-admin-card {
             background: var(--bg-secondary);
-            border-radius: 12px;
+            border: 1px solid rgba(229, 229, 231, 0.95);
+            border-radius: 24px;
             padding: 25px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 16px 44px rgba(29, 29, 31, 0.08);
         }
 
         .add-admin-form {
@@ -669,13 +765,25 @@
         /* 游客信息 */
         .guest-card {
             background: var(--bg-secondary);
-            border-radius: 16px;
+            border: 1px solid rgba(229, 229, 231, 0.95);
+            border-radius: 24px;
             padding: 40px;
             text-align: center;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 16px 44px rgba(29, 29, 31, 0.08);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .guest-card::before {
+            content: "";
+            position: absolute;
+            inset: 0 0 auto 0;
+            height: 110px;
+            background: linear-gradient(135deg, rgba(0, 122, 255, 0.1), rgba(32, 201, 151, 0.12));
         }
 
         .guest-icon {
+            position: relative;
             font-size: 64px;
             margin-bottom: 20px;
         }
@@ -693,9 +801,11 @@
         }
 
         .guest-limit-info {
-            background: var(--bg-primary);
+            position: relative;
+            background: #fff;
+            border: 1px solid rgba(229, 229, 231, 0.95);
             padding: 20px;
-            border-radius: 12px;
+            border-radius: 18px;
             margin-bottom: 25px;
         }
 
@@ -724,10 +834,10 @@
             bottom: 30px;
             right: 30px;
             padding: 16px 24px;
-            border-radius: 10px;
+            border-radius: 16px;
             color: white;
             font-weight: 500;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 18px 44px rgba(0, 0, 0, 0.18);
             z-index: 1000;
             transform: translateY(100px);
             opacity: 0;
@@ -773,6 +883,15 @@
             .profile-tabs {
                 overflow-x: auto;
                 -webkit-overflow-scrolling: touch;
+                border-radius: 16px;
+            }
+
+            .profile-tab-indicator {
+                display: none;
+            }
+
+            .profile-tab.active {
+                background: var(--primary-color);
             }
 
             .profile-tab {
@@ -795,8 +914,11 @@
             .user-card,
             .password-card,
             .contribution-card,
-            .preference-card {
+            .preference-card,
+            .guest-card,
+            .add-admin-card {
                 padding: 20px;
+                border-radius: 20px;
             }
 
             .user-stats,
@@ -812,6 +934,19 @@
 
             .score-main {
                 text-align: left;
+            }
+
+            .request-header,
+            .request-actions,
+            .add-admin-form {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .request-actions .btn,
+            .add-admin-form .btn {
+                width: 100%;
+                justify-content: center;
             }
         }
 
@@ -852,6 +987,7 @@
 
         <div class="profile-content">
             <div class="profile-tabs">
+                <span class="profile-tab-indicator" id="profile-tab-indicator"></span>
                 <button class="profile-tab active" data-tab="personal">个人信息</button>
                 <button class="profile-tab hidden" id="my-requests-tab" data-tab="my-requests">我的审核</button>
                 <button class="profile-tab hidden" id="admin-tab" data-tab="admin">管理员控制台</button>
@@ -911,6 +1047,7 @@
                     </div>
 
                     <!-- 贡献概览 -->
+                    <div class="profile-lazy-sentinel" id="profile-stats-sentinel"></div>
                     <div class="contribution-card" id="contribution-card" style="display: none;">
                         <h3 class="card-title">
                             <span class="inline-icon icon-image"></span>
@@ -1000,7 +1137,7 @@
                         <h2 class="section-title">
                             我的待审核记录
                         </h2>
-                        <button class="btn btn-secondary btn-sm" onclick="loadMyRequests()">
+                        <button class="btn btn-secondary btn-sm" onclick="loadMyRequests(true)">
                             <span class="inline-icon icon-refresh"></span>
                             <span>刷新</span>
                         </button>
@@ -1023,7 +1160,7 @@
                             待审核请求
                             <span class="pending-count" id="pending-count">0</span>
                         </h2>
-                        <button class="btn btn-secondary btn-sm" onclick="loadPendingRequests()">
+                        <button class="btn btn-secondary btn-sm" onclick="loadPendingRequests(true)">
                             <span class="inline-icon icon-refresh"></span>
                             <span>刷新</span>
                         </button>
@@ -1071,6 +1208,13 @@
 
     <script>
         let currentUser = null;
+        const lazyLoaded = {
+            profileStats: false,
+            myRequests: false,
+            pendingRequests: false,
+            adminList: false,
+        };
+        let profileStatsObserver = null;
 
         // Toast通知
         function showToast(message, type = 'success') {
@@ -1078,6 +1222,22 @@
             toast.textContent = message;
             toast.className = `toast ${type} show`;
             setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        function updateProfileTabIndicator() {
+            const indicator = document.getElementById('profile-tab-indicator');
+            const tabs = document.querySelector('.profile-tabs');
+            const active = document.querySelector('.profile-tab.active:not(.hidden)');
+            if (!indicator || !tabs || !active) {
+                if (indicator) indicator.style.opacity = '0';
+                return;
+            }
+
+            const tabsRect = tabs.getBoundingClientRect();
+            const activeRect = active.getBoundingClientRect();
+            indicator.style.opacity = '1';
+            indicator.style.width = `${activeRect.width}px`;
+            indicator.style.transform = `translateX(${activeRect.left - tabsRect.left}px)`;
         }
 
         // 标签页切换
@@ -1090,20 +1250,23 @@
                 
                 tab.classList.add('active');
                 document.getElementById(`${tab.dataset.tab}-panel`).classList.add('active');
+                updateProfileTabIndicator();
                 
                 // 切换到管理员面板时加载请求
                 if (tab.dataset.tab === 'admin') {
-                    loadPendingRequests();
+                    loadPendingRequests(false);
                 }
                 // 切换到root面板时加载管理员列表
                 if (tab.dataset.tab === 'root') {
-                    loadAdminList();
+                    loadAdminList(false);
                 }
                 if (tab.dataset.tab === 'my-requests') {
-                    loadMyRequests();
+                    loadMyRequests(false);
                 }
             });
         });
+
+        window.addEventListener('resize', updateProfileTabIndicator);
 
         // 获取用户信息
         async function loadUserInfo() {
@@ -1127,6 +1290,7 @@
                     
                     const percent = (data.remaining_operations / data.daily_limit) * 100;
                     document.getElementById('limit-bar').style.width = `${percent}%`;
+                    updateProfileTabIndicator();
                 } else {
                     // 用户视图
                     currentUser = data.user;
@@ -1166,9 +1330,8 @@
                         document.getElementById('root-tab').classList.remove('hidden');
                     }
 
-                    // 加载贡献与偏好数据
-                    loadProfileStats();
-                    loadMyRequests();
+                    setupProfileStatsLazyLoad();
+                    updateProfileTabIndicator();
                 }
             } catch (error) {
                 console.error('Failed to load user info:', error);
@@ -1176,10 +1339,38 @@
             }
         }
 
-        async function loadMyRequests() {
+        function setupProfileStatsLazyLoad() {
+            if (lazyLoaded.profileStats) return;
+            const target = document.getElementById('profile-stats-sentinel');
+            if (!target) return;
+
+            if (!('IntersectionObserver' in window)) {
+                loadProfileStats(false);
+                return;
+            }
+
+            if (profileStatsObserver) {
+                profileStatsObserver.disconnect();
+            }
+
+            profileStatsObserver = new IntersectionObserver((entries) => {
+                if (entries.some(entry => entry.isIntersecting)) {
+                    profileStatsObserver.disconnect();
+                    profileStatsObserver = null;
+                    loadProfileStats(false);
+                }
+            }, { rootMargin: '180px 0px' });
+
+            profileStatsObserver.observe(target);
+        }
+
+        async function loadMyRequests(force = false) {
+            if (lazyLoaded.myRequests && !force) return;
             try {
+                lazyLoaded.myRequests = true;
                 const response = await fetch('/auth/my-requests');
                 if (!response.ok) {
+                    lazyLoaded.myRequests = false;
                     return;
                 }
 
@@ -1248,6 +1439,7 @@
                     `;
                 }).join('');
             } catch (error) {
+                lazyLoaded.myRequests = false;
                 console.error('Failed to load my requests:', error);
             }
         }
@@ -1264,22 +1456,25 @@
                     throw new Error(data.detail || '撤销失败');
                 }
                 showToast(data.message || '请求已撤销');
-                loadMyRequests();
+                loadMyRequests(true);
             } catch (error) {
                 showToast(error.message, 'error');
             }
         }
 
         // 加载贡献与偏好统计
-        async function loadProfileStats() {
+        async function loadProfileStats(force = false) {
+            if (lazyLoaded.profileStats && !force) return;
             const contributionCard = document.getElementById('contribution-card');
             const preferenceCard = document.getElementById('preference-card');
             const preferenceGrid = document.getElementById('preference-grid');
             const preferenceEmpty = document.getElementById('preference-empty');
 
             try {
+                lazyLoaded.profileStats = true;
                 const response = await fetch('/auth/profile-stats');
                 if (!response.ok) {
+                    lazyLoaded.profileStats = false;
                     contributionCard.style.display = 'none';
                     preferenceCard.style.display = 'none';
                     return;
@@ -1321,6 +1516,7 @@
                     preferenceEmpty.style.display = 'none';
                 }
             } catch (error) {
+                lazyLoaded.profileStats = false;
                 console.error('Failed to load profile stats:', error);
                 contributionCard.style.display = 'none';
                 preferenceCard.style.display = 'none';
@@ -1442,8 +1638,10 @@
         }
 
         // 加载待审核请求
-        async function loadPendingRequests() {
+        async function loadPendingRequests(force = false) {
+            if (lazyLoaded.pendingRequests && !force) return;
             try {
+                lazyLoaded.pendingRequests = true;
                 const response = await fetch('/admin/pending');
                 if (!response.ok) {
                     throw new Error('加载失败');
@@ -1652,6 +1850,7 @@
                 }).join('');
 
             } catch (error) {
+                lazyLoaded.pendingRequests = false;
                 console.error('Failed to load pending requests:', error);
                 showToast('加载待审核请求失败', 'error');
             }
@@ -1678,15 +1877,17 @@
                 }
 
                 showToast(data.message);
-                loadPendingRequests();
+                loadPendingRequests(true);
             } catch (error) {
                 showToast(error.message, 'error');
             }
         }
 
         // 加载管理员列表
-        async function loadAdminList() {
+        async function loadAdminList(force = false) {
+            if (lazyLoaded.adminList && !force) return;
             try {
+                lazyLoaded.adminList = true;
                 const response = await fetch('/admin/admins');
                 if (!response.ok) {
                     throw new Error('加载失败');
@@ -1719,6 +1920,7 @@
                 }).join('');
 
             } catch (error) {
+                lazyLoaded.adminList = false;
                 console.error('Failed to load admin list:', error);
                 showToast('加载管理员列表失败', 'error');
             }
@@ -1753,7 +1955,7 @@
 
                 showToast(data.message);
                 document.getElementById('new-admin-qq').value = '';
-                loadAdminList();
+                loadAdminList(true);
             } catch (error) {
                 showToast(error.message, 'error');
             }
@@ -1777,7 +1979,7 @@
                 }
 
                 showToast(data.message);
-                loadAdminList();
+                loadAdminList(true);
             } catch (error) {
                 showToast(error.message, 'error');
             }

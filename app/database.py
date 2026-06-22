@@ -181,4 +181,41 @@ def apply_migrations():
             """
         ))
 
+        # images storage status columns
+        image_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(images)"))]
+        if "file_status" not in image_columns:
+            conn.execute(text("ALTER TABLE images ADD COLUMN file_status VARCHAR(20) NOT NULL DEFAULT 'available'"))
+        if "file_checked_at" not in image_columns:
+            conn.execute(text("ALTER TABLE images ADD COLUMN file_checked_at DATETIME"))
+        if "thumb_status" not in image_columns:
+            conn.execute(text("ALTER TABLE images ADD COLUMN thumb_status VARCHAR(20) NOT NULL DEFAULT 'pending'"))
+
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_file_status_created_id ON images (file_status, created_at, image_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_thumb_status ON images (thumb_status)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_image_character_character_image ON image_character_association (character_id, image_id)"))
+
+        unchecked_images = conn.execute(text(
+            "SELECT image_id, file_path FROM images WHERE file_checked_at IS NULL"
+        )).fetchall()
+        checked_at = datetime.utcnow()
+        for image_id, file_path in unchecked_images:
+            normalized = (file_path or "").replace("\\", "/").lstrip("/")
+            full_path = os.path.join(settings.BASE_DIR, *normalized.split("/")) if normalized else ""
+            exists = bool(full_path) and os.path.isfile(full_path)
+            thumb_path = os.path.join(settings.THUMB_PATH, f"{image_id}.webp")
+            conn.execute(text(
+                """
+                UPDATE images
+                SET file_status = :file_status,
+                    file_checked_at = :file_checked_at,
+                    thumb_status = :thumb_status
+                WHERE image_id = :image_id
+                """
+            ), {
+                "file_status": "available" if exists else "missing",
+                "file_checked_at": checked_at,
+                "thumb_status": "ready" if exists and os.path.isfile(thumb_path) else ("pending" if exists else "missing"),
+                "image_id": image_id,
+            })
+
         conn.commit()

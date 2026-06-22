@@ -1,12 +1,12 @@
 // UI 管理类
 class UIManager {
     constructor() {
-        this.currentPage = 'management';
-        this.currentTab = 'image-list';
+        this.currentPage = 'home';
+        this.currentTab = null;
         this.pagination = {
             currentPage: 1,
             totalPages: 1,
-            limit: 50,
+            limit: 20,
             maxButtons: 11
         };
         this.activeImageSearchParams = {};
@@ -27,6 +27,8 @@ class UIManager {
         };
         this.cacheTimeout = 30000; // 缓存有效期30秒
         this.loadingStates = {}; // 防止重复加载
+        this.thumbnailMaintenanceQueued = false;
+        this.lastThumbnailMaintenanceAt = 0;
         
         this.initializeEventListeners();
     }
@@ -75,6 +77,8 @@ class UIManager {
                 }
             }
         });
+
+        window.addEventListener('resize', () => this.updateSidebarIndicator());
 
         // 标签页切换 - 使用事件委托和closest来确保点击响应
         document.addEventListener('click', (e) => {
@@ -145,13 +149,20 @@ class UIManager {
         document.querySelectorAll('.menu-item').forEach(item => {
             item.classList.remove('active');
         });
-        document.querySelector(`[data-page="${page}"]`).classList.add('active');
+        const activeMenuItem = document.querySelector(`.menu-item[data-page="${page}"]`);
+        if (activeMenuItem) activeMenuItem.classList.add('active');
+        this.updateSidebarIndicator();
 
         // 切换页面内容
         document.querySelectorAll('.page-content').forEach(content => {
             content.style.display = 'none';
         });
-        document.getElementById(`page-${page}`).style.display = 'block';
+        const targetPage = document.getElementById(`page-${page}`);
+        if (!targetPage) return;
+        targetPage.style.display = 'block';
+        targetPage.classList.remove('page-enter');
+        void targetPage.offsetWidth;
+        targetPage.classList.add('page-enter');
 
         this.currentPage = page;
         
@@ -160,6 +171,35 @@ class UIManager {
 
         // 页面切换后的处理
         this.handlePageSwitch(page);
+    }
+
+    updateSidebarIndicator() {
+        const indicator = document.getElementById('menu-indicator');
+        const menu = document.querySelector('.sidebar-menu');
+        const active = document.querySelector('.sidebar-menu .menu-item.active');
+        if (!indicator || !menu || !active) {
+            if (indicator) indicator.style.opacity = '0';
+            return;
+        }
+
+        const menuRect = menu.getBoundingClientRect();
+        const activeRect = active.getBoundingClientRect();
+        indicator.style.opacity = '1';
+        indicator.style.width = `${activeRect.width}px`;
+        indicator.style.height = `${activeRect.height}px`;
+        indicator.style.transform = `translate(${activeRect.left - menuRect.left}px, ${activeRect.top - menuRect.top}px)`;
+    }
+
+    isAdminView() {
+        return Boolean(window.auth && typeof window.auth.isAdmin === 'function' && window.auth.isAdmin());
+    }
+
+    applyRolePreferences() {
+        if (!this.isAdminView()) {
+            this.pagination.limit = 20;
+        } else if (![20, 50, 100].includes(this.pagination.limit)) {
+            this.pagination.limit = 50;
+        }
     }
     
     /**
@@ -199,8 +239,12 @@ class UIManager {
      */
     handlePageSwitch(page) {
         switch (page) {
+            case 'home':
+                this.loadSystemStatus();
+                this.loadHomeGroupChips();
+                break;
             case 'management':
-                this.loadManagementData();
+                this.applyRolePreferences();
                 break;
             case 'upload':
                 this.loadUploadData();
@@ -243,6 +287,9 @@ class UIManager {
         const targetContent = document.getElementById(`tab-${tab}`);
         if (targetContent) {
             targetContent.style.display = 'block';
+            targetContent.classList.remove('tab-enter');
+            void targetContent.offsetWidth;
+            targetContent.classList.add('tab-enter');
         }
 
         this.currentTab = tab;
@@ -255,6 +302,7 @@ class UIManager {
         switch (tab) {
             case 'image-list':
                 this.loadImages();
+                this.initializeSearchSelectors();
                 break;
             case 'group-management':
                 this.loadGroups();
@@ -529,7 +577,7 @@ class UIManager {
 
             // 更新单张上传的分组选择器
             const singleGroupSelect = document.getElementById('single-group-select');
-            singleGroupSelect.innerHTML = '<option value="">请选择分组</option>';
+            singleGroupSelect.innerHTML = '<option value="">先选分组</option>';
             groups.forEach(group => {
                 singleGroupSelect.innerHTML += `<option value="${group.id}">${group.name}</option>`;
             });
@@ -557,6 +605,7 @@ class UIManager {
 
     async loadImages(params = undefined) {
         try {
+            this.applyRolePreferences();
             if (params !== undefined && params !== null) {
                 this.activeImageSearchParams = { ...params };
             }
@@ -594,7 +643,7 @@ class UIManager {
     }
 
     getThumbnailUrl(image) {
-        return `/resource/thumbs/${this.getImagePath(image)}`;
+        return `/resource/thumbs/${image.image_id}.webp`;
     }
 
     handleImageFallback(img) {
@@ -680,6 +729,7 @@ class UIManager {
         }
 
         const pageItems = this.buildPageWindow(this.pagination.totalPages, this.pagination.currentPage);
+        const isAdmin = this.isAdminView();
         let html = `
             <button class="pagination-btn pagination-edge" ${this.pagination.currentPage === 1 ? 'disabled' : ''} 
                     onclick="ui.changePage(1)">首页</button>
@@ -704,6 +754,15 @@ class UIManager {
             <button class="pagination-btn pagination-edge" ${this.pagination.currentPage === this.pagination.totalPages ? 'disabled' : ''} 
                     onclick="ui.changePage(${this.pagination.totalPages})">末页</button>
             <span class="pagination-summary">${this.pagination.currentPage} / ${this.pagination.totalPages} · ${total}</span>
+            ${isAdmin ? `
+                <select class="pagination-size" onchange="ui.changePageSize(this.value)" aria-label="每页数量">
+                    ${[20, 50, 100].map(size => `<option value="${size}" ${size === this.pagination.limit ? 'selected' : ''}>${size}/页</option>`).join('')}
+                </select>
+            ` : '<span class="pagination-size locked">20/页</span>'}
+            <span class="pagination-jump">
+                <input class="pagination-input" id="pagination-jump-input" type="number" min="1" max="${this.pagination.totalPages}" value="${this.pagination.currentPage}" aria-label="跳转页码">
+                <button class="pagination-btn" onclick="ui.jumpToPage()">跳转</button>
+            </span>
         `;
 
         paginationContainer.innerHTML = html;
@@ -713,6 +772,22 @@ class UIManager {
         if (page < 1 || page > this.pagination.totalPages) return;
         this.pagination.currentPage = page;
         this.loadImages(null);
+    }
+
+    changePageSize(value) {
+        if (!this.isAdminView()) return;
+        const nextLimit = parseInt(value, 10);
+        if (!Number.isFinite(nextLimit) || ![20, 50, 100].includes(nextLimit) || nextLimit === this.pagination.limit) return;
+        this.pagination.limit = nextLimit;
+        this.pagination.currentPage = 1;
+        this.loadImages(null);
+    }
+
+    jumpToPage() {
+        const input = document.getElementById('pagination-jump-input');
+        const page = parseInt(input?.value, 10);
+        if (!Number.isFinite(page)) return;
+        this.changePage(Math.min(Math.max(page, 1), this.pagination.totalPages));
     }
     getSearchParams() {
         return {
@@ -960,6 +1035,45 @@ class UIManager {
         }
     }
 
+    async loadHomeGroupChips() {
+        const orbit = document.getElementById('home-group-orbit');
+        if (!orbit) return;
+
+        const fallback = [
+            { name: '先传几张图', image_count: 0 },
+            { name: '再分好组', image_count: 0 },
+            { name: '找图更轻松', image_count: 0 },
+        ];
+
+        if (!api.getPopularGroups) {
+            this.renderHomeGroupChips(orbit, fallback);
+            return;
+        }
+
+        try {
+            const groups = await api.getPopularGroups(5);
+            const chips = groups && groups.length ? groups : fallback;
+            this.renderHomeGroupChips(orbit, chips);
+        } catch (error) {
+            console.error('加载首页分组失败:', error);
+            this.renderHomeGroupChips(orbit, fallback);
+        }
+    }
+
+    renderHomeGroupChips(orbit, groups) {
+        orbit.querySelectorAll('.orbit-chip').forEach(chip => chip.remove());
+        const chipClasses = ['chip-one', 'chip-two', 'chip-three', 'chip-four', 'chip-five'];
+
+        groups.slice(0, chipClasses.length).forEach((group, index) => {
+            const chip = document.createElement('span');
+            chip.className = `orbit-chip ${chipClasses[index]}`;
+            chip.textContent = group.image_count > 0
+                ? `${group.name} · ${group.image_count}张`
+                : group.name;
+            orbit.appendChild(chip);
+        });
+    }
+
     async loadSystemStatus() {
         try {
             const status = await api.getSystemStatus();
@@ -967,16 +1081,59 @@ class UIManager {
             // 更新侧边栏状态
             document.getElementById('total-images').textContent = status.total_images;
             document.getElementById('total-groups').textContent = status.total_groups;
+            const homeImages = document.getElementById('home-total-images');
+            const homeAvailable = document.getElementById('home-available-images');
+            const homeGroups = document.getElementById('home-total-groups');
+            const homeCharacters = document.getElementById('home-total-characters');
+            const homeThumbMissing = document.getElementById('home-thumb-missing');
+            if (homeImages) homeImages.textContent = status.total_images;
+            if (homeAvailable) homeAvailable.textContent = status.available_images || 0;
+            if (homeGroups) homeGroups.textContent = status.total_groups;
+            if (homeCharacters) homeCharacters.textContent = status.total_characters;
+            if (homeThumbMissing) homeThumbMissing.textContent = status.thumb_missing || 0;
             
             // 更新设置页面
             document.getElementById('store-path').textContent = status.store_path;
             document.getElementById('temp-path').textContent = status.temp_path;
             document.getElementById('stat-images').textContent = status.total_images;
+            const availableEl = document.getElementById('stat-available-images');
+            const missingEl = document.getElementById('stat-missing-images');
+            const thumbMissingEl = document.getElementById('stat-thumb-missing');
+            if (availableEl) availableEl.textContent = status.available_images || 0;
+            if (missingEl) missingEl.textContent = (status.missing_images || 0) + (status.archived_images || 0);
+            if (thumbMissingEl) thumbMissingEl.textContent = status.thumb_missing || 0;
             document.getElementById('stat-groups').textContent = status.total_groups;
             document.getElementById('stat-characters').textContent = status.total_characters;
             document.getElementById('stat-temp').textContent = status.temp_images_count;
+            this.scheduleThumbnailMaintenance(status);
         } catch (error) {
-            this.showToast('加载系统状态失败', 'error');
+            this.showToast('加载页面数据失败', 'error');
+        }
+    }
+
+    scheduleThumbnailMaintenance(status) {
+        if (!this.isAdminView()) return;
+        if (!status || (status.thumb_missing || 0) <= 0) return;
+        if (this.thumbnailMaintenanceQueued) return;
+        if (Date.now() - this.lastThumbnailMaintenanceAt < 10 * 60 * 1000) return;
+
+        this.thumbnailMaintenanceQueued = true;
+        const run = async () => {
+            try {
+                this.lastThumbnailMaintenanceAt = Date.now();
+                await api.rebuildThumbnails(80, false);
+                await this.loadSystemStatus();
+            } catch (error) {
+                console.error('后台生成小图失败:', error);
+            } finally {
+                this.thumbnailMaintenanceQueued = false;
+            }
+        };
+
+        if ('requestIdleCallback' in window) {
+            window.requestIdleCallback(run, { timeout: 12000 });
+        } else {
+            window.setTimeout(run, 3000);
         }
     }
 
@@ -1051,7 +1208,7 @@ class UIManager {
         const groups = await api.getGroups();
         const currentValue = groupSelect.value;
         
-        groupSelect.innerHTML = '<option value="">请选择分组</option>';
+        groupSelect.innerHTML = '<option value="">先选分组</option>';
         groups.forEach(group => {
             groupSelect.innerHTML += `<option value="${group.id}" ${group.id == currentValue ? 'selected' : ''}>${group.name}</option>`;
         });
@@ -1095,7 +1252,7 @@ class UIManager {
         document.querySelectorAll('.batch-group').forEach(select => {
             const currentValue = select.value;
             
-            select.innerHTML = '<option value="">选择分组</option>';
+            select.innerHTML = '<option value="">先选分组</option>';
             groups.forEach(group => {
                 select.innerHTML += `<option value="${group.id}" ${group.id == currentValue ? 'selected' : ''}>${group.name}</option>`;
             });
@@ -1130,7 +1287,7 @@ class UIManager {
                     });
                     characterSelect.disabled = false;
                 } else {
-                    characterSelect.innerHTML = '<option value="">先选择分组</option>';
+                    characterSelect.innerHTML = '<option value="">先选分组</option>';
                     characterSelect.disabled = true;
                 }
             });
@@ -1150,7 +1307,7 @@ class UIManager {
             if (itemType === 'group') {
                 // 刷新分组选项
                 const groups = await api.getGroups();
-                tempGroupSelect.innerHTML = '<option value="">请选择分组</option>';
+                tempGroupSelect.innerHTML = '<option value="">先选分组</option>';
                 groups.forEach(group => {
                     tempGroupSelect.innerHTML += `<option value="${group.id}" ${group.id == newItemId ? 'selected' : ''}>${group.name}</option>`;
                 });
@@ -1193,7 +1350,7 @@ class UIManager {
                 
                 if (itemType === 'group') {
                     // 刷新分组选项
-                    select.innerHTML = '<option value="">选择分组</option>';
+                    select.innerHTML = '<option value="">先选分组</option>';
                     groups.forEach(group => {
                         select.innerHTML += `<option value="${group.id}" ${group.id == currentValue ? 'selected' : ''}>${group.name}</option>`;
                     });
@@ -1219,7 +1376,7 @@ class UIManager {
                 const groups = await api.getGroups();
                 const currentValue = singleGroupSelect.value;
                 
-                singleGroupSelect.innerHTML = '<option value="">请选择分组</option>';
+                singleGroupSelect.innerHTML = '<option value="">先选分组</option>';
                 groups.forEach(group => {
                     singleGroupSelect.innerHTML += `<option value="${group.id}" ${group.id == currentValue ? 'selected' : ''}>${group.name}</option>`;
                 });
@@ -1264,17 +1421,17 @@ class UIManager {
                     <input type="text" id="group-name" class="form-input" required>
                 </div>
                 <div class="form-group">
-                    <label for="group-description">描述</label>
+                    <label for="group-description">备注</label>
                     <textarea id="group-description" class="form-textarea"></textarea>
                 </div>
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="ui.closeModal()">取消</button>
-                    <button type="submit" class="btn btn-primary">创建</button>
+                    <button type="submit" class="btn btn-primary">添加</button>
                 </div>
             </form>
         `;
         
-        this.showModal('创建分组', content, isNested);
+        this.showModal('添加分组', content, isNested);
         
         document.getElementById('create-group-form').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -1346,7 +1503,7 @@ class UIManager {
                     <div class="form-group">
                         <label for="character-group">所属分组</label>
                         <select id="character-group" class="form-select" required>
-                            <option value="">请选择分组</option>
+                            <option value="">先选分组</option>
                             ${groupOptions}
                         </select>
                     </div>
@@ -1355,17 +1512,17 @@ class UIManager {
                         <input type="text" id="character-nicknames" class="form-input" placeholder="多个昵称用英文逗号分隔">
                     </div>
                     <div class="form-group">
-                        <label for="character-description">描述</label>
+                        <label for="character-description">备注</label>
                         <textarea id="character-description" class="form-textarea"></textarea>
                     </div>
                     <div class="form-actions">
                         <button type="button" class="btn btn-secondary" onclick="ui.closeModal()">取消</button>
-                        <button type="submit" class="btn btn-primary">创建</button>
+                    <button type="submit" class="btn btn-primary">添加</button>
                     </div>
                 </form>
             `;
             
-            this.showModal('创建角色', content, isNested);
+            this.showModal('添加角色', content, isNested);
             
             document.getElementById('create-character-form').addEventListener('submit', async (e) => {
                 e.preventDefault();
@@ -1458,7 +1615,7 @@ class UIManager {
                         <input type="text" id="edit-group-name" class="form-input" value="${currentGroup.name}" required>
                     </div>
                     <div class="form-group">
-                        <label for="edit-group-description">描述</label>
+                        <label for="edit-group-description">备注</label>
                         <textarea id="edit-group-description" class="form-textarea">${currentGroup.description || ''}</textarea>
                     </div>
                     <div class="form-actions">
@@ -1558,7 +1715,7 @@ class UIManager {
                         <input type="text" id="edit-character-nicknames" class="form-input" value="${(currentCharacter.nicknames || []).join(', ')}" placeholder="多个昵称用英文逗号分隔">
                     </div>
                     <div class="form-group">
-                        <label for="edit-character-description">描述</label>
+                        <label for="edit-character-description">备注</label>
                         <textarea id="edit-character-description" class="form-textarea">${currentCharacter.description || ''}</textarea>
                     </div>
                     <div class="form-actions">
@@ -1642,14 +1799,14 @@ class UIManager {
             const content = `
                 <form id="edit-image-form">
                     <div class="form-group">
-                        <label for="edit-image-group">选择分组</label>
+                        <label for="edit-image-group">分组</label>
                         <select id="edit-image-group" class="form-select" required>
-                            <option value="">请选择分组</option>
+                            <option value="">先选分组</option>
                             ${groupOptions}
                         </select>
                     </div>
                     <div class="form-group">
-                        <label for="edit-image-characters">选择角色</label>
+                        <label for="edit-image-characters">角色</label>
                         <select id="edit-image-characters" class="form-select" multiple required>
                         </select>
                     </div>
@@ -1658,7 +1815,7 @@ class UIManager {
                         <input type="text" id="edit-image-pid" class="form-input" value="${image.pid || ''}">
                     </div>
                     <div class="form-group">
-                        <label for="edit-image-description">描述</label>
+                        <label for="edit-image-description">备注</label>
                         <textarea id="edit-image-description" class="form-textarea">${image.description || ''}</textarea>
                     </div>
                     <div class="form-actions">
@@ -1757,12 +1914,12 @@ class UIManager {
                          alt="Image ${image.image_id}" style="max-width: 100%; height: auto; border-radius: 8px; margin-bottom: 16px;">
                     
                     <div class="detail-info">
-                        <p><strong>图片ID:</strong> ${image.image_id}</p>
+                        <p><strong>图片编号:</strong> ${image.image_id}</p>
                         <p><strong>原始文件名:</strong> ${image.original_filename || '未知'}</p>
                         <p><strong>文件大小:</strong> ${image.file_size ? (image.file_size / 1024 / 1024).toFixed(2) + ' MB' : '未知'}</p>
                         <p><strong>分辨率:</strong> ${image.width && image.height ? `${image.width}x${image.height}` : '未知'}</p>
                         <p><strong>PID:</strong> ${image.pid || '无'}</p>
-                        <p><strong>描述:</strong> ${image.description || '无'}</p>
+                        <p><strong>备注:</strong> ${image.description || '无'}</p>
                         <p><strong>角色:</strong> ${image.characters.map(char => {
                             const groupName = char.group_name || (char.group && char.group.name) || '未知分组';
                             return `${groupName} - ${char.name}`;
@@ -1780,6 +1937,21 @@ class UIManager {
             
             this.showModal('图片详情', content);
         } catch (error) {
+            if (String(error.message || '').includes('404') || String(error.message || '').includes('Image not found')) {
+                const resyncAction = this.isAdminView()
+                    ? '<button class="btn btn-primary" onclick="syncImageStatus()">重新检查</button>'
+                    : '';
+                this.showModal('这张图现在打不开', `
+                    <div class="empty-state">
+                        <p>这张图的原文件找不到了，可以重新检查一下。</p>
+                        <div class="form-actions" style="margin-top: 16px;">
+                            <button class="btn btn-secondary" onclick="ui.closeModal()">关闭</button>
+                            ${resyncAction}
+                        </div>
+                    </div>
+                `);
+                return;
+            }
             this.showToast(`加载图片详情失败: ${error.message}`, 'error');
         }
     }
@@ -1810,7 +1982,7 @@ function clearSearch() {
     ui.pagination.currentPage = 1;
     ui.activeImageSearchParams = {};
     ui.loadImages({});
-    ui.showToast('搜索条件已清空', 'info');
+    ui.showToast('已重置查找条件', 'info');
 }
 
 function toggleAdvancedSearch() {
@@ -1830,12 +2002,12 @@ async function searchByImageId() {
     const imageId = document.getElementById('search-image-id').value.trim().toUpperCase();
     
     if (!imageId) {
-        ui.showToast('请输入图片序号', 'warning');
+        ui.showToast('请输入图片编号', 'warning');
         return;
     }
     
     if (!/^[A-F0-9]{10}$/.test(imageId)) {
-        ui.showToast('图片序号格式不正确，应为10位十六进制字符', 'error');
+        ui.showToast('图片编号需要是 10 位十六进制字符', 'error');
         return;
     }
     
@@ -1845,13 +2017,30 @@ async function searchByImageId() {
             ui.showImageDetail(imageId);
         }
     } catch (error) {
-        ui.showToast(`未找到序号为 ${imageId} 的图片`, 'error');
+        ui.showToast(`没有找到编号为 ${imageId} 的图片`, 'error');
     }
 }
 
 function refreshData() {
-    ui.loadManagementData();
-    ui.loadSystemStatus();
+    ui.invalidateCache();
+    if (ui.currentPage === 'management') {
+        if (ui.currentTab === 'group-management') {
+            ui.loadGroups();
+        } else if (ui.currentTab === 'character-management') {
+            ui.loadCharacters();
+        } else {
+            ui.loadImages(null);
+            ui.initializeSearchSelectors();
+        }
+    } else if (ui.currentPage === 'upload') {
+        ui.loadUploadData();
+    } else if (ui.currentPage === 'settings' || ui.currentPage === 'home') {
+        ui.loadSystemStatus();
+        if (ui.currentPage === 'home') ui.loadHomeGroupChips();
+    }
+    if (ui.currentPage !== 'settings' && ui.currentPage !== 'home') {
+        ui.loadSystemStatus();
+    }
     ui.showToast('数据已刷新', 'success');
 }
 
@@ -1868,8 +2057,22 @@ function closeModal() {
 }
 
 async function cleanupOrphaned() {
+    if (!ui.isAdminView()) {
+        ui.showToast('只有管理员可以执行维护操作', 'warning');
+        return;
+    }
     try {
-        const result = await api.cleanupOrphaned();
+        const preview = await api.cleanupPreview();
+        const message = [
+            `打不开的记录: ${preview.missing_records}`,
+            `多出来的文件: ${preview.orphan_files}`,
+            `待生成小图: ${preview.thumb_missing}`,
+            '',
+            '这些打不开的图片会先从列表里收起来，确认继续吗？'
+        ].join('\n');
+        if (!confirm(message)) return;
+
+        const result = await api.cleanupOrphaned('archive');
         ui.showToast(result.message, 'success');
         ui.loadImages(null);
         ui.loadSystemStatus();
@@ -1878,7 +2081,41 @@ async function cleanupOrphaned() {
     }
 }
 
+async function syncImageStatus() {
+    if (!ui.isAdminView()) {
+        ui.showToast('只有管理员可以执行维护操作', 'warning');
+        return;
+    }
+    try {
+        const result = await api.syncImageStatus();
+        ui.showToast(`检查完成：能打开 ${result.available_records}，打不开 ${result.missing_records}`, 'success');
+        ui.loadImages(null);
+        ui.loadSystemStatus();
+    } catch (error) {
+        ui.showToast(`检查失败: ${error.message}`, 'error');
+    }
+}
+
+async function rebuildThumbnails() {
+    if (!ui.isAdminView()) {
+        ui.showToast('只有管理员可以执行维护操作', 'warning');
+        return;
+    }
+    try {
+        const result = await api.rebuildThumbnails(500, true);
+        ui.showToast(result.message, 'success');
+        ui.loadImages(null);
+        ui.loadSystemStatus();
+    } catch (error) {
+        ui.showToast(`生成小图失败: ${error.message}`, 'error');
+    }
+}
+
 async function scanStoreOrphans() {
+    if (!ui.isAdminView()) {
+        ui.showToast('只有管理员可以执行维护操作', 'warning');
+        return;
+    }
     try {
         const result = await api.scanStoreOrphans();
         ui.showToast(result.message, 'success');

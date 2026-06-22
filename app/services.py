@@ -1,10 +1,10 @@
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_, func
 from typing import List, Optional, Tuple
+from datetime import datetime
 from . import models, schemas
 from .config import settings
 import os
-import random
 import secrets
 from PIL import Image as PILImage
 import shutil
@@ -233,6 +233,16 @@ class CharacterService:
 
 class ImageService:
     """Image service helpers."""
+
+    AVAILABLE = "available"
+    MISSING = "missing"
+    ARCHIVED = "archived"
+    DELETED = "deleted"
+
+    THUMB_PENDING = "pending"
+    THUMB_READY = "ready"
+    THUMB_MISSING = "missing"
+    THUMB_FAILED = "failed"
     
     @staticmethod
     def image_full_path(image: models.Image) -> str:
@@ -242,6 +252,47 @@ class ImageService:
     @staticmethod
     def image_file_exists(image: models.Image) -> bool:
         return bool(image.file_path) and os.path.isfile(ImageService.image_full_path(image))
+
+    @staticmethod
+    def mark_file_status(db: Session, image: models.Image, exists: Optional[bool] = None) -> str:
+        exists = ImageService.image_file_exists(image) if exists is None else exists
+        image.file_status = ImageService.AVAILABLE if exists else ImageService.MISSING
+        image.file_checked_at = datetime.utcnow()
+        return image.file_status
+
+    @staticmethod
+    def thumb_path(image: models.Image) -> str:
+        os.makedirs(settings.THUMB_PATH, exist_ok=True)
+        return os.path.join(settings.THUMB_PATH, f"{image.image_id}.webp")
+
+    @staticmethod
+    def ensure_thumbnail(image: models.Image) -> bool:
+        if not ImageService.image_file_exists(image):
+            image.thumb_status = ImageService.THUMB_MISSING
+            return False
+
+        source = ImageService.image_full_path(image)
+        thumb = ImageService.thumb_path(image)
+        try:
+            if os.path.exists(thumb) and os.path.getmtime(thumb) >= os.path.getmtime(source):
+                image.thumb_status = ImageService.THUMB_READY
+                return True
+
+            with PILImage.open(source) as img:
+                img.thumbnail((settings.THUMBNAIL_SIZE, settings.THUMBNAIL_SIZE))
+                if img.mode not in ("RGB", "RGBA"):
+                    img = img.convert("RGB")
+                img.save(
+                    thumb,
+                    "WEBP",
+                    quality=settings.THUMBNAIL_QUALITY,
+                    method=settings.THUMBNAIL_WEBP_METHOD,
+                )
+            image.thumb_status = ImageService.THUMB_READY
+            return True
+        except Exception:
+            image.thumb_status = ImageService.THUMB_FAILED
+            return False
 
     @staticmethod
     def image_to_dict(image: models.Image) -> dict:
@@ -255,6 +306,8 @@ class ImageService:
             "width": image.width,
             "height": image.height,
             "file_path": image.file_path,
+            "file_status": image.file_status,
+            "thumb_status": image.thumb_status,
             "created_at": image.created_at,
             "updated_at": image.updated_at,
             "characters": [
@@ -325,6 +378,9 @@ class ImageService:
             original_filename=original_filename,
             file_extension=file_extension,
             file_path=relative_path,
+            file_status=ImageService.AVAILABLE,
+            file_checked_at=datetime.utcnow(),
+            thumb_status=ImageService.THUMB_PENDING,
             **image_info
         )
         
@@ -334,6 +390,8 @@ class ImageService:
                 models.Character.id.in_(image.character_ids)
             ).all()
             db_image.characters = characters
+
+        ImageService.ensure_thumbnail(db_image)
         
         db.add(db_image)
         db.commit()
@@ -345,9 +403,16 @@ class ImageService:
         """Return image metadata only when the stored file exists."""
         image = db.query(models.Image).options(
             joinedload(models.Image.characters).joinedload(models.Character.group)
-        ).filter(models.Image.image_id == image_id).first()
+        ).filter(
+            models.Image.image_id == image_id,
+            models.Image.file_status == ImageService.AVAILABLE
+        ).first()
         
-        if not image or not ImageService.image_file_exists(image):
+        if not image:
+            return None
+        if not ImageService.image_file_exists(image):
+            ImageService.mark_file_status(db, image, exists=False)
+            db.commit()
             return None
         return ImageService.image_to_dict(image)
 
@@ -361,7 +426,7 @@ class ImageService:
         """Return a random image whose stored file still exists."""
         query = db.query(models.Image).options(
             joinedload(models.Image.characters).joinedload(models.Character.group)
-        )
+        ).filter(models.Image.file_status == ImageService.AVAILABLE)
 
         if group_id:
             query = query.join(models.Image.characters).join(models.Character.group).filter(
@@ -378,13 +443,12 @@ class ImageService:
                 models.Group.id != exclude_group_id
             )
 
-        candidates = [
-            image
-            for image in query.distinct(models.Image.image_id).all()
-            if ImageService.image_file_exists(image)
-        ]
-        image = random.choice(candidates) if candidates else None
+        image = query.distinct().order_by(func.random()).first()
         if not image:
+            return None
+        if not ImageService.image_file_exists(image):
+            ImageService.mark_file_status(db, image, exists=False)
+            db.commit()
             return None
 
         image_dict = ImageService.image_to_dict(image)
@@ -400,7 +464,7 @@ class ImageService:
         """Search images and ignore records whose files are missing."""
         query = db.query(models.Image).options(
             joinedload(models.Image.characters).joinedload(models.Character.group)
-        )
+        ).filter(models.Image.file_status == ImageService.AVAILABLE)
         
         if params.group_id:
             query = query.join(models.Image.characters).join(models.Character.group).filter(
@@ -418,13 +482,14 @@ class ImageService:
         if params.description:
             query = query.filter(models.Image.description.like(f"%{params.description}%"))
         
-        query = query.distinct(models.Image.image_id)
-        existing_images = [img for img in query.all() if ImageService.image_file_exists(img)]
-        total = len(existing_images)
-
         offset = params.offset or 0
         limit = params.limit or settings.DEFAULT_PAGE_SIZE
-        images = existing_images[offset: offset + limit]
+        query = query.distinct()
+        total = query.order_by(None).count()
+        images = query.order_by(
+            models.Image.created_at.desc(),
+            models.Image.image_id.desc()
+        ).offset(offset).limit(limit).all()
         return [ImageService.image_to_dict(img) for img in images], total
     
     @staticmethod
@@ -457,6 +522,9 @@ class ImageService:
                 full_path = os.path.join(settings.BASE_DIR, db_image.file_path)
                 if os.path.exists(full_path):
                     os.remove(full_path)
+                thumb_path = ImageService.thumb_path(db_image)
+                if os.path.exists(thumb_path):
+                    os.remove(thumb_path)
             except Exception:
                 pass
             
@@ -467,22 +535,162 @@ class ImageService:
         return False
     
     @staticmethod
-    def cleanup_orphaned_records(db: Session, store_path: str) -> int:
-        """清理孤儿记录（数据库中存在但文件不存在的记录）"""
+    def _store_image_files(store_path: str) -> set[str]:
+        if not os.path.exists(store_path):
+            return set()
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'}
+        files = set()
+        for root, _, filenames in os.walk(store_path):
+            for filename in filenames:
+                if os.path.splitext(filename)[1].lower() not in allowed_extensions:
+                    continue
+                full_path = os.path.join(root, filename)
+                rel_path = os.path.relpath(full_path, settings.BASE_DIR).replace("\\", "/")
+                files.add(rel_path)
+        return files
+
+    @staticmethod
+    def storage_audit(db: Session, store_path: str, update_status: bool = False, sample_limit: int = 10) -> dict:
+        images = db.query(models.Image).all()
+        referenced_paths = {
+            (image.file_path or "").replace("\\", "/").lstrip("/")
+            for image in images
+            if image.file_path
+        }
+        store_files = ImageService._store_image_files(store_path)
+
+        available = 0
+        missing = 0
+        archived = 0
+        deleted = 0
+        thumb_missing = 0
+        thumb_failed = 0
+        missing_samples = []
+        thumb_missing_samples = []
+
+        for image in images:
+            exists = ImageService.image_file_exists(image)
+            if exists:
+                available += 1
+            else:
+                missing += 1
+                if len(missing_samples) < sample_limit:
+                    missing_samples.append({
+                        "image_id": image.image_id,
+                        "file_path": image.file_path,
+                        "file_status": image.file_status,
+                    })
+
+            if image.file_status == ImageService.ARCHIVED:
+                archived += 1
+            if image.file_status == ImageService.DELETED:
+                deleted += 1
+
+            thumb_exists = os.path.exists(ImageService.thumb_path(image))
+            if exists and not thumb_exists:
+                thumb_missing += 1
+                if len(thumb_missing_samples) < sample_limit:
+                    thumb_missing_samples.append({
+                        "image_id": image.image_id,
+                        "file_path": image.file_path,
+                        "thumb_status": image.thumb_status,
+                    })
+            if image.thumb_status == ImageService.THUMB_FAILED:
+                thumb_failed += 1
+
+            if update_status:
+                if exists:
+                    image.file_status = ImageService.AVAILABLE
+                elif image.file_status != ImageService.ARCHIVED:
+                    image.file_status = ImageService.MISSING
+                image.file_checked_at = datetime.utcnow()
+                if not exists:
+                    image.thumb_status = ImageService.THUMB_MISSING
+                elif thumb_exists:
+                    image.thumb_status = ImageService.THUMB_READY
+                elif image.thumb_status not in {ImageService.THUMB_FAILED, ImageService.THUMB_PENDING}:
+                    image.thumb_status = ImageService.THUMB_PENDING
+
+        orphan_files = sorted(store_files - referenced_paths)
+        if update_status:
+            db.commit()
+
+        return {
+            "total_records": len(images),
+            "available_records": available,
+            "missing_records": missing,
+            "archived_records": archived,
+            "deleted_records": deleted,
+            "orphan_files": len(orphan_files),
+            "orphan_file_samples": orphan_files[:sample_limit],
+            "thumb_missing": thumb_missing,
+            "thumb_failed": thumb_failed,
+            "missing_record_samples": missing_samples,
+            "thumb_missing_samples": thumb_missing_samples,
+        }
+
+    @staticmethod
+    def cleanup_orphaned_records(db: Session, store_path: str, mode: str = "archive") -> int:
+        """Archive or delete database records whose image files are missing."""
         count = 0
         images = db.query(models.Image).all()
-        base_path = os.path.dirname(os.path.dirname(store_path))
         
         for image in images:
-            full_path = os.path.join(base_path, image.file_path)
-            if not os.path.exists(full_path):
-                db.delete(image)
-                count += 1
+            if not ImageService.image_file_exists(image):
+                if mode == "delete":
+                    db.delete(image)
+                    count += 1
+                elif image.file_status != ImageService.ARCHIVED:
+                    image.file_status = ImageService.ARCHIVED
+                    image.file_checked_at = datetime.utcnow()
+                    image.thumb_status = ImageService.THUMB_MISSING
+                    count += 1
+                else:
+                    image.file_checked_at = datetime.utcnow()
         
         if count > 0:
             db.commit()
         
         return count
+
+    @staticmethod
+    def rebuild_missing_thumbnails(db: Session, limit: int = 200, force: bool = False) -> dict:
+        query = db.query(models.Image).filter(models.Image.file_status == ImageService.AVAILABLE)
+        if not force:
+            query = query.filter(models.Image.thumb_status != ImageService.THUMB_READY)
+        query = query.order_by(models.Image.created_at.desc(), models.Image.image_id.desc())
+        if limit:
+            query = query.limit(limit)
+
+        processed = 0
+        ready = 0
+        failed = 0
+        missing = 0
+        for image in query.all():
+            processed += 1
+            if force:
+                try:
+                    os.remove(ImageService.thumb_path(image))
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    pass
+            if ImageService.ensure_thumbnail(image):
+                ready += 1
+            elif image.thumb_status == ImageService.THUMB_MISSING:
+                image.file_status = ImageService.MISSING
+                image.file_checked_at = datetime.utcnow()
+                missing += 1
+            else:
+                failed += 1
+        if processed:
+            db.commit()
+        return {
+            "processed": processed,
+            "ready": ready,
+            "failed": failed,
+            "missing": missing,
+        }
 
     @staticmethod
     def move_orphaned_files_to_temp(db: Session, store_path: str, temp_path: str) -> int:
@@ -530,6 +738,22 @@ class SystemService:
     def get_system_status(db: Session, store_path: str, temp_path: str) -> schemas.SystemStatus:
         """获取系统状态"""
         total_images = db.query(func.count(models.Image.image_id)).scalar()
+        available_images = db.query(func.count(models.Image.image_id)).filter(
+            models.Image.file_status == ImageService.AVAILABLE
+        ).scalar()
+        missing_images = db.query(func.count(models.Image.image_id)).filter(
+            models.Image.file_status == ImageService.MISSING
+        ).scalar()
+        archived_images = db.query(func.count(models.Image.image_id)).filter(
+            models.Image.file_status == ImageService.ARCHIVED
+        ).scalar()
+        thumb_missing = db.query(func.count(models.Image.image_id)).filter(
+            models.Image.file_status == ImageService.AVAILABLE,
+            models.Image.thumb_status != ImageService.THUMB_READY
+        ).scalar()
+        thumb_failed = db.query(func.count(models.Image.image_id)).filter(
+            models.Image.thumb_status == ImageService.THUMB_FAILED
+        ).scalar()
         total_groups = db.query(func.count(models.Group.id)).scalar()
         total_characters = db.query(func.count(models.Character.id)).scalar()
         
@@ -543,6 +767,11 @@ class SystemService:
         
         return schemas.SystemStatus(
             total_images=total_images,
+            available_images=available_images,
+            missing_images=missing_images,
+            archived_images=archived_images,
+            thumb_missing=thumb_missing,
+            thumb_failed=thumb_failed,
             total_groups=total_groups,
             total_characters=total_characters,
             temp_images_count=temp_images_count,

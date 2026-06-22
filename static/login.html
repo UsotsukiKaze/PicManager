@@ -248,27 +248,27 @@
                     <img src="/static/icon/Pic.ico" alt="PicManager">
                     <h1>PicManager</h1>
                 </div>
-                <p>通过 QQ 机器人生成的一次性链接登录。页面不再接受手动输入 QQ 号，避免冒用身份。</p>
+                <p>请从 QQ 机器人打开专属登录链接。临时看看也可以先用游客进入。</p>
             </header>
 
             <div class="login-body">
                 <div class="login-tabs" role="tablist">
-                    <button class="login-tab active" data-tab="user" type="button">QQ Ticket</button>
-                    <button class="login-tab" data-tab="guest" type="button">游客访问</button>
+                    <button class="login-tab active" data-tab="user" type="button">QQ 登录</button>
+                    <button class="login-tab" data-tab="guest" type="button">游客模式</button>
                 </div>
 
                 <div class="error-message" id="error-message"></div>
 
                 <div class="login-form active" id="user-form">
                     <div class="ticket-state">
-                        <span class="ticket-badge">已启用安全登录</span>
+                        <span class="ticket-badge">推荐使用</span>
                         <div class="notice">
-                            <strong>请从 QQ 机器人获取登录链接</strong>
-                            <p>链接会携带一次性 ticket，并与发起请求的 QQ 号绑定。ticket 过期或使用后会自动失效。</p>
+                            <strong>用机器人发来的链接进入</strong>
+                            <p>链接只给当前 QQ 使用，过一会儿会自动失效。</p>
                             <ul>
-                                <li>管理员入口由管理插件签发。</li>
-                                <li>普通上传入口同样使用 QQ 号与 ticket 校验。</li>
-                                <li>如果链接失效，请重新向机器人发送指令获取。</li>
+                                <li>管理员和普通用户都从机器人链接进入。</li>
+                                <li>链接打不开时，重新向机器人要一次。</li>
+                                <li>不想登录时，可以先用游客看看。</li>
                             </ul>
                         </div>
                     </div>
@@ -278,10 +278,10 @@
                     <div class="guest-panel">
                         <div class="notice">
                             <strong>游客模式</strong>
-                            <p>游客可以浏览和体验基础功能，但上传、修改、删除等操作会受到频率和审核限制。</p>
+                            <p>可以浏览图片，也可以少量提交修改，适合临时查看。</p>
                         </div>
-                        <div class="warning">游客每日仅有有限次数的上传、修改或删除申请机会。</div>
-                        <button class="login-btn guest-btn" type="button" onclick="handleGuestLogin()">以游客身份进入</button>
+                        <div class="warning">游客每天能提交的次数有限。</div>
+                        <button class="login-btn guest-btn" type="button" onclick="handleGuestLogin()">先进去看看</button>
                     </div>
                 </div>
             </div>
@@ -314,14 +314,14 @@
             const btn = document.querySelector('.guest-btn');
             const originalText = btn.textContent;
             btn.disabled = true;
-            btn.innerHTML = '<span class="loading"></span>登录中...';
+            btn.innerHTML = '<span class="loading"></span>进入中...';
             try {
                 const response = await fetch('/auth/guest', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
                 });
                 const data = await response.json();
-                if (!response.ok) throw new Error(data.detail || '游客登录失败');
+                if (!response.ok) throw new Error(data.detail || '游客进入失败');
                 window.location.href = '/';
             } catch (error) {
                 showError(error.message);
@@ -343,7 +343,7 @@
                     body: JSON.stringify({ ticket, purpose: 'login' })
                 });
                 const data = await response.json();
-                if (!response.ok) throw new Error(data.detail || 'Ticket 登录失败');
+                if (!response.ok) throw new Error(data.detail || '登录链接无效');
 
                 const redirect = params.get('redirect') || data.redirect_path || '/';
                 window.location.href = redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/';

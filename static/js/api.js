@@ -45,6 +45,10 @@ class API {
         return this.request('/groups/');
     }
 
+    async getPopularGroups(limit = 5) {
+        return this.request(`/groups/popular?limit=${encodeURIComponent(limit)}`);
+    }
+
     async createGroup(data) {
         return this.request('/groups/', {
             method: 'POST',
@@ -166,8 +170,24 @@ class API {
         return this.request('/system/status');
     }
 
-    async cleanupOrphaned() {
-        return this.request('/system/cleanup', {
+    async cleanupPreview() {
+        return this.request('/system/cleanup-preview');
+    }
+
+    async syncImageStatus() {
+        return this.request('/system/sync-image-status', {
+            method: 'POST',
+        });
+    }
+
+    async cleanupOrphaned(mode = 'archive') {
+        return this.request(`/system/cleanup?mode=${encodeURIComponent(mode)}`, {
+            method: 'POST',
+        });
+    }
+
+    async rebuildThumbnails(limit = 200, force = false) {
+        return this.request(`/system/rebuild-thumbnails?limit=${encodeURIComponent(limit)}&force=${encodeURIComponent(force)}`, {
             method: 'POST',
         });
     }

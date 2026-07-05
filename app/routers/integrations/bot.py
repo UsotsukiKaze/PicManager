@@ -1,12 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from ... import models
 from ... import schemas
 from ...config import settings
 from ...database import get_db_context
 from ...security.api_key import require_bot_api_key
 from ...security.tickets import build_login_url, create_login_ticket
-from ...services import CharacterService, GroupService, ImageService
+from ...services import CharacterService, FeatureTagService, GroupService, ImageService
 
 router = APIRouter(dependencies=[Depends(require_bot_api_key)])
 
@@ -41,6 +40,26 @@ def _find_character_by_alias(db, name: str):
     return None
 
 
+def _find_group_by_alias(db, name: str):
+    groups = GroupService.get_groups(db, limit=5000)
+    for group in groups:
+        if group.get("name") == name:
+            return group
+        if name in _normalize_aliases(group.get("aliases")):
+            return group
+    return None
+
+
+def _find_feature_tag_by_alias(db, name: str):
+    tags = FeatureTagService.get_feature_tags(db, limit=5000)
+    for tag in tags:
+        if tag.get("name") == name:
+            return tag
+        if name in _normalize_aliases(tag.get("aliases")):
+            return tag
+    return None
+
+
 def _resolve_name(db, name: str):
     if not name:
         return None
@@ -49,9 +68,13 @@ def _resolve_name(db, name: str):
     if character:
         return {"type": "character", "item": character}
 
-    group = db.query(models.Group).filter(models.Group.name == name).first()
+    feature_tag = _find_feature_tag_by_alias(db, name)
+    if feature_tag:
+        return {"type": "feature_tag", "item": feature_tag}
+
+    group = _find_group_by_alias(db, name)
     if group:
-        return {"type": "group", "item": GroupService.get_group(db, group.id)}
+        return {"type": "group", "item": group}
 
     return None
 
@@ -70,9 +93,16 @@ def get_bot_characters(group_id: int | None = None, skip: int = 0, limit: int = 
         return CharacterService.get_characters(db, group_id, skip, limit)
 
 
+@router.get("/feature-tags")
+def get_bot_feature_tags(skip: int = 0, limit: int = 5000):
+    """Return feature tags for bot-side caching and alias matching."""
+    with get_db_context() as db:
+        return FeatureTagService.get_feature_tags(db, skip, limit)
+
+
 @router.get("/resolve")
 def resolve_bot_target(name: str):
-    """Resolve a user-facing name to a character or group."""
+    """Resolve a user-facing name to a character, feature tag, or group."""
     target = name.strip()
     if not target:
         raise HTTPException(status_code=400, detail="Name is required")
@@ -90,20 +120,23 @@ def get_bot_random_image(
     group_id: int | None = None,
     character_id: int | None = None,
     exclude_group_id: int | None = None,
+    feature_tag_id: int | None = None,
 ):
     """Return a random image using bot-oriented target resolution."""
     resolved = None
     with get_db_context() as db:
-        if name and not group_id and not character_id:
+        if name and not group_id and not character_id and not feature_tag_id:
             resolved = _resolve_name(db, name.strip())
             if not resolved:
                 raise HTTPException(status_code=404, detail="Target not found")
             if resolved["type"] == "character":
                 character_id = resolved["item"]["id"]
+            elif resolved["type"] == "feature_tag":
+                feature_tag_id = resolved["item"]["id"]
             elif resolved["type"] == "group":
                 group_id = resolved["item"]["id"]
 
-        image = ImageService.get_random_image(db, group_id, character_id, exclude_group_id)
+        image = ImageService.get_random_image(db, group_id, character_id, exclude_group_id, feature_tag_id)
         if not image:
             raise HTTPException(status_code=404, detail="Image not found")
 

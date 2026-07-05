@@ -62,11 +62,12 @@ def search_images(
 def get_random_image(
     group_id: Optional[int] = None,
     character_id: Optional[int] = None,
-    exclude_group_id: Optional[int] = None
+    exclude_group_id: Optional[int] = None,
+    feature_tag_id: Optional[int] = None
 ):
     """随机获取图片"""
     with get_db_context() as db:
-        image = ImageService.get_random_image(db, group_id, character_id, exclude_group_id)
+        image = ImageService.get_random_image(db, group_id, character_id, exclude_group_id, feature_tag_id)
         if not image:
             raise HTTPException(status_code=404, detail="Image not found")
         return image

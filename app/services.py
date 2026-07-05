@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_, func
 from typing import List, Optional, Tuple
 from datetime import datetime
+from collections import defaultdict, deque
 from . import models, schemas
 from .config import settings
 import os
@@ -379,6 +380,8 @@ class ImageService:
     THUMB_READY = "ready"
     THUMB_MISSING = "missing"
     THUMB_FAILED = "failed"
+    RANDOM_RECENT_LIMIT = 50
+    _random_recent_image_ids = defaultdict(lambda: deque(maxlen=ImageService.RANDOM_RECENT_LIMIT))
     
     @staticmethod
     def image_full_path(image: models.Image) -> str:
@@ -632,37 +635,62 @@ class ImageService:
         db: Session,
         group_id: Optional[int] = None,
         character_id: Optional[int] = None,
-        exclude_group_id: Optional[int] = None
+        exclude_group_id: Optional[int] = None,
+        feature_tag_id: Optional[int] = None
     ) -> Optional[dict]:
-        """Return a random image whose stored file still exists."""
-        query = db.query(models.Image).options(
-            joinedload(models.Image.characters).joinedload(models.Character.group),
-            joinedload(models.Image.characters).joinedload(models.Character.feature_tags),
-            joinedload(models.Image.groups),
-            joinedload(models.Image.feature_tags),
-        ).filter(models.Image.file_status == ImageService.AVAILABLE)
+        """Return a random image while avoiding recent repeats in the same filter scope."""
+        query = db.query(models.Image).filter(models.Image.file_status == ImageService.AVAILABLE)
 
         if group_id:
-            query = query.join(models.Image.groups).filter(
-                models.Group.id == group_id
-            )
+            query = query.filter(models.Image.groups.any(models.Group.id == group_id))
 
         if character_id:
-            query = query.join(models.Image.characters).filter(
-                models.Character.id == character_id
-            )
+            query = query.filter(models.Image.characters.any(models.Character.id == character_id))
+
+        if feature_tag_id:
+            query = query.filter(models.Image.feature_tags.any(models.FeatureTag.id == feature_tag_id))
 
         if exclude_group_id:
-            query = query.join(models.Image.groups).filter(
-                models.Group.id != exclude_group_id
-            )
+            query = query.filter(~models.Image.groups.any(models.Group.id == exclude_group_id))
 
-        image = query.distinct().order_by(func.random()).first()
-        if not image:
+        candidate_ids = [row[0] for row in query.with_entities(models.Image.image_id).distinct().all()]
+        if not candidate_ids:
             return None
-        if not ImageService.image_file_exists(image):
-            ImageService.mark_file_status(db, image, exists=False)
+
+        scope_key = (
+            int(group_id) if group_id else None,
+            int(character_id) if character_id else None,
+            int(feature_tag_id) if feature_tag_id else None,
+            int(exclude_group_id) if exclude_group_id else None,
+        )
+        recent_ids = ImageService._random_recent_image_ids[scope_key]
+        missing_found = False
+        image = None
+
+        while candidate_ids:
+            available_ids = [image_id for image_id in candidate_ids if image_id not in recent_ids]
+            pick_pool = available_ids or candidate_ids
+            chosen_id = secrets.choice(pick_pool)
+            image = db.query(models.Image).options(
+                joinedload(models.Image.characters).joinedload(models.Character.group),
+                joinedload(models.Image.characters).joinedload(models.Character.feature_tags),
+                joinedload(models.Image.groups),
+                joinedload(models.Image.feature_tags),
+            ).filter(models.Image.image_id == chosen_id).first()
+
+            if image and ImageService.image_file_exists(image):
+                recent_ids.append(image.image_id)
+                break
+
+            if image:
+                ImageService.mark_file_status(db, image, exists=False)
+                missing_found = True
+            candidate_ids = [image_id for image_id in candidate_ids if image_id != chosen_id]
+            image = None
+
+        if missing_found:
             db.commit()
+        if not image:
             return None
 
         image_dict = ImageService.image_to_dict(image)

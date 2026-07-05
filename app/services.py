@@ -94,6 +94,7 @@ class GroupService:
                     ])
                 db.commit()
                 db.refresh(db_group)
+            ImageService.sync_images_for_group(db, db_group.id)
             return GroupService.group_to_dict(db_group)
         return None
     
@@ -261,6 +262,7 @@ class CharacterService:
                 ).all() if feature_tag_ids else []
                 db.commit()
                 db.refresh(db_character)
+            ImageService.sync_images_for_character(db, db_character.id)
             # 获取分组名称
             group = db.query(models.Group).filter(models.Group.id == db_character.group_id).first()
             return {
@@ -533,6 +535,67 @@ class ImageService:
                 for tag in image.feature_tags
             ]
         }
+
+    @staticmethod
+    def sync_images_for_character(db: Session, character_id: int) -> int:
+        """Add a character's current group and feature tags to all linked images."""
+        character = db.query(models.Character).options(
+            joinedload(models.Character.feature_tags),
+            joinedload(models.Character.images).joinedload(models.Image.groups),
+            joinedload(models.Character.images).joinedload(models.Image.feature_tags),
+        ).filter(models.Character.id == character_id).first()
+        if not character:
+            return 0
+
+        changed = 0
+        for image in character.images or []:
+            current_group_ids = {group.id for group in image.groups}
+            current_feature_ids = {tag.id for tag in image.feature_tags}
+            image_changed = False
+
+            if character.group_id and character.group_id not in current_group_ids:
+                group = db.query(models.Group).filter(models.Group.id == character.group_id).first()
+                if group:
+                    image.groups.append(group)
+                    image_changed = True
+
+            for tag in character.feature_tags or []:
+                if tag.id not in current_feature_ids:
+                    image.feature_tags.append(tag)
+                    current_feature_ids.add(tag.id)
+                    image_changed = True
+
+            if image_changed:
+                changed += 1
+
+        if changed:
+            db.commit()
+        return changed
+
+    @staticmethod
+    def sync_images_for_group(db: Session, group_id: int) -> int:
+        """Add a group tag to images linked to characters from that group."""
+        group = db.query(models.Group).filter(models.Group.id == group_id).first()
+        if not group:
+            return 0
+
+        images = db.query(models.Image).options(
+            joinedload(models.Image.groups),
+        ).join(models.Image.characters).filter(
+            models.Character.group_id == group_id
+        ).distinct().all()
+
+        changed = 0
+        for image in images:
+            if group.id not in {item.id for item in image.groups}:
+                image.groups.append(group)
+                changed += 1
+
+        if changed:
+            db.commit()
+        for character_id, in db.query(models.Character.id).filter(models.Character.group_id == group_id).all():
+            changed += ImageService.sync_images_for_character(db, character_id)
+        return changed
 
     @staticmethod
     def generate_image_id() -> str:

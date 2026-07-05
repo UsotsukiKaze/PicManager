@@ -12,21 +12,48 @@ import uuid
 
 class GroupService:
     """分组服务"""
-    
+
+    @staticmethod
+    def _normalize_aliases(aliases: Optional[List[str] | str]) -> List[str]:
+        if aliases is None:
+            return []
+        if isinstance(aliases, str):
+            raw = [item.strip() for item in aliases.split(",") if item.strip()]
+        else:
+            raw = [item.strip() for item in aliases if isinstance(item, str) and item.strip()]
+        return list(dict.fromkeys(raw))
+
+    @staticmethod
+    def _get_aliases(group: models.Group) -> List[str]:
+        return [item.alias for item in group.aliases] if group.aliases else []
+
+    @staticmethod
+    def group_to_dict(group: models.Group) -> dict:
+        return {
+            "id": group.id,
+            "name": group.name,
+            "aliases": GroupService._get_aliases(group),
+            "description": group.description,
+            "created_at": group.created_at,
+            "updated_at": group.updated_at
+        }
     @staticmethod
     def create_group(db: Session, group: schemas.GroupCreate) -> dict:
         """创建分组"""
-        db_group = models.Group(**group.dict())
+        payload = group.dict()
+        aliases = GroupService._normalize_aliases(payload.pop("aliases", None))
+        db_group = models.Group(**payload)
         db.add(db_group)
         db.commit()
         db.refresh(db_group)
-        return {
-            "id": db_group.id,
-            "name": db_group.name,
-            "description": db_group.description,
-            "created_at": db_group.created_at,
-            "updated_at": db_group.updated_at
-        }
+        if aliases:
+            db.add_all([
+                models.GroupAlias(group_id=db_group.id, alias=item)
+                for item in aliases
+            ])
+            db.commit()
+            db.refresh(db_group)
+        return GroupService.group_to_dict(db_group)
     
     @staticmethod
     def get_group(db: Session, group_id: int) -> Optional[dict]:
@@ -34,28 +61,13 @@ class GroupService:
         group = db.query(models.Group).filter(models.Group.id == group_id).first()
         if not group:
             return None
-        return {
-            "id": group.id,
-            "name": group.name,
-            "description": group.description,
-            "created_at": group.created_at,
-            "updated_at": group.updated_at
-        }
+        return GroupService.group_to_dict(group)
     
     @staticmethod
     def get_groups(db: Session, skip: int = 0, limit: int = 100) -> List[dict]:
         """获取分组列表"""
         groups = db.query(models.Group).offset(skip).limit(limit).all()
-        return [
-            {
-                "id": g.id,
-                "name": g.name,
-                "description": g.description,
-                "created_at": g.created_at,
-                "updated_at": g.updated_at
-            }
-            for g in groups
-        ]
+        return [GroupService.group_to_dict(g) for g in groups]
     
     @staticmethod
     def update_group(db: Session, group_id: int, group_update: schemas.GroupUpdate) -> Optional[dict]:
@@ -63,17 +75,25 @@ class GroupService:
         db_group = db.query(models.Group).filter(models.Group.id == group_id).first()
         if db_group:
             update_data = group_update.dict(exclude_unset=True)
+            aliases = None
+            if "aliases" in update_data:
+                aliases = GroupService._normalize_aliases(update_data.pop("aliases"))
             for field, value in update_data.items():
                 setattr(db_group, field, value)
             db.commit()
             db.refresh(db_group)
-            return {
-                "id": db_group.id,
-                "name": db_group.name,
-                "description": db_group.description,
-                "created_at": db_group.created_at,
-                "updated_at": db_group.updated_at
-            }
+            if aliases is not None:
+                db.query(models.GroupAlias).filter(
+                    models.GroupAlias.group_id == db_group.id
+                ).delete()
+                if aliases:
+                    db.add_all([
+                        models.GroupAlias(group_id=db_group.id, alias=item)
+                        for item in aliases
+                    ])
+                db.commit()
+                db.refresh(db_group)
+            return GroupService.group_to_dict(db_group)
         return None
     
     @staticmethod
@@ -103,13 +123,32 @@ class CharacterService:
     @staticmethod
     def _get_nicknames(character: models.Character) -> List[str]:
         return [item.nickname for item in character.nicknames] if character.nicknames else []
+
+    @staticmethod
+    def _feature_tags_to_dict(tags) -> List[dict]:
+        return [
+            {
+                "id": tag.id,
+                "name": tag.name,
+                "aliases": [item.alias for item in tag.aliases] if tag.aliases else [],
+                "description": tag.description,
+                "created_at": tag.created_at,
+                "updated_at": tag.updated_at,
+            }
+            for tag in (tags or [])
+        ]
     
     @staticmethod
     def create_character(db: Session, character: schemas.CharacterCreate) -> dict:
         """创建角色"""
         payload = character.dict()
         nicknames = CharacterService._normalize_nicknames(payload.pop("nicknames", None))
+        feature_tag_ids = payload.pop("feature_tag_ids", None) or []
         db_character = models.Character(**payload)
+        if feature_tag_ids:
+            db_character.feature_tags = db.query(models.FeatureTag).filter(
+                models.FeatureTag.id.in_(feature_tag_ids)
+            ).all()
         db.add(db_character)
         db.commit()
         db.refresh(db_character)
@@ -127,6 +166,8 @@ class CharacterService:
             "id": db_character.id,
             "name": db_character.name,
             "nicknames": CharacterService._get_nicknames(db_character),
+            "feature_tag_ids": [tag.id for tag in db_character.feature_tags],
+            "feature_tags": CharacterService._feature_tags_to_dict(db_character.feature_tags),
             "group_id": db_character.group_id,
             "description": db_character.description,
             "created_at": db_character.created_at,
@@ -149,6 +190,8 @@ class CharacterService:
             "id": character.id,
             "name": character.name,
             "nicknames": CharacterService._get_nicknames(character),
+            "feature_tag_ids": [tag.id for tag in character.feature_tags],
+            "feature_tags": CharacterService._feature_tags_to_dict(character.feature_tags),
             "group_id": character.group_id,
             "description": character.description,
             "created_at": character.created_at,
@@ -171,6 +214,8 @@ class CharacterService:
                 "id": character.id,
                 "name": character.name,
                 "nicknames": CharacterService._get_nicknames(character),
+                "feature_tag_ids": [tag.id for tag in character.feature_tags],
+                "feature_tags": CharacterService._feature_tags_to_dict(character.feature_tags),
                 "group_id": character.group_id,
                 "description": character.description,
                 "created_at": character.created_at,
@@ -190,6 +235,9 @@ class CharacterService:
             nicknames = None
             if "nicknames" in update_data:
                 nicknames = CharacterService._normalize_nicknames(update_data.pop("nicknames"))
+            feature_tag_ids = None
+            if "feature_tag_ids" in update_data:
+                feature_tag_ids = update_data.pop("feature_tag_ids") or []
             for field, value in update_data.items():
                 setattr(db_character, field, value)
             db.commit()
@@ -206,12 +254,20 @@ class CharacterService:
                     ])
                 db.commit()
                 db.refresh(db_character)
+            if feature_tag_ids is not None:
+                db_character.feature_tags = db.query(models.FeatureTag).filter(
+                    models.FeatureTag.id.in_(feature_tag_ids)
+                ).all() if feature_tag_ids else []
+                db.commit()
+                db.refresh(db_character)
             # 获取分组名称
             group = db.query(models.Group).filter(models.Group.id == db_character.group_id).first()
             return {
                 "id": db_character.id,
                 "name": db_character.name,
                 "nicknames": CharacterService._get_nicknames(db_character),
+                "feature_tag_ids": [tag.id for tag in db_character.feature_tags],
+                "feature_tags": CharacterService._feature_tags_to_dict(db_character.feature_tags),
                 "group_id": db_character.group_id,
                 "description": db_character.description,
                 "created_at": db_character.created_at,
@@ -229,6 +285,86 @@ class CharacterService:
             db.commit()
             return True
         return False
+
+
+class FeatureTagService:
+    """Feature tag service."""
+
+    @staticmethod
+    def _normalize_aliases(aliases: Optional[List[str] | str]) -> List[str]:
+        return GroupService._normalize_aliases(aliases)
+
+    @staticmethod
+    def _get_aliases(tag: models.FeatureTag) -> List[str]:
+        return [item.alias for item in tag.aliases] if tag.aliases else []
+
+    @staticmethod
+    def tag_to_dict(tag: models.FeatureTag) -> dict:
+        return {
+            "id": tag.id,
+            "name": tag.name,
+            "aliases": FeatureTagService._get_aliases(tag),
+            "description": tag.description,
+            "created_at": tag.created_at,
+            "updated_at": tag.updated_at,
+        }
+
+    @staticmethod
+    def create_feature_tag(db: Session, tag: schemas.FeatureTagCreate) -> dict:
+        payload = tag.dict()
+        aliases = FeatureTagService._normalize_aliases(payload.pop("aliases", None))
+        db_tag = models.FeatureTag(**payload)
+        db.add(db_tag)
+        db.commit()
+        db.refresh(db_tag)
+        if aliases:
+            db.add_all([
+                models.FeatureTagAlias(feature_tag_id=db_tag.id, alias=item)
+                for item in aliases
+            ])
+            db.commit()
+            db.refresh(db_tag)
+        return FeatureTagService.tag_to_dict(db_tag)
+
+    @staticmethod
+    def get_feature_tags(db: Session, skip: int = 0, limit: int = 1000) -> List[dict]:
+        tags = db.query(models.FeatureTag).order_by(models.FeatureTag.name.asc()).offset(skip).limit(limit).all()
+        return [FeatureTagService.tag_to_dict(tag) for tag in tags]
+
+    @staticmethod
+    def update_feature_tag(db: Session, tag_id: int, tag_update: schemas.FeatureTagUpdate) -> Optional[dict]:
+        db_tag = db.query(models.FeatureTag).filter(models.FeatureTag.id == tag_id).first()
+        if not db_tag:
+            return None
+        update_data = tag_update.dict(exclude_unset=True)
+        aliases = None
+        if "aliases" in update_data:
+            aliases = FeatureTagService._normalize_aliases(update_data.pop("aliases"))
+        for field, value in update_data.items():
+            setattr(db_tag, field, value)
+        db.commit()
+        db.refresh(db_tag)
+        if aliases is not None:
+            db.query(models.FeatureTagAlias).filter(
+                models.FeatureTagAlias.feature_tag_id == db_tag.id
+            ).delete()
+            if aliases:
+                db.add_all([
+                    models.FeatureTagAlias(feature_tag_id=db_tag.id, alias=item)
+                    for item in aliases
+                ])
+            db.commit()
+            db.refresh(db_tag)
+        return FeatureTagService.tag_to_dict(db_tag)
+
+    @staticmethod
+    def delete_feature_tag(db: Session, tag_id: int) -> bool:
+        db_tag = db.query(models.FeatureTag).filter(models.FeatureTag.id == tag_id).first()
+        if not db_tag:
+            return False
+        db.delete(db_tag)
+        db.commit()
+        return True
 
 
 class ImageService:
@@ -295,6 +431,52 @@ class ImageService:
             return False
 
     @staticmethod
+    def _unique_ints(values: Optional[List[int]]) -> List[int]:
+        result = []
+        for value in values or []:
+            try:
+                item = int(value)
+            except (TypeError, ValueError):
+                continue
+            if item not in result:
+                result.append(item)
+        return result
+
+    @staticmethod
+    def _apply_tag_relationships(
+        db: Session,
+        db_image: models.Image,
+        character_ids: Optional[List[int]],
+        group_ids: Optional[List[int]],
+        feature_tag_ids: Optional[List[int]]
+    ) -> None:
+        character_ids = ImageService._unique_ints(character_ids)
+        explicit_group_ids = ImageService._unique_ints(group_ids)
+        explicit_feature_ids = ImageService._unique_ints(feature_tag_ids)
+
+        characters = db.query(models.Character).filter(
+            models.Character.id.in_(character_ids)
+        ).all() if character_ids else []
+
+        group_id_set = set(explicit_group_ids)
+        feature_id_set = set(explicit_feature_ids)
+        for character in characters:
+            group_id_set.add(character.group_id)
+            for tag in character.feature_tags or []:
+                feature_id_set.add(tag.id)
+
+        groups = db.query(models.Group).filter(
+            models.Group.id.in_(group_id_set)
+        ).all() if group_id_set else []
+        feature_tags = db.query(models.FeatureTag).filter(
+            models.FeatureTag.id.in_(feature_id_set)
+        ).all() if feature_id_set else []
+
+        db_image.characters = characters
+        db_image.groups = groups
+        db_image.feature_tags = feature_tags
+
+    @staticmethod
     def image_to_dict(image: models.Image) -> dict:
         return {
             "image_id": image.image_id,
@@ -316,12 +498,36 @@ class ImageService:
                     "name": char.name,
                     "nicknames": CharacterService._get_nicknames(char),
                     "group_id": char.group_id,
+                    "feature_tag_ids": [tag.id for tag in char.feature_tags],
+                    "feature_tags": CharacterService._feature_tags_to_dict(char.feature_tags),
                     "description": char.description,
                     "created_at": char.created_at,
                     "updated_at": char.updated_at,
                     "group_name": char.group.name if char.group else ""
                 }
                 for char in image.characters
+            ],
+            "groups": [
+                {
+                    "id": group.id,
+                    "name": group.name,
+                    "aliases": GroupService._get_aliases(group),
+                    "description": group.description,
+                    "created_at": group.created_at,
+                    "updated_at": group.updated_at,
+                }
+                for group in image.groups
+            ],
+            "feature_tags": [
+                {
+                    "id": tag.id,
+                    "name": tag.name,
+                    "aliases": FeatureTagService._get_aliases(tag),
+                    "description": tag.description,
+                    "created_at": tag.created_at,
+                    "updated_at": tag.updated_at,
+                }
+                for tag in image.feature_tags
             ]
         }
 
@@ -385,11 +591,13 @@ class ImageService:
         )
         
         # 关联角色
-        if image.character_ids:
-            characters = db.query(models.Character).filter(
-                models.Character.id.in_(image.character_ids)
-            ).all()
-            db_image.characters = characters
+        ImageService._apply_tag_relationships(
+            db,
+            db_image,
+            image.character_ids,
+            image.group_ids,
+            image.feature_tag_ids,
+        )
 
         ImageService.ensure_thumbnail(db_image)
         
@@ -402,7 +610,10 @@ class ImageService:
     def get_image(db: Session, image_id: str) -> Optional[dict]:
         """Return image metadata only when the stored file exists."""
         image = db.query(models.Image).options(
-            joinedload(models.Image.characters).joinedload(models.Character.group)
+            joinedload(models.Image.characters).joinedload(models.Character.group),
+            joinedload(models.Image.characters).joinedload(models.Character.feature_tags),
+            joinedload(models.Image.groups),
+            joinedload(models.Image.feature_tags),
         ).filter(
             models.Image.image_id == image_id,
             models.Image.file_status == ImageService.AVAILABLE
@@ -425,11 +636,14 @@ class ImageService:
     ) -> Optional[dict]:
         """Return a random image whose stored file still exists."""
         query = db.query(models.Image).options(
-            joinedload(models.Image.characters).joinedload(models.Character.group)
+            joinedload(models.Image.characters).joinedload(models.Character.group),
+            joinedload(models.Image.characters).joinedload(models.Character.feature_tags),
+            joinedload(models.Image.groups),
+            joinedload(models.Image.feature_tags),
         ).filter(models.Image.file_status == ImageService.AVAILABLE)
 
         if group_id:
-            query = query.join(models.Image.characters).join(models.Character.group).filter(
+            query = query.join(models.Image.groups).filter(
                 models.Group.id == group_id
             )
 
@@ -439,7 +653,7 @@ class ImageService:
             )
 
         if exclude_group_id:
-            query = query.join(models.Image.characters).join(models.Character.group).filter(
+            query = query.join(models.Image.groups).filter(
                 models.Group.id != exclude_group_id
             )
 
@@ -457,23 +671,33 @@ class ImageService:
             "file_path": image_dict["file_path"],
             "pid": image_dict["pid"],
             "characters": image_dict["characters"],
+            "groups": image_dict["groups"],
+            "feature_tags": image_dict["feature_tags"],
         }
     
     @staticmethod
     def search_images(db: Session, params: schemas.ImageSearchParams) -> Tuple[List[dict], int]:
         """Search images and ignore records whose files are missing."""
         query = db.query(models.Image).options(
-            joinedload(models.Image.characters).joinedload(models.Character.group)
+            joinedload(models.Image.characters).joinedload(models.Character.group),
+            joinedload(models.Image.characters).joinedload(models.Character.feature_tags),
+            joinedload(models.Image.groups),
+            joinedload(models.Image.feature_tags),
         ).filter(models.Image.file_status == ImageService.AVAILABLE)
         
         if params.group_id:
-            query = query.join(models.Image.characters).join(models.Character.group).filter(
+            query = query.join(models.Image.groups).filter(
                 models.Group.id == params.group_id
             )
         
         if params.character_id:
             query = query.join(models.Image.characters).filter(
                 models.Character.id == params.character_id
+            )
+
+        if params.feature_tag_id:
+            query = query.join(models.Image.feature_tags).filter(
+                models.FeatureTag.id == params.feature_tag_id
             )
         
         if params.pid:
@@ -497,16 +721,23 @@ class ImageService:
         """更新图片"""
         db_image = db.query(models.Image).filter(models.Image.image_id == image_id).first()
         if db_image:
-            update_data = image_update.dict(exclude_unset=True, exclude={'character_ids'})
+            update_data = image_update.dict(exclude_unset=True, exclude={'character_ids', 'group_ids', 'feature_tag_ids'})
             for field, value in update_data.items():
                 setattr(db_image, field, value)
             
             # 更新角色关联
-            if image_update.character_ids is not None:
-                characters = db.query(models.Character).filter(
-                    models.Character.id.in_(image_update.character_ids)
-                ).all()
-                db_image.characters = characters
+            if (
+                image_update.character_ids is not None
+                or image_update.group_ids is not None
+                or image_update.feature_tag_ids is not None
+            ):
+                ImageService._apply_tag_relationships(
+                    db,
+                    db_image,
+                    image_update.character_ids if image_update.character_ids is not None else [c.id for c in db_image.characters],
+                    image_update.group_ids if image_update.group_ids is not None else [g.id for g in db_image.groups],
+                    image_update.feature_tag_ids if image_update.feature_tag_ids is not None else [t.id for t in db_image.feature_tags],
+                )
             
             db.commit()
             db.refresh(db_image)

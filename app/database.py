@@ -194,6 +194,99 @@ def apply_migrations():
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_thumb_status ON images (thumb_status)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_image_character_character_image ON image_character_association (character_id, image_id)"))
 
+        conn.execute(text(
+            """
+            CREATE TABLE IF NOT EXISTS feature_tags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name VARCHAR(255) NOT NULL UNIQUE,
+                description TEXT,
+                created_at DATETIME,
+                updated_at DATETIME
+            )
+            """
+        ))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_feature_tags_name ON feature_tags (name)"))
+
+        conn.execute(text(
+            """
+            CREATE TABLE IF NOT EXISTS group_aliases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id INTEGER NOT NULL,
+                alias VARCHAR(255) NOT NULL,
+                FOREIGN KEY(group_id) REFERENCES groups(id)
+            )
+            """
+        ))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_group_aliases_group_id ON group_aliases (group_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_group_aliases_alias ON group_aliases (alias)"))
+
+        conn.execute(text(
+            """
+            CREATE TABLE IF NOT EXISTS feature_tag_aliases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                feature_tag_id INTEGER NOT NULL,
+                alias VARCHAR(255) NOT NULL,
+                FOREIGN KEY(feature_tag_id) REFERENCES feature_tags(id)
+            )
+            """
+        ))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_feature_tag_aliases_feature_tag_id ON feature_tag_aliases (feature_tag_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_feature_tag_aliases_alias ON feature_tag_aliases (alias)"))
+
+        conn.execute(text(
+            """
+            CREATE TABLE IF NOT EXISTS image_group_association (
+                image_id VARCHAR(10) NOT NULL,
+                group_id INTEGER NOT NULL,
+                PRIMARY KEY (image_id, group_id),
+                FOREIGN KEY(image_id) REFERENCES images(image_id),
+                FOREIGN KEY(group_id) REFERENCES groups(id)
+            )
+            """
+        ))
+        conn.execute(text(
+            """
+            CREATE TABLE IF NOT EXISTS image_feature_tag_association (
+                image_id VARCHAR(10) NOT NULL,
+                feature_tag_id INTEGER NOT NULL,
+                PRIMARY KEY (image_id, feature_tag_id),
+                FOREIGN KEY(image_id) REFERENCES images(image_id),
+                FOREIGN KEY(feature_tag_id) REFERENCES feature_tags(id)
+            )
+            """
+        ))
+        conn.execute(text(
+            """
+            CREATE TABLE IF NOT EXISTS character_feature_tag_association (
+                character_id INTEGER NOT NULL,
+                feature_tag_id INTEGER NOT NULL,
+                PRIMARY KEY (character_id, feature_tag_id),
+                FOREIGN KEY(character_id) REFERENCES characters(id),
+                FOREIGN KEY(feature_tag_id) REFERENCES feature_tags(id)
+            )
+            """
+        ))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_image_group_group_image ON image_group_association (group_id, image_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_image_feature_tag_tag_image ON image_feature_tag_association (feature_tag_id, image_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_character_feature_tag_tag_character ON character_feature_tag_association (feature_tag_id, character_id)"))
+
+        conn.execute(text(
+            """
+            INSERT OR IGNORE INTO image_group_association (image_id, group_id)
+            SELECT DISTINCT ica.image_id, c.group_id
+            FROM image_character_association ica
+            JOIN characters c ON c.id = ica.character_id
+            """
+        ))
+        conn.execute(text(
+            """
+            INSERT OR IGNORE INTO image_feature_tag_association (image_id, feature_tag_id)
+            SELECT DISTINCT ica.image_id, cfta.feature_tag_id
+            FROM image_character_association ica
+            JOIN character_feature_tag_association cfta ON cfta.character_id = ica.character_id
+            """
+        ))
+
         unchecked_images = conn.execute(text(
             "SELECT image_id, file_path FROM images WHERE file_checked_at IS NULL"
         )).fetchall()

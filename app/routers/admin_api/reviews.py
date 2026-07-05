@@ -82,6 +82,7 @@ async def get_pending_requests(request: Request):
                             item["original_group"] = {
                                 "id": group.id,
                                 "name": group.name,
+                                "aliases": [alias.alias for alias in group.aliases] if group.aliases else [],
                                 "description": group.description
                             }
                     if image_data.get("name"):
@@ -180,6 +181,8 @@ async def handle_pending_request(
                     
                     image_create = schemas.ImageCreate(
                         character_ids=image_data.get("character_ids", []),
+                        group_ids=image_data.get("group_ids") or ([image_data.get("group_id")] if image_data.get("group_id") else []),
+                        feature_tag_ids=image_data.get("feature_tag_ids", []),
                         pid=image_data.get("pid"),
                         description=image_data.get("description")
                     )
@@ -207,7 +210,9 @@ async def handle_pending_request(
                 image_update = schemas.ImageUpdate(
                     pid=image_data.get("pid"),
                     description=image_data.get("description"),
-                    character_ids=image_data.get("character_ids")
+                    character_ids=image_data.get("character_ids"),
+                    group_ids=image_data.get("group_ids"),
+                    feature_tag_ids=image_data.get("feature_tag_ids")
                 )
                 
                 image = ImageService.update_image(db, pending_req.image_id, image_update)
@@ -221,6 +226,7 @@ async def handle_pending_request(
                     raise HTTPException(status_code=400, detail="分组名称已存在")
                 group_create = schemas.GroupCreate(
                     name=group_data.get("name"),
+                    aliases=group_data.get("aliases") or [],
                     description=group_data.get("description")
                 )
                 GroupService.create_group(db, group_create)
@@ -237,7 +243,7 @@ async def handle_pending_request(
                     ).first()
                     if exists:
                         raise HTTPException(status_code=400, detail="分组名称已存在")
-                update_data = {k: group_data[k] for k in ["name", "description"] if k in group_data}
+                update_data = {k: group_data[k] for k in ["name", "aliases", "description"] if k in group_data}
                 group_update = schemas.GroupUpdate(**update_data)
                 updated = GroupService.update_group(db, group_id, group_update)
                 if not updated:
@@ -264,7 +270,8 @@ async def handle_pending_request(
                     name=char_data.get("name"),
                     group_id=char_data.get("group_id"),
                     description=char_data.get("description"),
-                    nicknames=char_data.get("nicknames")
+                    nicknames=char_data.get("nicknames"),
+                    feature_tag_ids=char_data.get("feature_tag_ids")
                 )
                 CharacterService.create_character(db, char_create)
 
@@ -286,7 +293,7 @@ async def handle_pending_request(
                         ).first()
                         if exists:
                             raise HTTPException(status_code=400, detail="该分组下已存在同名角色")
-                update_data = {k: char_data[k] for k in ["name", "group_id", "description", "nicknames"] if k in char_data}
+                update_data = {k: char_data[k] for k in ["name", "group_id", "description", "nicknames", "feature_tag_ids"] if k in char_data}
                 char_update = schemas.CharacterUpdate(**update_data)
                 updated = CharacterService.update_character(db, char_id, char_update)
                 if not updated:

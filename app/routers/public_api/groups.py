@@ -53,6 +53,7 @@ def create_group(group: schemas.GroupCreate, request: Request):
             guest_ip=guest_ip,
             image_data=json.dumps({
                 "name": group.name,
+                "aliases": group.aliases or [],
                 "description": group.description
             })
         )

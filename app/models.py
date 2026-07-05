@@ -33,6 +33,27 @@ image_character_association = Table(
     Column('character_id', Integer, ForeignKey('characters.id'), primary_key=True)
 )
 
+image_group_association = Table(
+    'image_group_association',
+    Base.metadata,
+    Column('image_id', String, ForeignKey('images.image_id'), primary_key=True),
+    Column('group_id', Integer, ForeignKey('groups.id'), primary_key=True)
+)
+
+image_feature_tag_association = Table(
+    'image_feature_tag_association',
+    Base.metadata,
+    Column('image_id', String, ForeignKey('images.image_id'), primary_key=True),
+    Column('feature_tag_id', Integer, ForeignKey('feature_tags.id'), primary_key=True)
+)
+
+character_feature_tag_association = Table(
+    'character_feature_tag_association',
+    Base.metadata,
+    Column('character_id', Integer, ForeignKey('characters.id'), primary_key=True),
+    Column('feature_tag_id', Integer, ForeignKey('feature_tags.id'), primary_key=True)
+)
+
 
 class User(Base):
     """用户表"""
@@ -144,6 +165,19 @@ class Group(Base):
     
     # 关联角色
     characters = relationship("Character", back_populates="group", cascade="all, delete-orphan")
+    images = relationship("Image", secondary=image_group_association, back_populates="groups")
+    aliases = relationship("GroupAlias", back_populates="group", cascade="all, delete-orphan")
+
+
+class GroupAlias(Base):
+    """Group alias table."""
+    __tablename__ = 'group_aliases'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    group_id = Column(Integer, ForeignKey('groups.id'), nullable=False, index=True)
+    alias = Column(String(255), nullable=False, index=True)
+
+    group = relationship("Group", back_populates="aliases")
 
 
 class Character(Base):
@@ -163,6 +197,7 @@ class Character(Base):
     images = relationship("Image", secondary=image_character_association, back_populates="characters")
     # 角色昵称
     nicknames = relationship("CharacterNickname", back_populates="character", cascade="all, delete-orphan")
+    feature_tags = relationship("FeatureTag", secondary=character_feature_tag_association, back_populates="characters")
 
 
 class CharacterNickname(Base):
@@ -174,6 +209,32 @@ class CharacterNickname(Base):
     nickname = Column(String(255), nullable=False, index=True)
 
     character = relationship("Character", back_populates="nicknames")
+
+
+class FeatureTag(Base):
+    """Feature tags such as hair color, eye color, or visual traits."""
+    __tablename__ = 'feature_tags'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(255), unique=True, nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    characters = relationship("Character", secondary=character_feature_tag_association, back_populates="feature_tags")
+    images = relationship("Image", secondary=image_feature_tag_association, back_populates="feature_tags")
+    aliases = relationship("FeatureTagAlias", back_populates="feature_tag", cascade="all, delete-orphan")
+
+
+class FeatureTagAlias(Base):
+    """Feature tag alias table."""
+    __tablename__ = 'feature_tag_aliases'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    feature_tag_id = Column(Integer, ForeignKey('feature_tags.id'), nullable=False, index=True)
+    alias = Column(String(255), nullable=False, index=True)
+
+    feature_tag = relationship("FeatureTag", back_populates="aliases")
 
 
 class Image(Base):
@@ -206,6 +267,8 @@ class Image(Base):
     
     # 关联角色（多对多）
     characters = relationship("Character", secondary=image_character_association, back_populates="images")
+    groups = relationship("Group", secondary=image_group_association, back_populates="images")
+    feature_tags = relationship("FeatureTag", secondary=image_feature_tag_association, back_populates="images")
     
     def __repr__(self):
         return f"<Image(image_id='{self.image_id}', pid='{self.pid}')>"

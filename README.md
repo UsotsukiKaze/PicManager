@@ -20,13 +20,13 @@
 1) 初始化
 
 ```bash
-uv run init.py
+uv run pic init
 ```
 
 2) 启动
 
 ```bash
-uv run main.py
+uv run pic run
 ```
 
 3) 访问
@@ -75,13 +75,30 @@ uv sync
 ### 开发模式
 
 ```bash
-uv run main.py
+uv run pic run
 ```
 
 或：
 
 ```bash
 uv run uvicorn main:app --reload
+```
+
+### 命令行工具
+
+```bash
+uv run pic run                 # 启动 Web 服务
+uv run pic run --no-reload     # 生产式单进程启动
+uv run pic init                # 初始化目录与数据库
+uv run pic status              # 查看系统计数和路径
+uv run pic audit               # 检查缺失文件、孤儿文件和缩略图状态
+uv run pic audit --sync        # 检查并写回图片文件状态
+uv run pic cleanup             # 归档缺失原图的数据库记录
+uv run pic cleanup --mode delete
+uv run pic thumbs --limit 500  # 补生成缩略图
+uv run pic thumbs --force      # 强制重建缩略图
+uv run pic scan-temp           # 将 store 中未入库图片移回 temp
+uv run pic snapshot            # 创建数据库快照
 ```
 
 ## 配置

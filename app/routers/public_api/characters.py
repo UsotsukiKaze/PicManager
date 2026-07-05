@@ -51,6 +51,14 @@ def create_character(character: schemas.CharacterCreate, request: Request):
         if not group_exists:
             raise HTTPException(status_code=400, detail="选中的分组不存在")
 
+        if character.feature_tag_ids:
+            existing_tags = db.query(models.FeatureTag).filter(
+                models.FeatureTag.id.in_(character.feature_tag_ids)
+            ).all()
+            if len(existing_tags) != len(character.feature_tag_ids):
+                missing_ids = set(character.feature_tag_ids) - set(t.id for t in existing_tags)
+                raise HTTPException(status_code=400, detail=f"Selected feature tags do not exist: {missing_ids}")
+
         if is_admin or is_logged_in_user:
             return CharacterService.create_character(db, character)
 
@@ -62,7 +70,8 @@ def create_character(character: schemas.CharacterCreate, request: Request):
                 "name": character.name,
                 "group_id": character.group_id,
                 "description": character.description,
-                "nicknames": character.nicknames
+                "nicknames": character.nicknames,
+                "feature_tag_ids": character.feature_tag_ids or []
             })
         )
         db.add(pending_request)
@@ -115,6 +124,14 @@ def update_character(character_id: int, character_update: schemas.CharacterUpdat
             group_exists = db.query(models.Group).filter(models.Group.id == character_update.group_id).first()
             if not group_exists:
                 raise HTTPException(status_code=400, detail="选中的分组不存在")
+
+        if character_update.feature_tag_ids is not None:
+            existing_tags = db.query(models.FeatureTag).filter(
+                models.FeatureTag.id.in_(character_update.feature_tag_ids)
+            ).all() if character_update.feature_tag_ids else []
+            if len(existing_tags) != len(character_update.feature_tag_ids or []):
+                missing_ids = set(character_update.feature_tag_ids or []) - set(t.id for t in existing_tags)
+                raise HTTPException(status_code=400, detail=f"Selected feature tags do not exist: {missing_ids}")
 
         if is_admin:
             character = CharacterService.update_character(db, character_id, character_update)

@@ -5,6 +5,7 @@ from datetime import datetime
 # 分组相关模型
 class GroupBase(BaseModel):
     name: str
+    aliases: Optional[List[str]] = None
     description: Optional[str] = None
 
 class GroupCreate(GroupBase):
@@ -12,6 +13,7 @@ class GroupCreate(GroupBase):
 
 class GroupUpdate(BaseModel):
     name: Optional[str] = None
+    aliases: Optional[List[str]] = None
     description: Optional[str] = None
 
 class Group(GroupBase):
@@ -30,6 +32,7 @@ class CharacterBase(BaseModel):
     name: str
     nicknames: Optional[List[str]] = None
     group_id: int
+    feature_tag_ids: Optional[List[int]] = None
     description: Optional[str] = None
 
 class CharacterCreate(CharacterBase):
@@ -39,6 +42,7 @@ class CharacterUpdate(BaseModel):
     name: Optional[str] = None
     nicknames: Optional[List[str]] = None
     group_id: Optional[int] = None
+    feature_tag_ids: Optional[List[int]] = None
     description: Optional[str] = None
 
 class Character(CharacterBase):
@@ -51,6 +55,29 @@ class Character(CharacterBase):
 
 class CharacterWithGroupName(Character):
     group_name: str = ""
+    feature_tags: List[dict] = []
+
+# 特征标签相关模型
+class FeatureTagBase(BaseModel):
+    name: str
+    aliases: Optional[List[str]] = None
+    description: Optional[str] = None
+
+class FeatureTagCreate(FeatureTagBase):
+    pass
+
+class FeatureTagUpdate(BaseModel):
+    name: Optional[str] = None
+    aliases: Optional[List[str]] = None
+    description: Optional[str] = None
+
+class FeatureTag(FeatureTagBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
 
 # 图片相关模型
 class ImageBase(BaseModel):
@@ -59,11 +86,15 @@ class ImageBase(BaseModel):
 
 class ImageCreate(ImageBase):
     character_ids: List[int] = []
+    group_ids: List[int] = []
+    feature_tag_ids: List[int] = []
 
 class ImageUpdate(BaseModel):
     pid: Optional[str] = None
     description: Optional[str] = None
     character_ids: Optional[List[int]] = None
+    group_ids: Optional[List[int]] = None
+    feature_tag_ids: Optional[List[int]] = None
 
 class Image(ImageBase):
     image_id: str
@@ -81,17 +112,22 @@ class Image(ImageBase):
 
 class ImageWithCharacters(Image):
     characters: List[CharacterWithGroupName] = []
+    groups: List[Group] = []
+    feature_tags: List[FeatureTag] = []
 
 class RandomImageResponse(BaseModel):
     image_id: str
     file_path: str
     pid: Optional[str] = None
     characters: List[CharacterWithGroupName] = []
+    groups: List[Group] = []
+    feature_tags: List[FeatureTag] = []
 
 # 搜索和查询模型
 class ImageSearchParams(BaseModel):
     group_id: Optional[int] = None
     character_id: Optional[int] = None
+    feature_tag_id: Optional[int] = None
     pid: Optional[str] = None
     description: Optional[str] = None
     limit: Optional[int] = 50
@@ -106,6 +142,8 @@ class ImageSearchResult(BaseModel):
 # 上传相关模型
 class UploadImageRequest(BaseModel):
     character_ids: List[int]
+    group_ids: List[int] = []
+    feature_tag_ids: List[int] = []
     pid: Optional[str] = None
     description: Optional[str] = None
 
@@ -117,6 +155,8 @@ class UploadImageResponse(BaseModel):
 class TempImageUpload(BaseModel):
     filename: str
     character_ids: List[int]
+    group_ids: List[int] = []
+    feature_tag_ids: List[int] = []
     pid: Optional[str] = None
     description: Optional[str] = None
 

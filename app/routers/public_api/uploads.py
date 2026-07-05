@@ -67,6 +67,8 @@ async def upload_single_image(
     file: UploadFile = File(...),
     character_ids: str = Form(...),  # JSON字符串形式的角色ID列表
     group_id: Optional[str] = Form(None),
+    group_ids: Optional[str] = Form(None),
+    feature_tag_ids: Optional[str] = Form(None),
     pid: Optional[str] = Form(None),
     description: Optional[str] = Form(None)
 ):
@@ -82,6 +84,24 @@ async def upload_single_image(
         character_id_list = list(dict.fromkeys(character_id_list))
     except (json.JSONDecodeError, ValueError, TypeError) as e:
         raise HTTPException(status_code=400, detail=f"Invalid character_ids format: {str(e)}")
+
+    try:
+        group_id_list = json.loads(group_ids) if group_ids else []
+        if group_id:
+            group_id_list.append(int(group_id))
+        if not isinstance(group_id_list, list):
+            group_id_list = [group_id_list]
+        group_id_list = list(dict.fromkeys([int(gid) for gid in group_id_list]))
+    except (json.JSONDecodeError, ValueError, TypeError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid group_ids format: {str(e)}")
+
+    try:
+        feature_tag_id_list = json.loads(feature_tag_ids) if feature_tag_ids else []
+        if not isinstance(feature_tag_id_list, list):
+            feature_tag_id_list = [feature_tag_id_list]
+        feature_tag_id_list = list(dict.fromkeys([int(tid) for tid in feature_tag_id_list]))
+    except (json.JSONDecodeError, ValueError, TypeError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid feature_tag_ids format: {str(e)}")
     
     # 验证文件类型
     file_extension = (file.filename or "").split('.')[-1].lower()
@@ -120,6 +140,8 @@ async def upload_single_image(
                 store_path = settings.STORE_PATH
                 image_create = schemas.ImageCreate(
                     character_ids=character_id_list,
+                    group_ids=group_id_list,
+                    feature_tag_ids=feature_tag_id_list,
                     pid=pid,
                     description=description
                 )
@@ -137,7 +159,9 @@ async def upload_single_image(
                         image_id=image.image_id,
                         image_data=json.dumps({
                             "character_ids": character_id_list,
-                            "group_id": int(group_id) if group_id else None,
+                            "group_id": group_id_list[0] if group_id_list else None,
+                            "group_ids": group_id_list,
+                            "feature_tag_ids": feature_tag_id_list,
                             "pid": pid,
                             "description": description
                         }),
@@ -186,6 +210,22 @@ async def upload_single_image(
             except (ValueError, TypeError) as e:
                 validation_error = f"分组ID格式错误: {str(e)}"
 
+        if not validation_error and group_id_list:
+            existing_groups = db.query(models.Group).filter(
+                models.Group.id.in_(group_id_list)
+            ).all()
+            if len(existing_groups) != len(group_id_list):
+                missing_ids = set(group_id_list) - set(g.id for g in existing_groups)
+                validation_error = f"Selected groups do not exist: {missing_ids}"
+
+        if not validation_error and feature_tag_id_list:
+            existing_tags = db.query(models.FeatureTag).filter(
+                models.FeatureTag.id.in_(feature_tag_id_list)
+            ).all()
+            if len(existing_tags) != len(feature_tag_id_list):
+                missing_ids = set(feature_tag_id_list) - set(t.id for t in existing_tags)
+                validation_error = f"Selected feature tags do not exist: {missing_ids}"
+
         if validation_error:
             raise HTTPException(status_code=400, detail=validation_error)
 
@@ -205,7 +245,9 @@ async def upload_single_image(
                 guest_ip=guest_ip,
                 image_data=json.dumps({
                     "character_ids": character_id_list,
-                    "group_id": int(group_id) if group_id else None,
+                    "group_id": group_id_list[0] if group_id_list else None,
+                    "group_ids": group_id_list,
+                    "feature_tag_ids": feature_tag_id_list,
                     "pid": pid,
                     "description": description
                 }),
@@ -282,8 +324,24 @@ def upload_temp_image(temp_upload: schemas.TempImageUpload, request: Request):
             if len(existing_characters) != len(temp_upload.character_ids):
                 missing_ids = set(temp_upload.character_ids) - set(c.id for c in existing_characters)
                 raise HTTPException(status_code=400, detail=f"Selected characters do not exist: {missing_ids}")
+        if temp_upload.group_ids:
+            existing_groups = db.query(models.Group).filter(models.Group.id.in_(temp_upload.group_ids)).all()
+            if len(existing_groups) != len(temp_upload.group_ids):
+                missing_ids = set(temp_upload.group_ids) - set(g.id for g in existing_groups)
+                raise HTTPException(status_code=400, detail=f"Selected groups do not exist: {missing_ids}")
+        if temp_upload.feature_tag_ids:
+            existing_tags = db.query(models.FeatureTag).filter(models.FeatureTag.id.in_(temp_upload.feature_tag_ids)).all()
+            if len(existing_tags) != len(temp_upload.feature_tag_ids):
+                missing_ids = set(temp_upload.feature_tag_ids) - set(t.id for t in existing_tags)
+                raise HTTPException(status_code=400, detail=f"Selected feature tags do not exist: {missing_ids}")
 
-        image_create = schemas.ImageCreate(character_ids=temp_upload.character_ids, pid=temp_upload.pid, description=temp_upload.description)
+        image_create = schemas.ImageCreate(
+            character_ids=temp_upload.character_ids,
+            group_ids=temp_upload.group_ids,
+            feature_tag_ids=temp_upload.feature_tag_ids,
+            pid=temp_upload.pid,
+            description=temp_upload.description
+        )
         image = ImageService.create_image(db, image_create, str(image_path), temp_upload.filename, file_extension, settings.STORE_PATH)
 
         if is_admin and user_id:
@@ -292,7 +350,14 @@ def upload_temp_image(temp_upload: schemas.TempImageUpload, request: Request):
                 user_id=user_id,
                 status=RequestStatus.APPROVED.value,
                 image_id=image.image_id,
-                image_data=json.dumps({"character_ids": temp_upload.character_ids, "group_id": None, "pid": temp_upload.pid, "description": temp_upload.description}),
+                image_data=json.dumps({
+                    "character_ids": temp_upload.character_ids,
+                    "group_id": temp_upload.group_ids[0] if temp_upload.group_ids else None,
+                    "group_ids": temp_upload.group_ids,
+                    "feature_tag_ids": temp_upload.feature_tag_ids,
+                    "pid": temp_upload.pid,
+                    "description": temp_upload.description
+                }),
                 reviewed_at=datetime.utcnow(),
                 reviewed_by=user_id
             )

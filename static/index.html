@@ -156,6 +156,7 @@
                         <button class="tab-btn active" data-tab="image-list">图片</button>
                         <button class="tab-btn" data-tab="group-management">分组</button>
                         <button class="tab-btn" data-tab="character-management">角色</button>
+                        <button class="tab-btn" data-tab="feature-tag-management">特征标签</button>
                     </div>
 
                     <!-- 图片列表标签页 -->
@@ -270,6 +271,21 @@
                             <!-- 角色列表将通过JavaScript动态生成 -->
                         </div>
                     </div>
+
+                    <div class="tab-content" id="tab-feature-tag-management" style="display: none;">
+                        <div class="search-bar" style="margin-bottom: 24px;">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <button class="btn btn-primary" onclick="ui.showCreateFeatureTagModal()">添加特征标签</button>
+                                </div>
+                                <div class="form-group" style="flex: 1;">
+                                    <input type="text" id="feature-tag-search-input" class="form-input" placeholder="输入特征标签名">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="feature-tag-list" id="feature-tag-list"></div>
+                    </div>
                 </div>
             </div>
 
@@ -278,7 +294,7 @@
                 <div class="page-header">
                     <h2>上传图片</h2>
                 </div>
-                <div class="upload-intro">
+                <div class="upload-intro" style="display: none;">
                     <div>
                         <span class="home-kicker">添加图片</span>
                         <h3>选好图片，再补上分组和角色</h3>
@@ -314,7 +330,7 @@
                                 </div>
                                 <div class="upload-preview" id="single-preview" style="display: none;">
                                     <img id="single-preview-img" alt="预览图">
-                                    <div class="preview-info">
+                                    <div class="preview-info" style="display: none;">
                                         <p id="single-filename"></p>
                                     </div>
                                 </div>
@@ -323,17 +339,11 @@
                             <div class="upload-form" id="single-upload-form" style="display: none;">
                                 <div class="single-filename-info" id="single-filename-info"></div>
                                 <div class="form-group">
-                                    <label for="single-group-select">分组</label>
-                                    <select id="single-group-select" class="form-select" required>
-                                        <option value="">先选分组</option>
-                                    </select>
+                                    <label>标签</label>
+                                    <div id="single-tag-selector"></div>
                                     <button type="button" class="btn-link" onclick="showCreateGroupModal(true)">添加分组</button>
-                                </div>
-
-                                <div class="form-group">
-                                    <label>角色</label>
-                                    <div id="single-character-selector"></div>
                                     <button type="button" class="btn-link" onclick="showCreateCharacterModal(true)">添加角色</button>
+                                    <button type="button" class="btn-link" onclick="ui.showCreateFeatureTagModal(true)">添加特征</button>
                                 </div>
 
                                 <div class="form-group">
@@ -508,6 +518,7 @@
     <!-- JavaScript -->
     <script src="/static/js/pinyin-search.js?v=20260622a"></script>
     <script src="/static/js/character-selector.js?v=20260622a"></script>
+    <script src="/static/js/tag-selector.js?v=20260622a"></script>
     <script src="/static/js/api.js?v=20260622a"></script>
     <script src="/static/js/ui.js?v=20260622a"></script>
     <script src="/static/js/upload.js?v=20260622a"></script>

@@ -21,6 +21,7 @@ router = APIRouter()
 def search_images(
     group_id: Optional[int] = None,
     character_id: Optional[int] = None,
+    feature_tag_id: Optional[int] = None,
     pid: Optional[str] = None,
     description: Optional[str] = None,
     limit: int = 50,
@@ -43,6 +44,7 @@ def search_images(
         params = schemas.ImageSearchParams(
             group_id=group_id,
             character_id=character_id,
+            feature_tag_id=feature_tag_id,
             pid=pid,
             description=description,
             limit=limit,
@@ -127,6 +129,34 @@ def update_image(image_id: str, image_update: schemas.ImageUpdate, request: Requ
                     missing_ids = set(character_ids) - set(c.id for c in existing_characters)
                     raise HTTPException(status_code=400, detail=f"选中的某些角色不存在: {missing_ids}")
             image_update.character_ids = character_ids
+
+        if image_update.group_ids is not None:
+            try:
+                group_ids = list(dict.fromkeys([int(gid) for gid in image_update.group_ids]))
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="Invalid group_ids format")
+            if group_ids:
+                existing_groups = db.query(models.Group).filter(
+                    models.Group.id.in_(group_ids)
+                ).all()
+                if len(existing_groups) != len(group_ids):
+                    missing_ids = set(group_ids) - set(g.id for g in existing_groups)
+                    raise HTTPException(status_code=400, detail=f"Selected groups do not exist: {missing_ids}")
+            image_update.group_ids = group_ids
+
+        if image_update.feature_tag_ids is not None:
+            try:
+                feature_tag_ids = list(dict.fromkeys([int(tid) for tid in image_update.feature_tag_ids]))
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="Invalid feature_tag_ids format")
+            if feature_tag_ids:
+                existing_tags = db.query(models.FeatureTag).filter(
+                    models.FeatureTag.id.in_(feature_tag_ids)
+                ).all()
+                if len(existing_tags) != len(feature_tag_ids):
+                    missing_ids = set(feature_tag_ids) - set(t.id for t in existing_tags)
+                    raise HTTPException(status_code=400, detail=f"Selected feature tags do not exist: {missing_ids}")
+            image_update.feature_tag_ids = feature_tag_ids
         
         if is_admin:
             # 管理员直接更新
@@ -144,7 +174,9 @@ def update_image(image_id: str, image_update: schemas.ImageUpdate, request: Requ
             image_data=json.dumps({
                 "pid": image_update.pid,
                 "description": image_update.description,
-                "character_ids": image_update.character_ids
+                "character_ids": image_update.character_ids,
+                "group_ids": image_update.group_ids,
+                "feature_tag_ids": image_update.feature_tag_ids
             })
         )
         db.add(pending_request)

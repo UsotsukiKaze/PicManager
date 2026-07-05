@@ -14,6 +14,7 @@ class UIManager {
         // 存储所有分组和角色数据用于搜索
         this.allGroups = [];
         this.allCharacters = [];
+        this.allFeatureTags = [];
         
         // 模态框状态管理
         this.modalStack = [];
@@ -23,6 +24,7 @@ class UIManager {
         this.dataCache = {
             groups: { data: null, timestamp: 0 },
             characters: { data: null, timestamp: 0 },
+            featureTags: { data: null, timestamp: 0 },
             images: { data: null, timestamp: 0, params: null }
         };
         this.cacheTimeout = 30000; // 缓存有效期30秒
@@ -117,6 +119,9 @@ class UIManager {
         document.addEventListener('input', (e) => {
             if (e.target.id === 'character-search-input') {
                 this.filterCharacters(e.target.value);
+            }
+            if (e.target.id === 'feature-tag-search-input') {
+                this.filterFeatureTags(e.target.value);
             }
         });
 
@@ -310,6 +315,9 @@ class UIManager {
             case 'character-management':
                 this.loadCharacters();
                 break;
+            case 'feature-tag-management':
+                this.loadFeatureTags();
+                break;
             case 'temp-upload':
                 // 调用upload对象的loadTempImages方法
                 if (window.upload) {
@@ -342,7 +350,8 @@ class UIManager {
         // 并行加载数据
         await Promise.all([
             this.loadGroupsData(),
-            this.loadCharactersData()
+            this.loadCharactersData(),
+            this.loadFeatureTagsData()
         ]);
         
         await this.updateUploadOptions();
@@ -408,7 +417,8 @@ class UIManager {
         
         await Promise.all([
             this.loadGroupsData(true),
-            this.loadCharactersData(true)
+            this.loadCharactersData(true),
+            this.loadFeatureTagsData(true)
         ]);
         
         // 重新渲染下拉选项
@@ -574,9 +584,17 @@ class UIManager {
         try {
             const groups = await api.getGroups();
             const characters = await api.getCharacters();
+            const featureTags = await api.getFeatureTags();
+            this.allGroups = groups;
+            this.allCharacters = characters;
+            this.allFeatureTags = featureTags;
+            if (window.upload && upload.singleTagSelector) {
+                upload.singleTagSelector.setData({ groups, characters, featureTags });
+            }
 
             // 更新单张上传的分组选择器
             const singleGroupSelect = document.getElementById('single-group-select');
+            if (!singleGroupSelect) return;
             singleGroupSelect.innerHTML = '<option value="">先选分组</option>';
             groups.forEach(group => {
                 singleGroupSelect.innerHTML += `<option value="${group.id}">${group.name}</option>`;
@@ -630,6 +648,26 @@ class UIManager {
         }
     }
 
+    async loadFeatureTagsData(forceRefresh = false) {
+        if (!forceRefresh && this.isCacheValid('featureTags')) {
+            this.allFeatureTags = this.dataCache.featureTags.data;
+            return this.allFeatureTags;
+        }
+
+        try {
+            const tags = await api.getFeatureTags();
+            this.allFeatureTags = tags;
+            this.updateCache('featureTags', tags);
+            if (window.PinyinSearch) {
+                window.PinyinSearch.learnWords(tags.map(tag => tag.name));
+            }
+            return tags;
+        } catch (error) {
+            this.showToast('加载特征标签失败', 'error');
+            return this.allFeatureTags || [];
+        }
+    }
+
     getImageFilename(image) {
         return `${image.image_id}.${image.file_extension}`;
     }
@@ -677,10 +715,7 @@ class UIManager {
                 <div class="image-card-info">
                     <div class="image-card-id">${image.image_id}</div>
                     <div class="image-card-characters">
-                        ${image.characters.map(char => {
-                            const groupName = char.group_name || (char.group && char.group.name) || '未知分组';
-                            return `${groupName} - ${char.name}`;
-                        }).join(', ')}
+                        ${this.formatImageTags(image)}
                     </div>
                     ${image.pid ? `<div class="image-card-pid">PID: ${image.pid}</div>` : ''}
                 </div>
@@ -693,6 +728,26 @@ class UIManager {
                 this.showImageDetail(imageId);
             });
         });
+    }
+
+    formatImageTags(image) {
+        const groups = image.groups || [];
+        const characters = image.characters || [];
+        const usedGroupIds = new Set();
+        const parts = groups.map(group => {
+            const names = characters
+                .filter(character => character.group_id === group.id)
+                .map(character => character.name);
+            usedGroupIds.add(group.id);
+            return [group.name, ...names].join('-');
+        });
+        characters
+            .filter(character => !usedGroupIds.has(character.group_id))
+            .forEach(character => {
+                const groupName = character.group_name || (character.group && character.group.name);
+                parts.push([groupName, character.name].filter(Boolean).join('-'));
+            });
+        return parts.length ? parts.join(' ') : '未添加标签';
     }
 
     buildPageWindow(totalPages, currentPage) {
@@ -803,11 +858,15 @@ class UIManager {
     }
     
     filterGroups(query) {
-        if (!window.PinyinSearch) {
-            console.error('PinyinSearch not loaded');
-            return;
-        }
-        const filtered = window.PinyinSearch.filter(this.allGroups, query, 'name');
+        const q = String(query || '').trim().toLowerCase();
+        const filtered = !q
+            ? this.allGroups
+            : this.allGroups.filter(group => {
+                const aliases = Array.isArray(group.aliases) ? group.aliases : [];
+                const textMatched = String(group.name).toLowerCase().includes(q)
+                    || aliases.some(alias => String(alias).toLowerCase().includes(q));
+                return textMatched || (window.PinyinSearch && window.PinyinSearch.filter([group], query, 'name').length > 0);
+            });
         this.renderGroupList(filtered);
     }
 
@@ -823,7 +882,10 @@ class UIManager {
             <div class="list-item">
                 <div class="list-item-info">
                     <div class="list-item-name">${group.name}</div>
-                    <div class="list-item-description">${group.description || '无描述'}</div>
+                    <div class="list-item-description">
+                        ${group.description || '无描述'}
+                        ${group.aliases && group.aliases.length ? ` | 别称: ${group.aliases.join(' / ')}` : ''}
+                    </div>
                 </div>
                 <div class="list-item-actions">
                     <button class="action-btn edit" onclick="ui.editGroup(${group.id})">编辑</button>
@@ -1004,11 +1066,55 @@ class UIManager {
                     <div class="list-item-description">
                         分组: ${character.group_name}
                         ${character.nicknames && character.nicknames.length ? ` | 昵称: ${character.nicknames.join(' / ')}` : ''}
+                        ${character.feature_tags && character.feature_tags.length ? ` | 特征: ${character.feature_tags.map(tag => tag.name).join(' / ')}` : ''}
                     </div>
                 </div>
                 <div class="list-item-actions">
                     <button class="action-btn edit" onclick="ui.editCharacter(${character.id})">编辑</button>
                     <button class="action-btn delete" onclick="ui.deleteCharacter(${character.id})">删除</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    async loadFeatureTags() {
+        const tags = await this.loadFeatureTagsData();
+        this.renderFeatureTagList(tags);
+    }
+
+    filterFeatureTags(query) {
+        const source = this.allFeatureTags || [];
+        const q = String(query || '').trim().toLowerCase();
+        const filtered = !q
+            ? source
+            : source.filter(tag => {
+                const aliases = Array.isArray(tag.aliases) ? tag.aliases : [];
+                const textMatched = String(tag.name).toLowerCase().includes(q)
+                    || aliases.some(alias => String(alias).toLowerCase().includes(q));
+                return textMatched || (window.PinyinSearch && window.PinyinSearch.filter([tag], query, 'name').length > 0);
+            });
+        this.renderFeatureTagList(filtered);
+    }
+
+    renderFeatureTagList(tags) {
+        const container = document.getElementById('feature-tag-list');
+        if (!container) return;
+        if (!tags.length) {
+            container.innerHTML = '<div class="empty-state">暂无特征标签</div>';
+            return;
+        }
+        container.innerHTML = tags.map(tag => `
+            <div class="list-item">
+                <div class="list-item-info">
+                    <div class="list-item-name">${tag.name}</div>
+                    <div class="list-item-description">
+                        ${tag.description || '无描述'}
+                        ${tag.aliases && tag.aliases.length ? ` | 别称: ${tag.aliases.join(' / ')}` : ''}
+                    </div>
+                </div>
+                <div class="list-item-actions">
+                    <button class="action-btn edit" onclick="ui.editFeatureTag(${tag.id})">编辑</button>
+                    <button class="action-btn delete" onclick="ui.deleteFeatureTag(${tag.id})">删除</button>
                 </div>
             </div>
         `).join('');
@@ -1193,6 +1299,18 @@ class UIManager {
         if (batchItem) {
             this.restoreBatchSelectors();
         }
+        this.restoreImageTagSelectors();
+    }
+
+    restoreImageTagSelectors() {
+        if (!window.imageTagSelectors) return;
+        Object.entries(window.imageTagSelectors).forEach(([id, selector]) => {
+            const container = document.getElementById(id);
+            if (!container || !selector) return;
+            selector.container = container;
+            selector.render();
+            if (selector.refreshData) selector.refreshData();
+        });
     }
     
     /**
@@ -1300,6 +1418,28 @@ class UIManager {
     async refreshModalSelectors(newItemId, itemType, groupId = null) {
         // 等待模态框DOM更新
         await new Promise(resolve => setTimeout(resolve, 100));
+        if (window.imageTagSelectors) {
+            await Promise.all(Object.values(window.imageTagSelectors).map(async selector => {
+                if (selector && selector.refreshData) {
+                    await selector.refreshData();
+                }
+            }));
+            Object.entries(window.imageTagSelectors).forEach(([id, selector]) => {
+                const container = document.getElementById(id);
+                if (!container || !container.closest('#modal-body') || !selector) return;
+                if (itemType === 'group') {
+                    selector.addUnique('group_ids', [newItemId]);
+                    selector.notify();
+                } else if (itemType === 'character') {
+                    selector.addUnique('character_ids', [newItemId]);
+                    if (groupId) selector.addUnique('group_ids', [groupId]);
+                    selector.notify();
+                } else if (itemType === 'feature_tag') {
+                    selector.addUnique('feature_tag_ids', [newItemId]);
+                    selector.notify();
+                }
+            });
+        }
         
         // 处理temp上传模态框
         const tempGroupSelect = document.getElementById('temp-group-select');
@@ -1412,6 +1552,13 @@ class UIManager {
         }, duration);
     }
 
+    parseAliasInput(elementId) {
+        const element = document.getElementById(elementId);
+        return element
+            ? element.value.split(',').map(item => item.trim()).filter(Boolean)
+            : [];
+    }
+
     // 模态框相关方法
     async showCreateGroupModal(isNested = false) {
         const content = `
@@ -1419,6 +1566,10 @@ class UIManager {
                 <div class="form-group">
                     <label for="group-name">分组名称</label>
                     <input type="text" id="group-name" class="form-input" required>
+                </div>
+                <div class="form-group">
+                    <label for="group-aliases">分组别称</label>
+                    <input type="text" id="group-aliases" class="form-input" placeholder="多个别称用英文逗号分隔">
                 </div>
                 <div class="form-group">
                     <label for="group-description">备注</label>
@@ -1443,6 +1594,7 @@ class UIManager {
         try {
             const data = {
                 name: document.getElementById('group-name').value,
+                aliases: this.parseAliasInput('group-aliases'),
                 description: document.getElementById('group-description').value || null
             };
             
@@ -1490,12 +1642,13 @@ class UIManager {
     async showCreateCharacterModal(isNested = false) {
         try {
             const groups = await api.getGroups();
+            const featureTags = await api.getFeatureTags();
             const groupOptions = groups.map(group => 
                 `<option value="${group.id}">${group.name}</option>`
             ).join('');
             
             const content = `
-                <form id="create-character-form">
+                <form id="create-character-form" onsubmit="event.preventDefault(); ui.createCharacter(${isNested});">
                     <div class="form-group">
                         <label for="character-name">角色名称</label>
                         <input type="text" id="character-name" class="form-input" required>
@@ -1512,6 +1665,11 @@ class UIManager {
                         <input type="text" id="character-nicknames" class="form-input" placeholder="多个昵称用英文逗号分隔">
                     </div>
                     <div class="form-group">
+                        <label>特征标签</label>
+                        <div id="create-character-feature-selector"></div>
+                        <button type="button" class="btn-link" onclick="ui.showCreateFeatureTagModal(true)">添加特征</button>
+                    </div>
+                    <div class="form-group">
                         <label for="character-description">备注</label>
                         <textarea id="character-description" class="form-textarea"></textarea>
                     </div>
@@ -1523,11 +1681,13 @@ class UIManager {
             `;
             
             this.showModal('添加角色', content, isNested);
-            
-            document.getElementById('create-character-form').addEventListener('submit', async (e) => {
-                e.preventDefault();
-                await this.createCharacter(isNested);
+            const featureSelector = new ImageTagSelector('create-character-feature-selector', {
+                title: '选择角色特征标签',
+                allowedTypes: ['feature_tag']
             });
+            window.imageTagSelectors['create-character-feature-selector'] = featureSelector;
+            featureSelector.setData({ groups: [], characters: [], featureTags });
+
         } catch (error) {
             this.showToast('加载分组失败', 'error');
         }
@@ -1542,6 +1702,9 @@ class UIManager {
                     .split(',')
                     .map(item => item.trim())
                     .filter(Boolean),
+                feature_tag_ids: window.imageTagSelectors['create-character-feature-selector']
+                    ? window.imageTagSelectors['create-character-feature-selector'].getValue().feature_tag_ids
+                    : [],
                 description: document.getElementById('character-description').value || null
             };
             
@@ -1598,6 +1761,119 @@ class UIManager {
     }
 
     // 分组编辑和删除
+    showCreateFeatureTagModal(isNested = false) {
+        const content = `
+            <form id="create-feature-tag-form">
+                <div class="form-group">
+                    <label for="feature-tag-name">特征名称</label>
+                    <input type="text" id="feature-tag-name" class="form-input" required>
+                </div>
+                <div class="form-group">
+                    <label for="feature-tag-aliases">特征别称</label>
+                    <input type="text" id="feature-tag-aliases" class="form-input" placeholder="多个别称用英文逗号分隔">
+                </div>
+                <div class="form-group">
+                    <label for="feature-tag-description">备注</label>
+                    <textarea id="feature-tag-description" class="form-textarea"></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="ui.closeModal()">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        `;
+        this.showModal('添加特征标签', content, isNested);
+        document.getElementById('create-feature-tag-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            await this.createFeatureTag(isNested);
+        });
+    }
+
+    async createFeatureTag(isNested = false) {
+        try {
+            const tag = await api.createFeatureTag({
+                name: document.getElementById('feature-tag-name').value,
+                aliases: this.parseAliasInput('feature-tag-aliases'),
+                description: document.getElementById('feature-tag-description').value || null
+            });
+            this.invalidateCache('featureTags');
+            await this.loadFeatureTagsData(true);
+            this.showToast('特征标签创建成功', 'success');
+            this.closeModal();
+            this.loadFeatureTags();
+            this.updateUploadOptions();
+            if (isNested && tag && tag.id) {
+                await this.refreshModalSelectors(tag.id, 'feature_tag');
+            }
+            return tag;
+        } catch (error) {
+            this.showToast(`创建特征标签失败: ${error.message}`, 'error');
+        }
+    }
+
+    async editFeatureTag(tagId) {
+        const tags = await this.loadFeatureTagsData();
+        const tag = tags.find(item => item.id === tagId);
+        if (!tag) return;
+        const content = `
+            <form id="edit-feature-tag-form">
+                <div class="form-group">
+                    <label for="edit-feature-tag-name">特征名称</label>
+                    <input type="text" id="edit-feature-tag-name" class="form-input" value="${tag.name}" required>
+                </div>
+                <div class="form-group">
+                    <label for="edit-feature-tag-aliases">特征别称</label>
+                    <input type="text" id="edit-feature-tag-aliases" class="form-input" value="${(tag.aliases || []).join(', ')}" placeholder="多个别称用英文逗号分隔">
+                </div>
+                <div class="form-group">
+                    <label for="edit-feature-tag-description">备注</label>
+                    <textarea id="edit-feature-tag-description" class="form-textarea">${tag.description || ''}</textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="ui.closeModal()">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        `;
+        this.showModal('编辑特征标签', content);
+        document.getElementById('edit-feature-tag-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            await this.updateFeatureTag(tagId);
+        });
+    }
+
+    async updateFeatureTag(tagId) {
+        try {
+            await api.updateFeatureTag(tagId, {
+                name: document.getElementById('edit-feature-tag-name').value,
+                aliases: this.parseAliasInput('edit-feature-tag-aliases'),
+                description: document.getElementById('edit-feature-tag-description').value || null
+            });
+            this.invalidateCache('featureTags');
+            this.showToast('特征标签更新成功', 'success');
+            this.closeModal();
+            await this.loadFeatureTagsData(true);
+            this.loadFeatureTags();
+            this.updateUploadOptions();
+        } catch (error) {
+            this.showToast(`更新特征标签失败: ${error.message}`, 'error');
+        }
+    }
+
+    async deleteFeatureTag(tagId) {
+        if (!confirm('确定要删除这个特征标签吗？')) return;
+        try {
+            await api.deleteFeatureTag(tagId);
+            this.invalidateCache('featureTags');
+            this.showToast('特征标签删除成功', 'success');
+            await this.loadFeatureTagsData(true);
+            this.loadFeatureTags();
+            this.updateUploadOptions();
+        } catch (error) {
+            this.showToast(`删除特征标签失败: ${error.message}`, 'error');
+        }
+    }
+
     async editGroup(groupId) {
         try {
             const group = await api.getGroups();
@@ -1613,6 +1889,10 @@ class UIManager {
                     <div class="form-group">
                         <label for="edit-group-name">分组名称</label>
                         <input type="text" id="edit-group-name" class="form-input" value="${currentGroup.name}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-group-aliases">分组别称</label>
+                        <input type="text" id="edit-group-aliases" class="form-input" value="${(currentGroup.aliases || []).join(', ')}" placeholder="多个别称用英文逗号分隔">
                     </div>
                     <div class="form-group">
                         <label for="edit-group-description">备注</label>
@@ -1640,6 +1920,7 @@ class UIManager {
         try {
             const data = {
                 name: document.getElementById('edit-group-name').value,
+                aliases: this.parseAliasInput('edit-group-aliases'),
                 description: document.getElementById('edit-group-description').value || null
             };
             
@@ -1687,6 +1968,7 @@ class UIManager {
         try {
             const characters = await api.getCharacters();
             const groups = await api.getGroups();
+            const featureTags = await api.getFeatureTags();
             const currentCharacter = characters.find(c => c.id === characterId);
             
             if (!currentCharacter) {
@@ -1697,9 +1979,10 @@ class UIManager {
             const groupOptions = groups.map(group => 
                 `<option value="${group.id}" ${group.id === currentCharacter.group_id ? 'selected' : ''}>${group.name}</option>`
             ).join('');
+            const selectedFeatureIds = currentCharacter.feature_tag_ids || (currentCharacter.feature_tags || []).map(tag => tag.id);
             
             const content = `
-                <form id="edit-character-form">
+                <form id="edit-character-form" onsubmit="event.preventDefault(); ui.updateCharacter(${characterId});">
                     <div class="form-group">
                         <label for="edit-character-name">角色名称</label>
                         <input type="text" id="edit-character-name" class="form-input" value="${currentCharacter.name}" required>
@@ -1715,6 +1998,11 @@ class UIManager {
                         <input type="text" id="edit-character-nicknames" class="form-input" value="${(currentCharacter.nicknames || []).join(', ')}" placeholder="多个昵称用英文逗号分隔">
                     </div>
                     <div class="form-group">
+                        <label>特征标签</label>
+                        <div id="edit-character-feature-selector"></div>
+                        <button type="button" class="btn-link" onclick="ui.showCreateFeatureTagModal(true)">添加特征</button>
+                    </div>
+                    <div class="form-group">
                         <label for="edit-character-description">备注</label>
                         <textarea id="edit-character-description" class="form-textarea">${currentCharacter.description || ''}</textarea>
                     </div>
@@ -1726,11 +2014,13 @@ class UIManager {
             `;
             
             this.showModal('编辑角色', content);
-            
-            document.getElementById('edit-character-form').addEventListener('submit', async (e) => {
-                e.preventDefault();
-                await this.updateCharacter(characterId);
+            const featureSelector = new ImageTagSelector('edit-character-feature-selector', {
+                title: '选择角色特征标签',
+                allowedTypes: ['feature_tag']
             });
+            window.imageTagSelectors['edit-character-feature-selector'] = featureSelector;
+            featureSelector.setData({ groups: [], characters: [], featureTags });
+            featureSelector.setSelected({ group_ids: [], character_ids: [], feature_tag_ids: selectedFeatureIds });
         } catch (error) {
             this.showToast(`加载角色信息失败: ${error.message}`, 'error');
         }
@@ -1745,6 +2035,9 @@ class UIManager {
                     .split(',')
                     .map(item => item.trim())
                     .filter(Boolean),
+                feature_tag_ids: window.imageTagSelectors['edit-character-feature-selector']
+                    ? window.imageTagSelectors['edit-character-feature-selector'].getValue().feature_tag_ids
+                    : [],
                 description: document.getElementById('edit-character-description').value || null
             };
             
@@ -1785,30 +2078,54 @@ class UIManager {
             this.showToast(`删除角色失败: ${error.message}`, 'error');
         }
     }
+
+    renderDetailChips(items, type, fallback = '无') {
+        const list = items || [];
+        if (!list.length) return `<span class="detail-chip detail-chip-muted">${fallback}</span>`;
+        return list.map(item => `
+            <span class="detail-chip detail-chip-${type}">
+                <span>${item.name}</span>
+                ${item.group_name && type === 'character' ? `<small>${item.group_name}</small>` : ''}
+            </span>
+        `).join('');
+    }
+
+    renderImageMeta(image) {
+        const size = image.file_size ? `${(image.file_size / 1024 / 1024).toFixed(2)} MB` : '未知';
+        const resolution = image.width && image.height ? `${image.width} x ${image.height}` : '未知';
+        return [
+            ['图片编号', image.image_id],
+            ['原始文件', image.original_filename || '未知'],
+            ['文件大小', size],
+            ['分辨率', resolution],
+            ['PID', image.pid || '无'],
+            ['创建时间', new Date(image.created_at).toLocaleString()]
+        ].map(([label, value]) => `
+            <div class="detail-meta-item">
+                <span>${label}</span>
+                <strong>${value}</strong>
+            </div>
+        `).join('');
+    }
     
     // 图片编辑和删除
     async editImage(imageId) {
         try {
-            const image = await api.getImage(imageId);
-            const groups = await api.getGroups();
-            
-            const groupOptions = groups.map(group => 
-                `<option value="${group.id}">${group.name}</option>`
-            ).join('');
+            const [image, groups, characters, featureTags] = await Promise.all([
+                api.getImage(imageId),
+                api.getGroups(),
+                api.getCharacters(),
+                api.getFeatureTags()
+            ]);
             
             const content = `
-                <form id="edit-image-form">
+                <form id="edit-image-form" onsubmit="event.preventDefault(); ui.updateImage('${imageId}');">
                     <div class="form-group">
-                        <label for="edit-image-group">分组</label>
-                        <select id="edit-image-group" class="form-select" required>
-                            <option value="">先选分组</option>
-                            ${groupOptions}
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="edit-image-characters">角色</label>
-                        <select id="edit-image-characters" class="form-select" multiple required>
-                        </select>
+                        <label>标签</label>
+                        <div id="edit-image-tag-selector"></div>
+                        <button type="button" class="btn-link" onclick="showCreateGroupModal(true)">添加分组</button>
+                        <button type="button" class="btn-link" onclick="showCreateCharacterModal(true)">添加角色</button>
+                        <button type="button" class="btn-link" onclick="ui.showCreateFeatureTagModal(true)">添加特征</button>
                     </div>
                     <div class="form-group">
                         <label for="edit-image-pid">PID</label>
@@ -1826,33 +2143,15 @@ class UIManager {
             `;
             
             this.showModal('编辑图片', content);
-            
-            // 监听分组变化
-            const groupSelect = document.getElementById('edit-image-group');
-            const characterSelect = document.getElementById('edit-image-characters');
-            
-            groupSelect.addEventListener('change', async () => {
-                const groupId = groupSelect.value;
-                if (groupId) {
-                    const characters = await api.getCharacters(parseInt(groupId));
-                    characterSelect.innerHTML = '';
-                    characters.forEach(character => {
-                        const selected = image.characters.some(c => c.id === character.id);
-                        characterSelect.innerHTML += `<option value="${character.id}" ${selected ? 'selected' : ''}>${character.name}</option>`;
-                    });
-                }
+            const tagSelector = new ImageTagSelector('edit-image-tag-selector', { title: '编辑图片标签' });
+            window.imageTagSelectors['edit-image-tag-selector'] = tagSelector;
+            tagSelector.setData({ groups, characters, featureTags });
+            tagSelector.setSelected({
+                group_ids: (image.groups || []).map(group => group.id),
+                character_ids: (image.characters || []).map(character => character.id),
+                feature_tag_ids: (image.feature_tags || []).map(tag => tag.id)
             });
             
-            // 如果图片已有角色，加载第一个角色的分组
-            if (image.characters.length > 0) {
-                groupSelect.value = image.characters[0].group_id;
-                groupSelect.dispatchEvent(new Event('change'));
-            }
-            
-            document.getElementById('edit-image-form').addEventListener('submit', async (e) => {
-                e.preventDefault();
-                await this.updateImage(imageId);
-            });
         } catch (error) {
             this.showToast(`加载图片信息失败: ${error.message}`, 'error');
         }
@@ -1860,16 +2159,24 @@ class UIManager {
     
     async updateImage(imageId) {
         try {
-            const characterSelect = document.getElementById('edit-image-characters');
-            const selectedCharacters = Array.from(characterSelect.selectedOptions).map(option => parseInt(option.value));
+            const selectedTags = window.imageTagSelectors['edit-image-tag-selector']
+                ? window.imageTagSelectors['edit-image-tag-selector'].getValue()
+                : { group_ids: [], character_ids: [], feature_tag_ids: [] };
+            const selectedCharacters = selectedTags.character_ids || [];
             
             if (selectedCharacters.length === 0) {
                 this.showToast('请选择至少一个角色', 'error');
                 return;
             }
+            if ((selectedTags.group_ids || []).length === 0) {
+                this.showToast('请至少添加一个分组标签', 'error');
+                return;
+            }
             
             const data = {
                 character_ids: selectedCharacters,
+                group_ids: selectedTags.group_ids || [],
+                feature_tag_ids: selectedTags.feature_tag_ids || [],
                 pid: document.getElementById('edit-image-pid').value || null,
                 description: document.getElementById('edit-image-description').value || null
             };
@@ -1909,25 +2216,39 @@ class UIManager {
         try {
             const image = await api.getImage(imageId);
             const content = `
-                <div class="image-detail">
-                    <img src="${this.getImageUrl(image)}" loading="eager" decoding="async" 
-                         alt="Image ${image.image_id}" style="max-width: 100%; height: auto; border-radius: 8px; margin-bottom: 16px;">
-                    
-                    <div class="detail-info">
-                        <p><strong>图片编号:</strong> ${image.image_id}</p>
-                        <p><strong>原始文件名:</strong> ${image.original_filename || '未知'}</p>
-                        <p><strong>文件大小:</strong> ${image.file_size ? (image.file_size / 1024 / 1024).toFixed(2) + ' MB' : '未知'}</p>
-                        <p><strong>分辨率:</strong> ${image.width && image.height ? `${image.width}x${image.height}` : '未知'}</p>
-                        <p><strong>PID:</strong> ${image.pid || '无'}</p>
-                        <p><strong>备注:</strong> ${image.description || '无'}</p>
-                        <p><strong>角色:</strong> ${image.characters.map(char => {
-                            const groupName = char.group_name || (char.group && char.group.name) || '未知分组';
-                            return `${groupName} - ${char.name}`;
-                        }).join(', ')}</p>
-                        <p><strong>创建时间:</strong> ${new Date(image.created_at).toLocaleString()}</p>
+                <div class="image-detail-card">
+                    <div class="image-detail-media">
+                        <img src="${this.getImageUrl(image)}" loading="eager" decoding="async" alt="Image ${image.image_id}">
+                    </div>
+                    <div class="image-detail-panel">
+                        <div class="image-detail-head">
+                            <div>
+                                <span>图片名片</span>
+                                <h3>${this.formatImageTags(image)}</h3>
+                            </div>
+                        </div>
+                        <div class="detail-meta-grid">
+                            ${this.renderImageMeta(image)}
+                        </div>
+                        <div class="detail-tag-section">
+                            <label>分组</label>
+                            <div class="detail-chip-row">${this.renderDetailChips(image.groups, 'group')}</div>
+                        </div>
+                        <div class="detail-tag-section">
+                            <label>角色</label>
+                            <div class="detail-chip-row">${this.renderDetailChips(image.characters, 'character')}</div>
+                        </div>
+                        <div class="detail-tag-section">
+                            <label>特征</label>
+                            <div class="detail-chip-row">${this.renderDetailChips(image.feature_tags, 'feature_tag')}</div>
+                        </div>
+                        <div class="detail-note">
+                            <span>备注</span>
+                            <p>${image.description || '无'}</p>
+                        </div>
                     </div>
                     
-                    <div class="detail-actions" style="margin-top: 20px; display: flex; gap: 12px;">
+                    <div class="detail-actions">
                         <button class="btn btn-primary" onclick="ui.editImage('${image.image_id}')">编辑</button>
                         <button class="btn btn-danger" onclick="ui.deleteImage('${image.image_id}')">删除</button>
                         <button class="btn btn-secondary" onclick="ui.closeModal()">关闭</button>

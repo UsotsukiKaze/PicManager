@@ -5,6 +5,7 @@ class UploadManager {
         this.batchFiles = [];
         this.singleFile = null;
         this.singleCharacterSelector = null;
+        this.singleTagSelector = null;
         this.tempLoadTimer = null;
     }
 
@@ -90,9 +91,16 @@ class UploadManager {
         this.showSingleFileInfo(file);
         
         // 初始化角色标签选择器
-        if (!this.singleCharacterSelector) {
-            this.singleCharacterSelector = new CharacterSelector('single-character-selector');
-            window.characterSelectors['single-character-selector'] = this.singleCharacterSelector;
+        if (!this.singleTagSelector) {
+            this.singleTagSelector = new ImageTagSelector('single-tag-selector', { title: '添加图片标签' });
+            window.imageTagSelectors['single-tag-selector'] = this.singleTagSelector;
+        }
+        if (window.ui) {
+            this.singleTagSelector.setData({
+                groups: ui.allGroups || [],
+                characters: ui.allCharacters || [],
+                featureTags: ui.allFeatureTags || []
+            });
         }
     }
 
@@ -127,6 +135,7 @@ class UploadManager {
         }
 
         this.batchFiles = validFiles;
+        document.getElementById('tab-batch-upload')?.classList.add('has-batch-files');
         this.renderBatchList();
     }
 
@@ -148,14 +157,8 @@ class UploadManager {
                             <div class="batch-filename">(${(file.size / 1024 / 1024).toFixed(2)} MB) ${file.name}</div>
                             <div class="batch-form">
                                 <div class="batch-form-group">
-                                    <label class="batch-label">分组</label>
-                                    <select class="batch-group form-select" required>
-                                        <option value="">先选分组</option>
-                                    </select>
-                                </div>
-                                <div class="batch-form-group">
-                                    <label class="batch-label">角色</label>
-                                    <div class="batch-character-selector" id="batch-character-selector-${index}"></div>
+                                    <label class="batch-label">标签</label>
+                                    <div class="batch-tag-selector" id="batch-tag-selector-${index}"></div>
                                 </div>
                                 <div class="batch-form-group">
                                     <label class="batch-label">PID</label>
@@ -190,37 +193,19 @@ class UploadManager {
 
     async initializeBatchForms() {
         try {
-            const groups = await api.getGroups();
-            
-            document.querySelectorAll('.batch-group').forEach((select, itemIndex) => {
-                select.innerHTML = '<option value="">先选分组</option>';
-                groups.forEach(group => {
-                    select.innerHTML += `<option value="${group.id}">${group.name}</option>`;
-                });
-
-                // 初始化角色选择器
-                const characterSelectorId = `batch-character-selector-${itemIndex}`;
-                let characterSelector = window.characterSelectors ? window.characterSelectors[characterSelectorId] : null;
-                
-                if (!characterSelector) {
-                    characterSelector = new CharacterSelector(characterSelectorId);
-                    if (!window.characterSelectors) {
-                        window.characterSelectors = {};
-                    }
-                    window.characterSelectors[characterSelectorId] = characterSelector;
+            const [groups, characters, featureTags] = await Promise.all([
+                api.getGroups(),
+                api.getCharacters(),
+                api.getFeatureTags()
+            ]);
+            document.querySelectorAll('.batch-tag-selector').forEach((container, itemIndex) => {
+                const selectorId = `batch-tag-selector-${itemIndex}`;
+                let selector = window.imageTagSelectors[selectorId];
+                if (!selector) {
+                    selector = new ImageTagSelector(selectorId, { title: `添加第 ${itemIndex + 1} 张图片的标签` });
+                    window.imageTagSelectors[selectorId] = selector;
                 }
-
-                // 监听分组变化
-                select.addEventListener('change', async () => {
-                    const groupId = select.value;
-                    
-                    if (groupId) {
-                        const characters = await api.getCharacters(parseInt(groupId));
-                        characterSelector.setCharacters(characters);
-                    } else {
-                        characterSelector.setCharacters([]);
-                    }
-                });
+                selector.setData({ groups, characters, featureTags });
             });
         } catch (error) {
             ui.showToast('加载分组信息失败', 'error');
@@ -233,6 +218,7 @@ class UploadManager {
             this.renderBatchList();
         } else {
             document.getElementById('batch-upload-list').innerHTML = '';
+            document.getElementById('tab-batch-upload')?.classList.remove('has-batch-files');
         }
     }
 
@@ -251,22 +237,23 @@ class UploadManager {
                 return;
             }
 
-            const selectedCharacters = this.singleCharacterSelector ? this.singleCharacterSelector.getSelectedIds() : [];
+            const selectedTags = this.singleTagSelector ? this.singleTagSelector.getValue() : { group_ids: [], character_ids: [], feature_tag_ids: [] };
+            const selectedCharacters = selectedTags.character_ids || [];
             
             if (selectedCharacters.length === 0) {
                 ui.showToast('请至少选一个角色', 'error');
                 return;
             }
 
-            const groupId = document.getElementById('single-group-select').value;
-            if (!groupId) {
-                ui.showToast('请先选分组', 'error');
+            if ((selectedTags.group_ids || []).length === 0) {
+                ui.showToast('请至少添加一个分组标签', 'error');
                 return;
             }
 
             const metadata = {
                 character_ids: selectedCharacters,
-                group_id: parseInt(groupId),
+                group_ids: selectedTags.group_ids || [],
+                feature_tag_ids: selectedTags.feature_tag_ids || [],
                 pid: document.getElementById('single-pid').value || null,
                 description: document.getElementById('single-description').value || null
             };
@@ -299,25 +286,25 @@ class UploadManager {
             const file = this.batchFiles[i];
             
             try {
-                const groupSelect = item.querySelector('.batch-group');
-                const characterSelectorId = `batch-character-selector-${i}`;
-                const characterSelector = window.characterSelectors[characterSelectorId];
-                const selectedCharacters = characterSelector ? characterSelector.getSelectedIds() : [];
+                const tagSelector = window.imageTagSelectors[`batch-tag-selector-${i}`];
+                const selectedTags = tagSelector ? tagSelector.getValue() : { group_ids: [], character_ids: [], feature_tag_ids: [] };
+                const selectedCharacters = selectedTags.character_ids || [];
                 
                 if (selectedCharacters.length === 0) {
                     ui.showToast(`第 ${i + 1} 张图片还没选角色，已跳过`, 'warning');
                     failedCount++;
                     continue;
                 }
-                if (!groupSelect.value) {
-                    ui.showToast(`第 ${i + 1} 张图片还没选分组，已跳过`, 'warning');
+                if ((selectedTags.group_ids || []).length === 0) {
+                    ui.showToast(`第 ${i + 1} 张图片还没有分组标签，已跳过`, 'warning');
                     failedCount++;
                     continue;
                 }
 
                 const metadata = {
                     character_ids: selectedCharacters,
-                    group_id: parseInt(groupSelect.value),
+                    group_ids: selectedTags.group_ids || [],
+                    feature_tag_ids: selectedTags.feature_tag_ids || [],
                     pid: item.querySelector('.batch-pid').value || null,
                     description: item.querySelector('.batch-description').value || null
                 };
@@ -346,6 +333,7 @@ class UploadManager {
         this.batchFiles = [];
         document.getElementById('batch-upload-list').innerHTML = '';
         document.getElementById('batch-file-input').value = '';
+        document.getElementById('tab-batch-upload')?.classList.remove('has-batch-files');
         
         // 刷新数据
         ui.loadImages(null);
@@ -371,6 +359,9 @@ class UploadManager {
         // 清空表单内容
         const groupSelect = document.getElementById('single-group-select');
         if (groupSelect) groupSelect.value = '';
+        if (this.singleTagSelector) {
+            this.singleTagSelector.setSelected({ group_ids: [], character_ids: [], feature_tag_ids: [] });
+        }
         
         // 清空角色选择器（使用正确的容器 ID）
         if (this.singleCharacterSelector) {
@@ -448,17 +439,18 @@ class UploadManager {
     async uploadTempImage(imageNameEncoded) {
         try {
             const imageName = decodeURIComponent(imageNameEncoded);
-            // 加载分组和角色数据
-            const groups = await api.getGroups();
+            const [groups, characters, featureTags] = await Promise.all([
+                api.getGroups(),
+                api.getCharacters(),
+                api.getFeatureTags()
+            ]);
             
-            if (groups.length === 0) {
+            if (groups.length === 0 || characters.length === 0) {
                 ui.showToast('请先创建分组和角色', 'warning');
                 return;
             }
             
-            const groupOptions = groups.map(group => 
-                `<option value="${group.id}">${group.name}</option>`
-            ).join('');
+            const groupOptions = '';
             
             const content = `
                 <form id="temp-upload-form" data-image-name="${imageNameEncoded}" onsubmit="event.preventDefault(); upload.submitTempUpload('${imageNameEncoded}')">
@@ -507,21 +499,34 @@ class UploadManager {
             }
             
             // 初始化temp角色选择器
-            const tempCharacterSelector = new CharacterSelector('temp-character-selector');
-            window.characterSelectors['temp-character-selector'] = tempCharacterSelector;
+            const tempCharacterSelector = null;
             
             // 监听分组变化
             const groupSelect = document.getElementById('temp-group-select');
             
-            groupSelect.addEventListener('change', async () => {
-                const groupId = groupSelect.value;
-                if (groupId) {
-                    const characters = await api.getCharacters(parseInt(groupId));
-                    tempCharacterSelector.setCharacters(characters);
-                } else {
-                    tempCharacterSelector.setCharacters([]);
-                }
-            });
+            if (groupSelect) {
+                groupSelect.required = false;
+                groupSelect.closest('.form-group').style.display = 'none';
+            }
+            const oldCharacterContainer = document.getElementById('temp-character-selector');
+            if (oldCharacterContainer) {
+                oldCharacterContainer.closest('.form-group').style.display = 'none';
+            }
+            const previewBlock = document.querySelector('#temp-upload-form .temp-image-preview');
+            if (previewBlock) {
+                previewBlock.insertAdjacentHTML('afterend', `
+                    <div class="form-group">
+                        <label>标签</label>
+                        <div id="temp-tag-selector"></div>
+                        <button type="button" class="btn-link" onclick="showCreateGroupModal(true)">添加分组</button>
+                        <button type="button" class="btn-link" onclick="showCreateCharacterModal(true)">添加角色</button>
+                        <button type="button" class="btn-link" onclick="ui.showCreateFeatureTagModal(true)">添加特征</button>
+                    </div>
+                `);
+            }
+            const tempTagSelector = new ImageTagSelector('temp-tag-selector', { title: '添加temp图片标签' });
+            window.imageTagSelectors['temp-tag-selector'] = tempTagSelector;
+            tempTagSelector.setData({ groups, characters, featureTags });
             
         } catch (error) {
             ui.showToast(`加载表单失败: ${error.message}`, 'error');
@@ -532,17 +537,25 @@ class UploadManager {
         try {
             const encodedName = imageNameEncoded || document.getElementById('temp-upload-form')?.dataset?.imageName;
             const imageName = decodeURIComponent(encodedName || '');
-            const tempCharacterSelector = window.characterSelectors['temp-character-selector'];
-            const selectedCharacters = tempCharacterSelector ? tempCharacterSelector.getSelectedIds() : [];
+            const selectedTags = window.imageTagSelectors['temp-tag-selector']
+                ? window.imageTagSelectors['temp-tag-selector'].getValue()
+                : { group_ids: [], character_ids: [], feature_tag_ids: [] };
+            const selectedCharacters = selectedTags.character_ids || [];
             
             if (selectedCharacters.length === 0) {
                 ui.showToast('请选择至少一个角色', 'error');
+                return;
+            }
+            if ((selectedTags.group_ids || []).length === 0) {
+                ui.showToast('请至少添加一个分组标签', 'error');
                 return;
             }
             
             const data = {
                 filename: imageName,
                 character_ids: selectedCharacters,
+                group_ids: selectedTags.group_ids || [],
+                feature_tag_ids: selectedTags.feature_tag_ids || [],
                 pid: document.getElementById('temp-pid').value || null,
                 description: document.getElementById('temp-description').value || null
             };

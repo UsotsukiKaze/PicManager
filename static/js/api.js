@@ -103,6 +103,33 @@ class API {
         });
     }
 
+    async getFeatureTags(options = {}) {
+        const params = new URLSearchParams();
+        params.set('limit', options.limit || 1000);
+        params.set('skip', options.skip || 0);
+        return this.request(`/feature-tags/?${params.toString()}`);
+    }
+
+    async createFeatureTag(data) {
+        return this.request('/feature-tags/', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async updateFeatureTag(id, data) {
+        return this.request(`/feature-tags/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async deleteFeatureTag(id) {
+        return this.request(`/feature-tags/${id}`, {
+            method: 'DELETE',
+        });
+    }
+
     // 图片相关API
     async searchImages(params = {}) {
         const queryString = new URLSearchParams(
@@ -134,6 +161,8 @@ class API {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('character_ids', JSON.stringify(metadata.character_ids));
+        formData.append('group_ids', JSON.stringify(metadata.group_ids || []));
+        formData.append('feature_tag_ids', JSON.stringify(metadata.feature_tag_ids || []));
         
         if (metadata.group_id) formData.append('group_id', metadata.group_id);
         if (metadata.pid) formData.append('pid', metadata.pid);

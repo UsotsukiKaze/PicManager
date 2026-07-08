@@ -1,5 +1,8 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Request
+from fastapi.responses import FileResponse
 from typing import List, Optional, Union
+from pathlib import Path
+from urllib.parse import quote
 
 from ...database import get_db_context
 from ...services import GroupService, CharacterService, ImageService
@@ -86,6 +89,42 @@ def get_image(image_id: str):
             db.add(record)
         record.view_count += 1
         return image
+
+
+@router.get("/images/{image_id}/download")
+def download_image(image_id: str):
+    """Download a managed original image through an id-based safe endpoint."""
+    with get_db_context() as db:
+        db_image = db.query(models.Image).filter(
+            models.Image.image_id == image_id,
+            models.Image.file_status == ImageService.AVAILABLE
+        ).first()
+        if not db_image:
+            raise HTTPException(status_code=404, detail="Image not found")
+        if not ImageService.image_file_exists(db_image):
+            ImageService.mark_file_status(db, db_image, exists=False)
+            db.commit()
+            raise HTTPException(status_code=404, detail="Image not found")
+
+        full_path = Path(ImageService.image_full_path(db_image)).resolve()
+        store_root = Path(settings.STORE_PATH).resolve()
+        try:
+            full_path.relative_to(store_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="Image not found") from exc
+
+        original_name = db_image.original_filename or f"{db_image.image_id}.{db_image.file_extension}"
+        safe_name = Path(original_name).name or f"{db_image.image_id}.{db_image.file_extension}"
+        encoded_name = quote(safe_name)
+        response = FileResponse(
+            full_path,
+            media_type="application/octet-stream",
+            filename=safe_name,
+        )
+        response.headers["Content-Disposition"] = f"attachment; filename*=UTF-8''{encoded_name}"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Cache-Control"] = "private, max-age=3600"
+        return response
 
 
 

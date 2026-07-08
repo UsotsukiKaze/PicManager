@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 from pathlib import Path
 import os
@@ -139,6 +140,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # 挂载静态文件
 app.mount("/static", StaticFiles(directory=os.path.join(settings.BASE_DIR, "static")), name="static")
@@ -148,6 +150,7 @@ os.makedirs(settings.STORE_PATH, exist_ok=True)
 os.makedirs(settings.TEMP_PATH, exist_ok=True)
 os.makedirs(settings.PENDING_PATH, exist_ok=True)  # 待审核文件目录
 os.makedirs(settings.THUMB_PATH, exist_ok=True)
+os.makedirs(settings.EMOJI_PATH, exist_ok=True)
 
 # 提供resource目录的静态文件服务
 @app.get("/resource/temp/{filename}")
@@ -174,13 +177,19 @@ async def protected_pending_file(filename: str, request: Request):
 async def thumbnail_file(resource_path: str):
     """Serve locally cached thumbnails generated from published store images."""
     try:
-        return FileResponse(_thumbnail_path(resource_path), media_type="image/webp")
+        response = FileResponse(_thumbnail_path(resource_path), media_type="image/webp")
+        response.headers["Cache-Control"] = "public, max-age=604800, immutable"
+        return response
     except Exception:
         try:
-            return FileResponse(_original_from_thumbnail_request(resource_path))
+            response = FileResponse(_original_from_thumbnail_request(resource_path))
+            response.headers["Cache-Control"] = "public, max-age=3600"
+            return response
         except Exception:
             try:
-                return FileResponse(_safe_store_resource_path(resource_path))
+                response = FileResponse(_safe_store_resource_path(resource_path))
+                response.headers["Cache-Control"] = "public, max-age=3600"
+                return response
             except Exception:
                 pass
         return FileResponse(os.path.join(settings.BASE_DIR, "static", "images", "placeholder.png"))
@@ -188,6 +197,7 @@ async def thumbnail_file(resource_path: str):
 
 # Only published store images are public.
 app.mount("/resource/store", StaticFiles(directory=settings.STORE_PATH), name="resource_store")
+app.mount("/resource/emojis", StaticFiles(directory=settings.EMOJI_PATH), name="resource_emojis")
 
 # 注册API路由
 app.include_router(public_router, prefix="/api")

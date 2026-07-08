@@ -79,6 +79,31 @@ class FeatureTag(FeatureTagBase):
     class Config:
         from_attributes = True
 
+
+class EmotionTagBase(BaseModel):
+    name: str
+    aliases: Optional[List[str]] = None
+    description: Optional[str] = None
+
+
+class EmotionTagCreate(EmotionTagBase):
+    pass
+
+
+class EmotionTagUpdate(BaseModel):
+    name: Optional[str] = None
+    aliases: Optional[List[str]] = None
+    description: Optional[str] = None
+
+
+class EmotionTag(EmotionTagBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
 # 图片相关模型
 class ImageBase(BaseModel):
     pid: Optional[str] = None
@@ -135,6 +160,58 @@ class ImageSearchParams(BaseModel):
 
 class ImageSearchResult(BaseModel):
     images: List[ImageWithCharacters]
+    total: int
+    offset: int
+    limit: int
+
+
+class EmojiCreate(BaseModel):
+    character_ids: List[int] = []
+    group_ids: List[int] = []
+    emotion_ids: List[int] = []
+    description: Optional[str] = None
+
+
+class EmojiUpdate(BaseModel):
+    character_ids: Optional[List[int]] = None
+    group_ids: Optional[List[int]] = None
+    emotion_ids: Optional[List[int]] = None
+    description: Optional[str] = None
+
+
+class Emoji(BaseModel):
+    emoji_id: str
+    description: Optional[str] = None
+    original_filename: Optional[str] = None
+    file_extension: str
+    file_size: Optional[int] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    file_path: str
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class EmojiWithTags(Emoji):
+    characters: List[CharacterWithGroupName] = []
+    groups: List[Group] = []
+    emotions: List[EmotionTag] = []
+
+
+class EmojiSearchParams(BaseModel):
+    group_id: Optional[int] = None
+    character_id: Optional[int] = None
+    emotion_id: Optional[int] = None
+    description: Optional[str] = None
+    limit: Optional[int] = 50
+    offset: Optional[int] = 0
+
+
+class EmojiSearchResult(BaseModel):
+    emojis: List[EmojiWithTags]
     total: int
     offset: int
     limit: int

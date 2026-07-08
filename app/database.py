@@ -272,6 +272,89 @@ def apply_migrations():
 
         conn.execute(text(
             """
+            CREATE TABLE IF NOT EXISTS emotion_tags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name VARCHAR(255) NOT NULL UNIQUE,
+                description TEXT,
+                created_at DATETIME,
+                updated_at DATETIME
+            )
+            """
+        ))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_emotion_tags_name ON emotion_tags (name)"))
+
+        conn.execute(text(
+            """
+            CREATE TABLE IF NOT EXISTS emotion_tag_aliases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                emotion_id INTEGER NOT NULL,
+                alias VARCHAR(255) NOT NULL,
+                FOREIGN KEY(emotion_id) REFERENCES emotion_tags(id)
+            )
+            """
+        ))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_emotion_tag_aliases_emotion_id ON emotion_tag_aliases (emotion_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_emotion_tag_aliases_alias ON emotion_tag_aliases (alias)"))
+
+        conn.execute(text(
+            """
+            CREATE TABLE IF NOT EXISTS emojis (
+                emoji_id VARCHAR(10) PRIMARY KEY,
+                description TEXT,
+                original_filename VARCHAR(500),
+                file_extension VARCHAR(10) NOT NULL DEFAULT 'gif',
+                file_size INTEGER,
+                width INTEGER,
+                height INTEGER,
+                file_path VARCHAR(1000) NOT NULL,
+                file_status VARCHAR(20) NOT NULL DEFAULT 'available',
+                file_checked_at DATETIME,
+                created_at DATETIME,
+                updated_at DATETIME
+            )
+            """
+        ))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_emojis_file_status_created_id ON emojis (file_status, created_at, emoji_id)"))
+
+        conn.execute(text(
+            """
+            CREATE TABLE IF NOT EXISTS emoji_group_association (
+                emoji_id VARCHAR(10) NOT NULL,
+                group_id INTEGER NOT NULL,
+                PRIMARY KEY (emoji_id, group_id),
+                FOREIGN KEY(emoji_id) REFERENCES emojis(emoji_id),
+                FOREIGN KEY(group_id) REFERENCES groups(id)
+            )
+            """
+        ))
+        conn.execute(text(
+            """
+            CREATE TABLE IF NOT EXISTS emoji_character_association (
+                emoji_id VARCHAR(10) NOT NULL,
+                character_id INTEGER NOT NULL,
+                PRIMARY KEY (emoji_id, character_id),
+                FOREIGN KEY(emoji_id) REFERENCES emojis(emoji_id),
+                FOREIGN KEY(character_id) REFERENCES characters(id)
+            )
+            """
+        ))
+        conn.execute(text(
+            """
+            CREATE TABLE IF NOT EXISTS emoji_emotion_association (
+                emoji_id VARCHAR(10) NOT NULL,
+                emotion_id INTEGER NOT NULL,
+                PRIMARY KEY (emoji_id, emotion_id),
+                FOREIGN KEY(emoji_id) REFERENCES emojis(emoji_id),
+                FOREIGN KEY(emotion_id) REFERENCES emotion_tags(id)
+            )
+            """
+        ))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_emoji_group_group_emoji ON emoji_group_association (group_id, emoji_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_emoji_character_character_emoji ON emoji_character_association (character_id, emoji_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_emoji_emotion_emotion_emoji ON emoji_emotion_association (emotion_id, emoji_id)"))
+
+        conn.execute(text(
+            """
             INSERT OR IGNORE INTO image_group_association (image_id, group_id)
             SELECT DISTINCT ica.image_id, c.group_id
             FROM image_character_association ica

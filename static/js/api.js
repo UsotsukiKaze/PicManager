@@ -130,6 +130,60 @@ class API {
         });
     }
 
+    async getEmotionTags(options = {}) {
+        const params = new URLSearchParams();
+        params.set('limit', options.limit || 1000);
+        params.set('skip', options.skip || 0);
+        return this.request(`/emotion-tags/?${params.toString()}`);
+    }
+
+    async createEmotionTag(data) {
+        return this.request('/emotion-tags/', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async updateEmotionTag(id, data) {
+        return this.request(`/emotion-tags/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async deleteEmotionTag(id) {
+        return this.request(`/emotion-tags/${id}`, {
+            method: 'DELETE',
+        });
+    }
+
+    async searchEmojis(params = {}) {
+        const queryString = new URLSearchParams(
+            Object.entries(params).filter(([_, v]) => v !== null && v !== '')
+        ).toString();
+        return this.request(`/emojis/search?${queryString}`);
+    }
+
+    async uploadEmoji(file, metadata) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('character_ids', JSON.stringify(metadata.character_ids || []));
+        formData.append('group_ids', JSON.stringify(metadata.group_ids || []));
+        formData.append('emotion_ids', JSON.stringify(metadata.emotion_ids || []));
+        if (metadata.description) formData.append('description', metadata.description);
+        return this.request('/emojis/upload', {
+            method: 'POST',
+            headers: {},
+            body: formData,
+        });
+    }
+
+    async deleteEmoji(id) {
+        return this.request(`/emojis/${id}`, {
+            method: 'DELETE',
+        });
+    }
+
     // 图片相关API
     async searchImages(params = {}) {
         const queryString = new URLSearchParams(
@@ -141,6 +195,10 @@ class API {
 
     async getImage(id) {
         return this.request(`/images/${id}`);
+    }
+
+    getImageDownloadUrl(id) {
+        return `${this.baseURL}/images/${encodeURIComponent(id)}/download`;
     }
 
     async updateImage(id, data) {
@@ -157,21 +215,55 @@ class API {
     }
 
     // 上传相关API
-    async uploadSingleImage(file, metadata) {
+    async uploadSingleImage(file, metadata, onProgress = null) {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('character_ids', JSON.stringify(metadata.character_ids));
         formData.append('group_ids', JSON.stringify(metadata.group_ids || []));
         formData.append('feature_tag_ids', JSON.stringify(metadata.feature_tag_ids || []));
+        formData.append('emotion_ids', JSON.stringify(metadata.emotion_ids || []));
         
         if (metadata.group_id) formData.append('group_id', metadata.group_id);
         if (metadata.pid) formData.append('pid', metadata.pid);
         if (metadata.description) formData.append('description', metadata.description);
 
+        if (typeof onProgress === 'function') {
+            return this.uploadWithProgress('/upload/single', formData, onProgress);
+        }
+
         return this.request('/upload/single', {
             method: 'POST',
             headers: {}, // 让浏览器设置Content-Type
             body: formData,
+        });
+    }
+
+    uploadWithProgress(endpoint, formData, onProgress) {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', `${this.baseURL}${endpoint}`);
+            xhr.upload.onprogress = (event) => {
+                if (event.lengthComputable) {
+                    onProgress(Math.round((event.loaded / event.total) * 100));
+                }
+            };
+            xhr.onload = () => {
+                let data = null;
+                try {
+                    data = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+                } catch {
+                    data = null;
+                }
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve(data);
+                } else {
+                    reject(new Error((data && data.detail) || `HTTP ${xhr.status}`));
+                }
+            };
+            xhr.onerror = () => reject(new Error('网络连接失败，请检查网络'));
+            xhr.ontimeout = () => reject(new Error('上传超时，请稍后重试'));
+            xhr.timeout = 5 * 60 * 1000;
+            xhr.send(formData);
         });
     }
 

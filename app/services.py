@@ -370,6 +370,340 @@ class FeatureTagService:
         return True
 
 
+class EmotionTagService:
+    """Emotion tag service for emoji resources."""
+
+    @staticmethod
+    def _normalize_aliases(aliases: Optional[List[str] | str]) -> List[str]:
+        return GroupService._normalize_aliases(aliases)
+
+    @staticmethod
+    def _get_aliases(tag: models.EmotionTag) -> List[str]:
+        return [item.alias for item in tag.aliases] if tag.aliases else []
+
+    @staticmethod
+    def tag_to_dict(tag: models.EmotionTag) -> dict:
+        return {
+            "id": tag.id,
+            "name": tag.name,
+            "aliases": EmotionTagService._get_aliases(tag),
+            "description": tag.description,
+            "created_at": tag.created_at,
+            "updated_at": tag.updated_at,
+        }
+
+    @staticmethod
+    def create_emotion_tag(db: Session, tag: schemas.EmotionTagCreate) -> dict:
+        payload = tag.dict()
+        aliases = EmotionTagService._normalize_aliases(payload.pop("aliases", None))
+        db_tag = models.EmotionTag(**payload)
+        db.add(db_tag)
+        db.flush()
+        for item in aliases:
+            db.add(models.EmotionTagAlias(emotion_id=db_tag.id, alias=item))
+        db.commit()
+        db.refresh(db_tag)
+        return EmotionTagService.tag_to_dict(db_tag)
+
+    @staticmethod
+    def get_emotion_tags(db: Session, skip: int = 0, limit: int = 500) -> List[dict]:
+        tags = db.query(models.EmotionTag).order_by(models.EmotionTag.name.asc()).offset(skip).limit(limit).all()
+        return [EmotionTagService.tag_to_dict(tag) for tag in tags]
+
+    @staticmethod
+    def update_emotion_tag(db: Session, tag_id: int, tag_update: schemas.EmotionTagUpdate) -> Optional[dict]:
+        db_tag = db.query(models.EmotionTag).filter(models.EmotionTag.id == tag_id).first()
+        if not db_tag:
+            return None
+        update_data = tag_update.dict(exclude_unset=True)
+        if "aliases" in update_data:
+            aliases = EmotionTagService._normalize_aliases(update_data.pop("aliases"))
+            db.query(models.EmotionTagAlias).filter(models.EmotionTagAlias.emotion_id == db_tag.id).delete()
+            for item in aliases:
+                db.add(models.EmotionTagAlias(emotion_id=db_tag.id, alias=item))
+        for field, value in update_data.items():
+            setattr(db_tag, field, value)
+        db.commit()
+        db.refresh(db_tag)
+        return EmotionTagService.tag_to_dict(db_tag)
+
+    @staticmethod
+    def delete_emotion_tag(db: Session, tag_id: int) -> bool:
+        db_tag = db.query(models.EmotionTag).filter(models.EmotionTag.id == tag_id).first()
+        if not db_tag:
+            return False
+        db.delete(db_tag)
+        db.commit()
+        return True
+
+
+class EmojiService:
+    """GIF emoji package service."""
+
+    AVAILABLE = "available"
+    MISSING = "missing"
+    RANDOM_RECENT_LIMIT = 50
+    _random_recent_emoji_ids = defaultdict(lambda: deque(maxlen=EmojiService.RANDOM_RECENT_LIMIT))
+
+    @staticmethod
+    def generate_emoji_id() -> str:
+        return secrets.token_hex(5).upper()
+
+    @staticmethod
+    def emoji_full_path(emoji: models.Emoji) -> str:
+        file_path = (emoji.file_path or "").replace("\\", "/").lstrip("/")
+        return os.path.join(settings.BASE_DIR, *file_path.split("/"))
+
+    @staticmethod
+    def emoji_file_exists(emoji: models.Emoji) -> bool:
+        return bool(emoji.file_path) and os.path.isfile(EmojiService.emoji_full_path(emoji))
+
+    @staticmethod
+    def mark_file_status(db: Session, emoji: models.Emoji, exists: Optional[bool] = None) -> str:
+        exists = EmojiService.emoji_file_exists(emoji) if exists is None else exists
+        emoji.file_status = EmojiService.AVAILABLE if exists else EmojiService.MISSING
+        emoji.file_checked_at = datetime.utcnow()
+        return emoji.file_status
+
+    @staticmethod
+    def _unique_ints(values: Optional[List[int]]) -> List[int]:
+        return ImageService._unique_ints(values)
+
+    @staticmethod
+    def _apply_relationships(
+        db: Session,
+        db_emoji: models.Emoji,
+        character_ids: Optional[List[int]],
+        group_ids: Optional[List[int]],
+        emotion_ids: Optional[List[int]],
+    ) -> None:
+        character_ids = EmojiService._unique_ints(character_ids)[:1]
+        group_ids = EmojiService._unique_ints(group_ids)[:1]
+        emotion_ids = EmojiService._unique_ints(emotion_ids)[:1]
+        group_id_set = set(group_ids)
+
+        characters = db.query(models.Character).filter(models.Character.id.in_(character_ids)).all() if character_ids else []
+        for character in characters:
+            group_id_set.add(character.group_id)
+
+        groups = db.query(models.Group).filter(models.Group.id.in_(group_id_set)).all() if group_id_set else []
+        emotions = db.query(models.EmotionTag).filter(models.EmotionTag.id.in_(emotion_ids)).all() if emotion_ids else []
+
+        db_emoji.characters = characters
+        db_emoji.groups = groups
+        db_emoji.emotions = emotions
+
+    @staticmethod
+    def save_emoji_file(file_path: str, emoji_id: str, file_extension: str, store_path: str) -> Tuple[str, dict]:
+        os.makedirs(store_path, exist_ok=True)
+        extension = file_extension.lower().lstrip(".") or "gif"
+        new_filename = f"{emoji_id}.{extension}"
+        new_file_path = os.path.join(store_path, new_filename)
+        relative_path = f"resource/emojis/{new_filename}"
+        shutil.copy2(file_path, new_file_path)
+
+        info = {"file_size": os.path.getsize(new_file_path)}
+        try:
+            with PILImage.open(new_file_path) as img:
+                info["width"], info["height"] = img.size
+        except Exception:
+            pass
+        return relative_path, info
+
+    @staticmethod
+    def create_emoji(db: Session, emoji: schemas.EmojiCreate, file_path: str, original_filename: str, file_extension: str = "gif") -> models.Emoji:
+        while True:
+            emoji_id = EmojiService.generate_emoji_id()
+            if not db.query(models.Emoji).filter(models.Emoji.emoji_id == emoji_id).first():
+                break
+
+        relative_path, info = EmojiService.save_emoji_file(file_path, emoji_id, file_extension, settings.EMOJI_PATH)
+        db_emoji = models.Emoji(
+            emoji_id=emoji_id,
+            description=emoji.description,
+            original_filename=original_filename,
+            file_extension=file_extension.lower().lstrip(".") or "gif",
+            file_path=relative_path,
+            file_status=EmojiService.AVAILABLE,
+            file_checked_at=datetime.utcnow(),
+            **info,
+        )
+        EmojiService._apply_relationships(db, db_emoji, emoji.character_ids, emoji.group_ids, emoji.emotion_ids)
+        db.add(db_emoji)
+        db.commit()
+        db.refresh(db_emoji)
+        return db_emoji
+
+    @staticmethod
+    def emoji_to_dict(emoji: models.Emoji) -> dict:
+        return {
+            "emoji_id": emoji.emoji_id,
+            "description": emoji.description,
+            "original_filename": emoji.original_filename,
+            "file_extension": emoji.file_extension,
+            "file_size": emoji.file_size,
+            "width": emoji.width,
+            "height": emoji.height,
+            "file_path": emoji.file_path,
+            "file_status": emoji.file_status,
+            "created_at": emoji.created_at,
+            "updated_at": emoji.updated_at,
+            "groups": [
+                {
+                    "id": group.id,
+                    "name": group.name,
+                    "aliases": GroupService._get_aliases(group),
+                    "description": group.description,
+                    "created_at": group.created_at,
+                    "updated_at": group.updated_at,
+                }
+                for group in emoji.groups
+            ],
+            "characters": [
+                {
+                    "id": char.id,
+                    "name": char.name,
+                    "nicknames": CharacterService._get_nicknames(char),
+                    "group_id": char.group_id,
+                    "feature_tag_ids": [tag.id for tag in char.feature_tags],
+                    "feature_tags": CharacterService._feature_tags_to_dict(char.feature_tags),
+                    "description": char.description,
+                    "created_at": char.created_at,
+                    "updated_at": char.updated_at,
+                    "group_name": char.group.name if char.group else "",
+                }
+                for char in emoji.characters
+            ],
+            "emotions": [
+                {
+                    "id": emotion.id,
+                    "name": emotion.name,
+                    "aliases": EmotionTagService._get_aliases(emotion),
+                    "description": emotion.description,
+                    "created_at": emotion.created_at,
+                    "updated_at": emotion.updated_at,
+                }
+                for emotion in emoji.emotions
+            ],
+        }
+
+    @staticmethod
+    def get_emoji(db: Session, emoji_id: str) -> Optional[dict]:
+        emoji = db.query(models.Emoji).options(
+            joinedload(models.Emoji.characters).joinedload(models.Character.group),
+            joinedload(models.Emoji.characters).joinedload(models.Character.feature_tags),
+            joinedload(models.Emoji.groups),
+            joinedload(models.Emoji.emotions),
+        ).filter(models.Emoji.emoji_id == emoji_id, models.Emoji.file_status == EmojiService.AVAILABLE).first()
+        if not emoji:
+            return None
+        if not EmojiService.emoji_file_exists(emoji):
+            EmojiService.mark_file_status(db, emoji, exists=False)
+            db.commit()
+            return None
+        return EmojiService.emoji_to_dict(emoji)
+
+    @staticmethod
+    def search_emojis(db: Session, params: schemas.EmojiSearchParams) -> Tuple[List[dict], int]:
+        query = db.query(models.Emoji).options(
+            joinedload(models.Emoji.characters).joinedload(models.Character.group),
+            joinedload(models.Emoji.characters).joinedload(models.Character.feature_tags),
+            joinedload(models.Emoji.groups),
+            joinedload(models.Emoji.emotions),
+        ).filter(models.Emoji.file_status == EmojiService.AVAILABLE)
+
+        if params.group_id:
+            query = query.join(models.Emoji.groups).filter(models.Group.id == params.group_id)
+        if params.character_id:
+            query = query.join(models.Emoji.characters).filter(models.Character.id == params.character_id)
+        if params.emotion_id:
+            query = query.join(models.Emoji.emotions).filter(models.EmotionTag.id == params.emotion_id)
+        if params.description:
+            query = query.filter(models.Emoji.description.like(f"%{params.description}%"))
+
+        offset = params.offset or 0
+        limit = params.limit or settings.DEFAULT_PAGE_SIZE
+        query = query.distinct()
+        total = query.order_by(None).count()
+        emojis = query.order_by(models.Emoji.created_at.desc(), models.Emoji.emoji_id.desc()).offset(offset).limit(limit).all()
+        return [EmojiService.emoji_to_dict(item) for item in emojis], total
+
+    @staticmethod
+    def get_random_emoji(db: Session, group_id: Optional[int] = None, character_id: Optional[int] = None, emotion_id: Optional[int] = None) -> Optional[dict]:
+        query = db.query(models.Emoji).filter(models.Emoji.file_status == EmojiService.AVAILABLE)
+        if group_id:
+            query = query.filter(models.Emoji.groups.any(models.Group.id == group_id))
+        if character_id:
+            query = query.filter(models.Emoji.characters.any(models.Character.id == character_id))
+        if emotion_id:
+            query = query.filter(models.Emoji.emotions.any(models.EmotionTag.id == emotion_id))
+
+        candidate_ids = [row[0] for row in query.with_entities(models.Emoji.emoji_id).distinct().all()]
+        if not candidate_ids:
+            return None
+
+        scope_key = (int(group_id) if group_id else None, int(character_id) if character_id else None, int(emotion_id) if emotion_id else None)
+        recent_ids = EmojiService._random_recent_emoji_ids[scope_key]
+        emoji = None
+        missing_found = False
+        while candidate_ids:
+            available_ids = [emoji_id for emoji_id in candidate_ids if emoji_id not in recent_ids]
+            chosen_id = secrets.choice(available_ids or candidate_ids)
+            emoji = db.query(models.Emoji).options(
+                joinedload(models.Emoji.characters).joinedload(models.Character.group),
+                joinedload(models.Emoji.characters).joinedload(models.Character.feature_tags),
+                joinedload(models.Emoji.groups),
+                joinedload(models.Emoji.emotions),
+            ).filter(models.Emoji.emoji_id == chosen_id).first()
+            if emoji and EmojiService.emoji_file_exists(emoji):
+                recent_ids.append(emoji.emoji_id)
+                break
+            if emoji:
+                EmojiService.mark_file_status(db, emoji, exists=False)
+                missing_found = True
+            candidate_ids = [emoji_id for emoji_id in candidate_ids if emoji_id != chosen_id]
+            emoji = None
+
+        if missing_found:
+            db.commit()
+        return EmojiService.emoji_to_dict(emoji) if emoji else None
+
+    @staticmethod
+    def update_emoji(db: Session, emoji_id: str, emoji_update: schemas.EmojiUpdate) -> Optional[models.Emoji]:
+        db_emoji = db.query(models.Emoji).filter(models.Emoji.emoji_id == emoji_id).first()
+        if not db_emoji:
+            return None
+        update_data = emoji_update.dict(exclude_unset=True, exclude={"character_ids", "group_ids", "emotion_ids"})
+        for field, value in update_data.items():
+            setattr(db_emoji, field, value)
+        if emoji_update.character_ids is not None or emoji_update.group_ids is not None or emoji_update.emotion_ids is not None:
+            EmojiService._apply_relationships(
+                db,
+                db_emoji,
+                emoji_update.character_ids if emoji_update.character_ids is not None else [item.id for item in db_emoji.characters],
+                emoji_update.group_ids if emoji_update.group_ids is not None else [item.id for item in db_emoji.groups],
+                emoji_update.emotion_ids if emoji_update.emotion_ids is not None else [item.id for item in db_emoji.emotions],
+            )
+        db.commit()
+        db.refresh(db_emoji)
+        return db_emoji
+
+    @staticmethod
+    def delete_emoji(db: Session, emoji_id: str) -> bool:
+        db_emoji = db.query(models.Emoji).filter(models.Emoji.emoji_id == emoji_id).first()
+        if not db_emoji:
+            return False
+        full_path = EmojiService.emoji_full_path(db_emoji)
+        db.delete(db_emoji)
+        db.commit()
+        try:
+            if os.path.isfile(full_path):
+                os.remove(full_path)
+        except OSError:
+            pass
+        return True
+
+
 class ImageService:
     """Image service helpers."""
 
@@ -755,6 +1089,9 @@ class ImageService:
             db.commit()
         if not image:
             return None
+        if image.thumb_status != ImageService.THUMB_READY:
+            ImageService.ensure_thumbnail(image)
+            db.commit()
 
         image_dict = ImageService.image_to_dict(image)
         return {

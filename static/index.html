@@ -47,13 +47,17 @@
                         <span class="menu-icon"></span>
                         <span class="menu-text">图片管理</span>
                     </a>
+                    <a href="#" class="menu-item" data-page="emoji-library">
+                        <span class="menu-icon"></span>
+                        <span class="menu-text">表情包库</span>
+                    </a>
                     <a href="#" class="menu-item" data-page="rankings" style="display: none;">
                         <span class="menu-icon"></span>
                         <span class="menu-text">榜上有名</span>
                     </a>
                     <a href="#" class="menu-item" data-page="upload">
                         <span class="menu-icon"></span>
-                        <span class="menu-text">上传图片</span>
+                        <span class="menu-text">上传资源</span>
                     </a>
                     <a href="#" class="menu-item" data-page="settings">
                         <span class="menu-icon"></span>
@@ -292,7 +296,7 @@
             <!-- 上传图片页面 -->
             <div class="page-content" id="page-upload" style="display: none;">
                 <div class="page-header">
-                    <h2>上传图片</h2>
+                    <h2>上传资源</h2>
                 </div>
                 <div class="upload-intro" style="display: none;">
                     <div>
@@ -394,6 +398,55 @@
                                 <!-- Temp图片网格将通过JavaScript动态生成 -->
                             </div>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="page-content" id="page-emoji-library" style="display: none;">
+                <div class="page-header">
+                    <h2>表情包库</h2>
+                    <div class="header-actions">
+                        <button class="btn btn-primary" onclick="emojiLibrary.showUploadModal()">上传GIF</button>
+                        <button class="btn btn-secondary" onclick="emojiLibrary.load()">刷新</button>
+                    </div>
+                </div>
+
+                <div class="tab-container">
+                    <div class="tab-header">
+                        <button class="tab-btn active" data-tab="emoji-list">GIF表情</button>
+                        <button class="tab-btn" data-tab="emotion-management">情绪</button>
+                    </div>
+
+                    <div class="tab-content" id="tab-emoji-list">
+                        <div class="search-bar" style="margin-bottom: 24px;">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <select id="emoji-group-filter" class="form-input"></select>
+                                </div>
+                                <div class="form-group">
+                                    <select id="emoji-character-filter" class="form-input"></select>
+                                </div>
+                                <div class="form-group">
+                                    <select id="emoji-emotion-filter" class="form-input"></select>
+                                </div>
+                                <div class="form-group">
+                                    <button class="btn btn-primary" onclick="emojiLibrary.load()">筛选</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="image-grid" id="emoji-grid"></div>
+                    </div>
+
+                    <div class="tab-content" id="tab-emotion-management" style="display: none;">
+                        <div class="search-bar" style="margin-bottom: 24px;">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <button class="btn btn-primary" onclick="emojiLibrary.showCreateEmotionModal()">添加情绪</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="feature-tag-list" id="emotion-list"></div>
                     </div>
                 </div>
             </div>
@@ -521,6 +574,7 @@
     <script src="/static/js/tag-selector.js?v=20260622a"></script>
     <script src="/static/js/api.js?v=20260622a"></script>
     <script src="/static/js/ui.js?v=20260622a"></script>
+    <script src="/static/js/emoji-library.js?v=20260622a"></script>
     <script src="/static/js/upload.js?v=20260622a"></script>
     <script src="/static/js/main.js?v=20260622a"></script>
     <script src="/static/js/auth.js?v=20260622a"></script>

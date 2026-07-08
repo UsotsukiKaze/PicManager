@@ -1,10 +1,9 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Request
 from typing import List, Optional, Union
 from pathlib import Path
-from io import BytesIO
 
 from ...database import get_db_context
-from ...services import GroupService, CharacterService, ImageService
+from ...services import GroupService, CharacterService, EmojiService, ImageService
 from ...models import User, UserRole, PendingRequest, ImageViewCount, CharacterQueryCount, RequestStatus, Group, Character
 from ... import models, schemas
 from ...config import settings
@@ -26,23 +25,34 @@ def _allowed_image_extensions() -> set[str]:
     return {ext.lower().lstrip(".") for ext in settings.ALLOWED_EXTENSIONS}
 
 
-async def _read_limited_upload(file: UploadFile) -> bytes:
-    chunks = []
+async def _save_limited_upload(file: UploadFile, suffix: str) -> str:
     total = 0
-    while True:
-        chunk = await file.read(1024 * 1024)
-        if not chunk:
-            break
-        total += len(chunk)
-        if total > settings.MAX_FILE_SIZE:
-            raise HTTPException(status_code=413, detail="File too large")
-        chunks.append(chunk)
-    return b"".join(chunks)
-
-
-def _verify_image_content(content: bytes) -> None:
+    temp_file_path = ""
     try:
-        with Image.open(BytesIO(content)) as image:
+        os.makedirs(settings.TEMP_PATH, exist_ok=True)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=settings.TEMP_PATH) as temp_file:
+            temp_file_path = temp_file.name
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > settings.MAX_FILE_SIZE:
+                    raise HTTPException(status_code=413, detail="File too large")
+                temp_file.write(chunk)
+        return temp_file_path
+    except Exception:
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.unlink(temp_file_path)
+            except OSError:
+                pass
+        raise
+
+
+def _verify_image_file(path: str) -> None:
+    try:
+        with Image.open(path) as image:
             image.verify()
     except (UnidentifiedImageError, Image.DecompressionBombError, OSError) as exc:
         raise HTTPException(status_code=400, detail="Invalid image content") from exc
@@ -69,6 +79,7 @@ async def upload_single_image(
     group_id: Optional[str] = Form(None),
     group_ids: Optional[str] = Form(None),
     feature_tag_ids: Optional[str] = Form(None),
+    emotion_ids: Optional[str] = Form(None),
     pid: Optional[str] = Form(None),
     description: Optional[str] = Form(None)
 ):
@@ -102,6 +113,14 @@ async def upload_single_image(
         feature_tag_id_list = list(dict.fromkeys([int(tid) for tid in feature_tag_id_list]))
     except (json.JSONDecodeError, ValueError, TypeError) as e:
         raise HTTPException(status_code=400, detail=f"Invalid feature_tag_ids format: {str(e)}")
+
+    try:
+        emotion_id_list = json.loads(emotion_ids) if emotion_ids else []
+        if not isinstance(emotion_id_list, list):
+            emotion_id_list = [emotion_id_list]
+        emotion_id_list = list(dict.fromkeys([int(eid) for eid in emotion_id_list]))
+    except (json.JSONDecodeError, ValueError, TypeError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid emotion_ids format: {str(e)}")
     
     # 验证文件类型
     file_extension = (file.filename or "").split('.')[-1].lower()
@@ -126,16 +145,60 @@ async def upload_single_image(
                     user_id = user.id
                     is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
         
-        # 读取文件内容
-        content = await _read_limited_upload(file)
-        _verify_image_content(content)
+        # Stream the upload to disk so large images do not sit in memory.
+        temp_file_path = await _save_limited_upload(file, suffix=f'.{file_extension}')
+        _verify_image_file(temp_file_path)
+
+        if file_extension == "gif":
+            if not is_admin:
+                try:
+                    os.unlink(temp_file_path)
+                except OSError:
+                    pass
+                raise HTTPException(status_code=403, detail="Emoji upload requires admin permission")
+            try:
+                with Image.open(temp_file_path) as gif_image:
+                    if not getattr(gif_image, "is_animated", False):
+                        raise HTTPException(status_code=400, detail="Static GIF images are not supported in emoji library")
+                if character_id_list:
+                    existing_characters = db.query(models.Character).filter(models.Character.id.in_(character_id_list)).all()
+                    if len(existing_characters) != len(character_id_list):
+                        missing_ids = set(character_id_list) - set(c.id for c in existing_characters)
+                        raise HTTPException(status_code=400, detail=f"Selected characters do not exist: {missing_ids}")
+                if group_id_list:
+                    existing_groups = db.query(models.Group).filter(models.Group.id.in_(group_id_list)).all()
+                    if len(existing_groups) != len(group_id_list):
+                        missing_ids = set(group_id_list) - set(g.id for g in existing_groups)
+                        raise HTTPException(status_code=400, detail=f"Selected groups do not exist: {missing_ids}")
+                if emotion_id_list:
+                    existing_emotions = db.query(models.EmotionTag).filter(models.EmotionTag.id.in_(emotion_id_list)).all()
+                    if len(existing_emotions) != len(emotion_id_list):
+                        missing_ids = set(emotion_id_list) - set(e.id for e in existing_emotions)
+                        raise HTTPException(status_code=400, detail=f"Selected emotions do not exist: {missing_ids}")
+                emoji = EmojiService.create_emoji(
+                    db,
+                    schemas.EmojiCreate(
+                        character_ids=character_id_list,
+                        group_ids=group_id_list,
+                        emotion_ids=emotion_id_list,
+                        description=description,
+                    ),
+                    temp_file_path,
+                    file.filename or "emoji.gif",
+                    "gif",
+                )
+                return schemas.UploadImageResponse(
+                    image_id=emoji.emoji_id,
+                    message="表情包上传成功",
+                )
+            finally:
+                try:
+                    os.unlink(temp_file_path)
+                except OSError:
+                    pass
 
         if is_admin:
             # 管理员直接上传
-            with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_extension}') as temp_file:
-                temp_file.write(content)
-                temp_file_path = temp_file.name
-            
             try:
                 store_path = settings.STORE_PATH
                 image_create = schemas.ImageCreate(
@@ -178,7 +241,7 @@ async def upload_single_image(
             finally:
                 try:
                     os.unlink(temp_file_path)
-                except:
+                except OSError:
                     pass
 
         # 非管理员，创建待审核请求
@@ -227,6 +290,10 @@ async def upload_single_image(
                 validation_error = f"Selected feature tags do not exist: {missing_ids}"
 
         if validation_error:
+            try:
+                os.unlink(temp_file_path)
+            except OSError:
+                pass
             raise HTTPException(status_code=400, detail=validation_error)
 
         # 生成唯一文件名
@@ -234,8 +301,7 @@ async def upload_single_image(
         unique_filename = f"{uuid.uuid4().hex}.{file_extension}"
         pending_file_path = os.path.join(pending_path, unique_filename)
 
-        with open(pending_file_path, 'wb') as f:
-            f.write(content)
+        os.replace(temp_file_path, pending_file_path)
 
         # 创建待审核记录
         try:
@@ -266,7 +332,9 @@ async def upload_single_image(
             try:
                 if os.path.exists(pending_file_path):
                     os.unlink(pending_file_path)
-            except:
+                elif os.path.exists(temp_file_path):
+                    os.unlink(temp_file_path)
+            except OSError:
                 pass
             raise HTTPException(status_code=500, detail=f"创建待审核请求失败: {str(e)}")
 
@@ -305,7 +373,7 @@ def upload_temp_image(temp_upload: schemas.TempImageUpload, request: Request):
     file_extension = temp_upload.filename.split('.')[-1].lower()
     if file_extension not in _allowed_image_extensions():
         raise HTTPException(status_code=400, detail="Unsupported file type")
-    _verify_image_content(image_path.read_bytes())
+    _verify_image_file(str(image_path))
 
     with get_db_context() as db:
         session = get_current_session(request, db)
@@ -334,6 +402,25 @@ def upload_temp_image(temp_upload: schemas.TempImageUpload, request: Request):
             if len(existing_tags) != len(temp_upload.feature_tag_ids):
                 missing_ids = set(temp_upload.feature_tag_ids) - set(t.id for t in existing_tags)
                 raise HTTPException(status_code=400, detail=f"Selected feature tags do not exist: {missing_ids}")
+
+        if file_extension == "gif":
+            emoji = EmojiService.create_emoji(
+                db,
+                schemas.EmojiCreate(
+                    character_ids=temp_upload.character_ids,
+                    group_ids=temp_upload.group_ids,
+                    emotion_ids=[],
+                    description=temp_upload.description,
+                ),
+                str(image_path),
+                temp_upload.filename,
+                "gif",
+            )
+            try:
+                image_path.unlink()
+            except Exception as e:
+                log_error(f"Failed to delete temp file: {e}")
+            return schemas.UploadImageResponse(image_id=emoji.emoji_id, message="Imported temp GIF emoji successfully")
 
         image_create = schemas.ImageCreate(
             character_ids=temp_upload.character_ids,

@@ -7,6 +7,7 @@ class UploadManager {
         this.singleCharacterSelector = null;
         this.singleTagSelector = null;
         this.tempLoadTimer = null;
+        this.singlePreviewUrl = null;
     }
 
     initializeEventListeners() {
@@ -110,14 +111,14 @@ class UploadManager {
         const filename = document.getElementById('single-filename');
         const placeholder = document.querySelector('#single-upload-area .upload-placeholder');
 
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            img.src = e.target.result;
-            filename.textContent = `文件名: ${file.name}`;
-            placeholder.style.display = 'none';
-            preview.style.display = 'flex';
-        };
-        reader.readAsDataURL(file);
+        if (this.singlePreviewUrl) {
+            URL.revokeObjectURL(this.singlePreviewUrl);
+        }
+        this.singlePreviewUrl = URL.createObjectURL(file);
+        img.src = this.singlePreviewUrl;
+        filename.textContent = `文件名: ${file.name}`;
+        placeholder.style.display = 'none';
+        preview.style.display = 'flex';
     }
 
     showSingleFileInfo(file) {
@@ -258,9 +259,11 @@ class UploadManager {
                 description: document.getElementById('single-description').value || null
             };
 
-            ui.showToast('正在提交图片...', 'info');
+            ui.showToast('正在上传图片...', 'info');
             
-            const result = await api.uploadSingleImage(file, metadata);
+            const result = await api.uploadSingleImage(file, metadata, (progress) => {
+                ui.showToast(`正在上传图片... ${progress}%`, 'info');
+            });
             ui.showToast(result.message, 'success');
             
             this.clearSingleUpload();
@@ -309,7 +312,9 @@ class UploadManager {
                     description: item.querySelector('.batch-description').value || null
                 };
 
-                const result = await api.uploadSingleImage(file, metadata);
+                const result = await api.uploadSingleImage(file, metadata, (progress) => {
+                    ui.showToast(`第 ${i + 1} 张上传中... ${progress}%`, 'info');
+                });
                 const message = result && result.message ? result.message : '上传成功';
                 const isPending = message.includes('审核');
                 if (isPending) {
@@ -348,6 +353,10 @@ class UploadManager {
         // 隐藏预览
         const preview = document.getElementById('single-preview');
         if (preview) preview.style.display = 'none';
+        if (this.singlePreviewUrl) {
+            URL.revokeObjectURL(this.singlePreviewUrl);
+            this.singlePreviewUrl = null;
+        }
         
         const placeholder = document.querySelector('#single-upload-area .upload-placeholder');
         if (placeholder) placeholder.style.display = 'flex';

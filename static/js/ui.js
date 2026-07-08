@@ -254,6 +254,9 @@ class UIManager {
             case 'upload':
                 this.loadUploadData();
                 break;
+            case 'emoji-library':
+                if (window.emojiLibrary) window.emojiLibrary.init();
+                break;
             case 'settings':
                 this.loadSystemStatus();
                 break;
@@ -682,6 +685,16 @@ class UIManager {
 
     getThumbnailUrl(image) {
         return `/resource/thumbs/${image.image_id}.webp`;
+    }
+
+    downloadImage(imageId) {
+        const link = document.createElement('a');
+        link.href = api.getImageDownloadUrl(imageId);
+        link.download = '';
+        link.rel = 'noopener';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
     }
 
     handleImageFallback(img) {
@@ -1121,6 +1134,14 @@ class UIManager {
     }
 
     async updateTempCount() {
+        if (!this.isAdminView()) {
+            const badge = document.getElementById('temp-count-badge');
+            const countSpan = document.getElementById('temp-image-count');
+            if (badge) badge.style.display = 'none';
+            if (countSpan) countSpan.textContent = '0';
+            return;
+        }
+
         try {
             const result = await api.getTempCount();
             const badge = document.getElementById('temp-count-badge');
@@ -2218,7 +2239,7 @@ class UIManager {
             const content = `
                 <div class="image-detail-card">
                     <div class="image-detail-media">
-                        <img src="${this.getImageUrl(image)}" loading="eager" decoding="async" alt="Image ${image.image_id}">
+                        <img src="${this.getThumbnailUrl(image)}" data-full-src="${this.getImageUrl(image)}" loading="eager" decoding="async" alt="Image ${image.image_id}" onerror="ui.handleImageFallback(this)">
                     </div>
                     <div class="image-detail-panel">
                         <div class="image-detail-head">
@@ -2249,6 +2270,7 @@ class UIManager {
                     </div>
                     
                     <div class="detail-actions">
+                        <button class="btn btn-secondary" onclick="ui.downloadImage('${image.image_id}')">下载原图</button>
                         <button class="btn btn-primary" onclick="ui.editImage('${image.image_id}')">编辑</button>
                         <button class="btn btn-danger" onclick="ui.deleteImage('${image.image_id}')">删除</button>
                         <button class="btn btn-secondary" onclick="ui.closeModal()">关闭</button>

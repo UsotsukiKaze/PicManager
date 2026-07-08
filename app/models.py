@@ -54,6 +54,27 @@ character_feature_tag_association = Table(
     Column('feature_tag_id', Integer, ForeignKey('feature_tags.id'), primary_key=True)
 )
 
+emoji_group_association = Table(
+    'emoji_group_association',
+    Base.metadata,
+    Column('emoji_id', String, ForeignKey('emojis.emoji_id'), primary_key=True),
+    Column('group_id', Integer, ForeignKey('groups.id'), primary_key=True)
+)
+
+emoji_character_association = Table(
+    'emoji_character_association',
+    Base.metadata,
+    Column('emoji_id', String, ForeignKey('emojis.emoji_id'), primary_key=True),
+    Column('character_id', Integer, ForeignKey('characters.id'), primary_key=True)
+)
+
+emoji_emotion_association = Table(
+    'emoji_emotion_association',
+    Base.metadata,
+    Column('emoji_id', String, ForeignKey('emojis.emoji_id'), primary_key=True),
+    Column('emotion_id', Integer, ForeignKey('emotion_tags.id'), primary_key=True)
+)
+
 
 class User(Base):
     """用户表"""
@@ -166,6 +187,7 @@ class Group(Base):
     # 关联角色
     characters = relationship("Character", back_populates="group", cascade="all, delete-orphan")
     images = relationship("Image", secondary=image_group_association, back_populates="groups")
+    emojis = relationship("Emoji", secondary=emoji_group_association, back_populates="groups")
     aliases = relationship("GroupAlias", back_populates="group", cascade="all, delete-orphan")
 
 
@@ -195,6 +217,7 @@ class Character(Base):
     group = relationship("Group", back_populates="characters")
     # 关联图片（多对多）
     images = relationship("Image", secondary=image_character_association, back_populates="characters")
+    emojis = relationship("Emoji", secondary=emoji_character_association, back_populates="characters")
     # 角色昵称
     nicknames = relationship("CharacterNickname", back_populates="character", cascade="all, delete-orphan")
     feature_tags = relationship("FeatureTag", secondary=character_feature_tag_association, back_populates="characters")
@@ -237,6 +260,31 @@ class FeatureTagAlias(Base):
     feature_tag = relationship("FeatureTag", back_populates="aliases")
 
 
+class EmotionTag(Base):
+    """Emoji-only emotion tags such as happy, angry, or confused."""
+    __tablename__ = 'emotion_tags'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(255), unique=True, nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    emojis = relationship("Emoji", secondary=emoji_emotion_association, back_populates="emotions")
+    aliases = relationship("EmotionTagAlias", back_populates="emotion", cascade="all, delete-orphan")
+
+
+class EmotionTagAlias(Base):
+    """Emotion tag alias table."""
+    __tablename__ = 'emotion_tag_aliases'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    emotion_id = Column(Integer, ForeignKey('emotion_tags.id'), nullable=False, index=True)
+    alias = Column(String(255), nullable=False, index=True)
+
+    emotion = relationship("EmotionTag", back_populates="aliases")
+
+
 class Image(Base):
     """图片表 - 核心数据表"""
     __tablename__ = 'images'
@@ -272,6 +320,31 @@ class Image(Base):
     
     def __repr__(self):
         return f"<Image(image_id='{self.image_id}', pid='{self.pid}')>"
+
+
+class Emoji(Base):
+    """GIF emoji package resources isolated from normal images."""
+    __tablename__ = 'emojis'
+
+    emoji_id = Column(String(10), primary_key=True)
+    description = Column(Text, nullable=True)
+    original_filename = Column(String(500), nullable=True)
+    file_extension = Column(String(10), nullable=False, default="gif")
+    file_size = Column(Integer, nullable=True)
+    width = Column(Integer, nullable=True)
+    height = Column(Integer, nullable=True)
+    file_path = Column(String(1000), nullable=False)
+    file_status = Column(String(20), nullable=False, default="available", index=True)
+    file_checked_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    groups = relationship("Group", secondary=emoji_group_association, back_populates="emojis")
+    characters = relationship("Character", secondary=emoji_character_association, back_populates="emojis")
+    emotions = relationship("EmotionTag", secondary=emoji_emotion_association, back_populates="emojis")
+
+    def __repr__(self):
+        return f"<Emoji(emoji_id='{self.emoji_id}')>"
 
 
 class ImageViewCount(Base):

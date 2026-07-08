@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     TEMP_PATH: str = os.path.join(RESOURCE_PATH, "temp")
     PENDING_PATH: str = os.path.join(RESOURCE_PATH, "pending")
     THUMB_PATH: str = os.path.join(RESOURCE_PATH, "thumbs")
+    EMOJI_PATH: str = os.path.join(RESOURCE_PATH, "emojis")
     
     # 数据库配置
     DATABASE_URL: str = f"sqlite:///{os.path.join(DATA_PATH, 'picmanager.db')}"

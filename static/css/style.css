@@ -234,6 +234,11 @@ body {
     mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='4' width='18' height='16' rx='2'/><circle cx='8.5' cy='9' r='1.5'/><path d='M21 16l-5-5-4 4-3-3-4 4'/></svg>");
 }
 
+.menu-item[data-page="emoji-library"] .menu-icon {
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><path d='M8 14s1.5 2 4 2 4-2 4-2'/><path d='M9 9h.01'/><path d='M15 9h.01'/></svg>");
+    mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><path d='M8 14s1.5 2 4 2 4-2 4-2'/><path d='M9 9h.01'/><path d='M15 9h.01'/></svg>");
+}
+
 .menu-item[data-page="upload"] .menu-icon {
     -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 16V4'/><path d='M8 8l4-4 4 4'/><path d='M4 20h16'/></svg>");
     mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 16V4'/><path d='M8 8l4-4 4 4'/><path d='M4 20h16'/></svg>");
@@ -1881,6 +1886,20 @@ body {
     filter: saturate(1.04);
 }
 
+.emoji-card .image-card-media {
+    background: #f5f6f7;
+}
+
+.emoji-card-img {
+    object-fit: contain;
+}
+
+.emoji-card-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 8px;
+}
+
 .image-card-info {
     min-height: 88px;
     padding: 12px;
@@ -2592,6 +2611,16 @@ body {
     color: rgba(154, 90, 0, 0.68);
 }
 
+.pm-tag-emotion {
+    background: #fff0f5;
+    border-color: rgba(255, 45, 85, 0.24);
+    color: #b01f48;
+}
+
+.pm-tag-emotion small {
+    color: rgba(176, 31, 72, 0.68);
+}
+
 .pm-tag-add {
     width: 34px;
     justify-content: center;
@@ -2830,6 +2859,22 @@ body {
     .image-detail-media {
         min-height: 300px;
     }
+
+    #tab-batch-upload .upload-workspace,
+    #tab-batch-upload.has-batch-files .upload-workspace {
+        display: grid;
+        grid-template-columns: 1fr;
+    }
+
+    .batch-item {
+        grid-template-columns: 96px 1fr;
+        gap: 12px;
+    }
+
+    .batch-actions {
+        grid-column: 1 / -1;
+        justify-content: flex-end;
+    }
 }
 
 @media (max-width: 640px) {
@@ -2852,6 +2897,83 @@ body {
 
     .tag-picker-columns {
         grid-template-columns: 1fr;
+    }
+
+    .page-content {
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+
+    .upload-tab-header {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .upload-tab-header .tab-btn {
+        flex: 0 0 auto;
+        min-width: 86px;
+        white-space: nowrap;
+    }
+
+    .upload-workspace {
+        padding: 10px;
+        border-radius: 14px;
+        gap: 12px;
+    }
+
+    .upload-workspace .upload-area,
+    #tab-single-upload .upload-preview,
+    #tab-single-upload .upload-preview img,
+    #tab-batch-upload:not(.has-batch-files) .upload-area {
+        min-height: min(62vh, 360px);
+    }
+
+    #tab-batch-upload.has-batch-files .upload-area {
+        min-height: 46px;
+        padding: 8px 10px;
+    }
+
+    .upload-workspace .upload-form,
+    .upload-workspace .batch-upload-list {
+        padding: 12px;
+        border-radius: 14px;
+    }
+
+    .batch-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+
+    .batch-item {
+        grid-template-columns: 1fr;
+    }
+
+    .batch-preview img {
+        width: 100% !important;
+        height: 180px !important;
+    }
+
+    .batch-form {
+        grid-template-columns: 1fr;
+    }
+
+    .form-actions,
+    .detail-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .detail-actions .btn,
+    .form-actions .btn {
+        width: 100%;
+    }
+
+    .image-detail-media {
+        min-height: 220px;
     }
 
     .menu-indicator {

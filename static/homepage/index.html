@@ -1,120 +1,226 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="UsotsukiKaze 的个人主页、项目入口与公开资料。">
-  <meta name="theme-color" content="#181c21">
-  <meta property="og:type" content="website">
-  <meta property="og:title" content="UsotsukiKaze · Personal Space">
-  <meta property="og:description" content="个人主页、PicManager 项目入口与 GitHub。">
-  <meta property="og:url" content="https://usotsuki-kaze.com/">
-  <meta property="og:image" content="https://usotsuki-kaze.com/static/homepage/og.png">
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="UsotsukiKaze · Personal Space">
-  <meta name="twitter:description" content="个人主页、PicManager 项目入口与 GitHub。">
-  <meta name="twitter:image" content="https://usotsuki-kaze.com/static/homepage/og.png">
-  <title>UsotsukiKaze · Personal Space</title>
-  <link rel="preload" href="/static/homepage/ZQKNNY-Medium-2.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/static/homepage/style/main.css">
-  <link rel="stylesheet" href="/static/homepage/style/word.css">
-  <link rel="stylesheet" href="/static/homepage/style/custom.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="UsotsukiKaze 的个人主页、PicManager 与 GitHub 中转站。">
+    <meta name="theme-color" content="#181c21">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="UsotsukiKaze · Personal Space">
+    <meta property="og:description" content="个人主页、PicManager 项目入口与 GitHub。">
+    <meta property="og:url" content="https://usotsuki-kaze.com/">
+    <meta property="og:image" content="https://usotsuki-kaze.com/static/homepage/og.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="https://usotsuki-kaze.com/static/homepage/og.png">
+    <title>UsotsukiKaze · Personal Space</title>
+    <link rel="icon" href="/static/homepage/favicon.ico" sizes="any">
+    <link rel="preload" href="/static/homepage/ZQKNNY-Medium-2.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="/static/homepage/style/main.css">
+    <link rel="stylesheet" href="/static/homepage/style/word.css">
+    <link rel="stylesheet" href="/static/homepage/style/new.css">
+    <link rel="stylesheet" href="/static/homepage/style/icon.css">
+    <link rel="stylesheet" href="/static/homepage/style/lan.css">
+    <link rel="stylesheet" href="/static/homepage/style/aoo.css">
+    <link rel="stylesheet" href="/static/homepage/style/personal.css">
+    <link rel="stylesheet" href="/static/homepage/style/music-player.css">
 </head>
 <body>
-  <div class="bg" aria-hidden="true">
-    <div class="pattern-bg">
-      <svg class="cube-svg" viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <pattern id="cube" x="0" y="0" width="60" height="52" patternUnits="userSpaceOnUse">
-            <path d="M30 0 L60 15 L60 41 L30 52 L0 41 L0 15 Z" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="0.5"/>
-            <path d="M30 26 L60 15 M30 26 L0 15 M30 26 L30 52" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="0.5"/>
-          </pattern>
-        </defs>
-        <rect width="100%" height="100%" fill="url(#cube)"/>
-      </svg>
-    </div>
-  </div>
-  <div class="bg-blur" aria-hidden="true"></div>
-
-  <div class="container site-shell">
-    <aside class="sidebar">
-      <a class="avatar-card" href="#about" aria-label="返回个人简介">
-        <div class="avatar" id="avatar">
-          <span class="avatar-initials">UK</span>
+    <div class="bg" aria-hidden="true">
+        <div class="pattern-bg">
+            <svg class="cube-svg" viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <pattern id="cube" x="0" y="0" width="60" height="52" patternUnits="userSpaceOnUse">
+                        <path d="M30 0 L60 15 L60 41 L30 52 L0 41 L0 15 Z" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="0.5"/>
+                        <path d="M30 26 L60 15 M30 26 L0 15 M30 26 L30 52" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="0.5"/>
+                    </pattern>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#cube)"/>
+            </svg>
         </div>
-      </a>
+    </div>
+    <div class="bg-blur" aria-hidden="true"></div>
 
-      <div class="identity-mini">
-        <strong data-site-name>UsotsukiKaze</strong>
-        <span>PERSONAL SPACE</span>
-      </div>
+    <div class="container">
+        <aside class="sidebar">
+            <div class="avatar-card">
+                <div class="avatar">
+                    <img class="avatar-img" src="/static/homepage/avatar.jpg" alt="UsotsukiKaze 的头像">
+                </div>
+            </div>
 
-      <nav class="simple-nav" aria-label="页面导航">
-        <a class="active" href="#about"><span>01</span>简介</a>
-        <a href="#skills"><span>02</span>技能</a>
-        <a href="#projects"><span>03</span>项目</a>
-        <a href="#contact"><span>04</span>链接</a>
-      </nav>
+            <div class="content" id="appMarquee" aria-label="快捷入口">
+                <div class="benefits">
+                    <div class="basic-marquee basic-marquee-1">
+                        <a class="marquee-link" href="https://github.com/UsotsukiKaze" target="_blank" rel="noopener noreferrer" aria-label="GitHub"><img src="https://github.com/favicon.ico" alt="GitHub"></a>
+                        <a class="marquee-link" href="https://pic.usotsuki-kaze.com" target="_blank" rel="noopener noreferrer" aria-label="PicManager"><img src="https://pic.usotsuki-kaze.com/favicon.ico" alt="PicManager"></a>
+                        <a class="marquee-link" href="https://github.com/UsotsukiKaze/PicManager" target="_blank" rel="noopener noreferrer" aria-label="PicManager 源码"><img src="https://github.com/favicon.ico" alt="Source Code"></a>
+                        <a class="marquee-link" href="https://usotsuki-kaze.com" aria-label="个人主页"><img src="/static/homepage/favicon.ico" alt="Personal Space"></a>
+                    </div>
+                </div>
+            </div>
 
-      <div class="sidebar-status">
-        <span class="status-light"></span>
-        <span>ONLINE</span>
-      </div>
+            <div class="radio-container" style="--total-radio: 3;">
+                <input type="radio" name="nav" id="nav-about" checked>
+                <label for="nav-about">简介</label>
+                <input type="radio" name="nav" id="nav-projects">
+                <label for="nav-projects">项目</label>
+                <input type="radio" name="nav" id="nav-contact">
+                <label for="nav-contact">联系</label>
+                <div class="glider-container"><div class="glider"></div></div>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <div class="mobile-avatar-card" id="mobileAvatarCard">
+                <div class="mobile-avatar">
+                    <img class="avatar-img" src="/static/homepage/avatar.jpg" alt="UsotsukiKaze 的头像">
+                </div>
+            </div>
+
+            <div class="title-card fade-in">
+                <h1 class="title-wrap">
+                    <span class="title-prefix">欢迎回来，我是</span><span class="title">拈风</span>
+                </h1>
+            </div>
+
+            <div class="subtitle-card fade-in">
+                <h2 class="subtitle-wrap">
+                    <span class="subtitle-prefix">Powered by </span><span class="subtitle-name">UsotsukiKaze</span>
+                </h2>
+            </div>
+
+            <div class="pixel-banner fade-in" aria-label="随风而行">
+                <div class="pixel-grid" id="pixelGrid"></div>
+            </div>
+
+            <div class="intro-card fade-in" id="about">
+                <h3 class="section-title">个人简介</h3>
+                <p class="intro-text">
+                    我是拈风，天津大学AI专业大四生在读。这里暂时只是一处简单的中转站，用来集中放置正在维护的项目与公开资料。
+                    最近主要在维护我的QQ聊天机器人-小爱同学，也会不定期整理一些自己觉得有趣、实用的东西。
+                </p>
+            </div>
+
+            <div class="projects-card fade-in" id="projects">
+                <h3 class="section-title">项目</h3>
+                <div class="projects-grid">
+                    <a class="project-item project-link" href="https://pic.usotsuki-kaze.com" target="_blank" rel="noopener noreferrer">
+                        <div class="project-icon">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+                        </div>
+                        <div class="project-title">小爱图库</div>
+                        <div class="project-desc">图片收藏、标签整理与快速检索工具</div>
+                    </a>
+                    <a class="project-item project-link" href="https://github.com/UsotsukiKaze/PicManager" target="_blank" rel="noopener noreferrer">
+                        <div class="project-icon">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                        </div>
+                        <div class="project-title">Source Code</div>
+                        <div class="project-desc">查看小爱图库源码与更新记录</div>
+                    </a>
+                    <a class="project-item project-link" href="https://github.com/UsotsukiKaze" target="_blank" rel="noopener noreferrer">
+                        <div class="project-icon">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.4 5.4 0 0 0 4 9c0 3.5 3 5.5 6 5.5"/></svg>
+                        </div>
+                        <div class="project-title">GitHub</div>
+                        <div class="project-desc">我的一些小鬼点子</div>
+                    </a>
+                    <a class="project-item project-link" href="https://usotsuki-kaze.com">
+                        <div class="project-icon">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z"/></svg>
+                        </div>
+                        <div class="project-title">Personal Space</div>
+                        <div class="project-desc">就是这里喵~</div>
+                    </a>
+                </div>
+            </div>
+
+            <section class="comms-card fade-in" id="contact">
+                <div class="comms-header">
+                    <h3 class="section-title comms-title">联系我</h3>
+                    <p class="comms-subtitle">你可以直接查看联系方式，或写一封邮件给我。</p>
+                </div>
+                <div class="comms-grid comms-grid--single">
+                    <section class="comms-col comms-contact" aria-label="联系方式">
+                        <h4 class="comms-col-title">联系方式</h4>
+                        <div class="contact-info">
+                            <div class="contact-item">
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 15a3.5 3.5 0 0 0 8 0"/></svg>
+                                QQ: 1356890337
+                            </div>
+                            <div class="contact-item">
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22z"/></svg>
+                                QQ Developer Group: 1075595312
+                            </div>
+                            <a class="contact-item contact-link" href="mailto:distance.nf@gmail.com">
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                                Email: distance.nf@gmail.com
+                            </a>
+                            <a class="contact-item contact-link" href="https://github.com/UsotsukiKaze" target="_blank" rel="noopener noreferrer">
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.4 5.4 0 0 0 4 9c0 3.5 3 5.5 6 5.5"/></svg>
+                                GitHub: github.com/UsotsukiKaze
+                            </a>
+                        </div>
+                    </section>
+                </div>
+            </section>
+
+            <footer class="site-footer fade-in">
+                <span>© <span id="year"></span> UsotsukiKaze</span>
+                <span>MADE WITH CURIOSITY</span>
+            </footer>
+        </main>
+    </div>
+
+    <button class="group-float" id="groupToggle" type="button" aria-controls="groupPanel" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 11a4 4 0 1 0-3.6-5.74"/><path d="M8 11a4 4 0 1 0-3.6-5.74"/><path d="M2 21v-1a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v1"/><path d="M16 15h1a5 5 0 0 1 5 5v1"/></svg>
+        <span>群聊</span>
+    </button>
+    <aside class="group-panel" id="groupPanel" aria-hidden="true" aria-label="群聊二维码">
+        <button class="group-close" id="groupClose" type="button" aria-label="关闭群聊二维码">×</button>
+        <p>扫码加入群聊</p>
+        <img src="/static/homepage/group-qrcode.jpg" alt="群聊二维码">
     </aside>
 
-    <main class="main-content loaded">
-      <header class="hero-panel fade-in" id="about">
-        <p class="hero-kicker">WELCOME / 欢迎</p>
-        <h1 class="title-wrap">
-          <span class="title-prefix" data-welcome>欢迎来到</span>
-          <span class="title" data-site-name>UsotsukiKaze</span>
-        </h1>
-        <h2 class="subtitle-wrap">
-          <span class="subtitle-prefix" data-subtitle>A quiet corner for code and ideas</span>
-        </h2>
-        <div class="pixel-banner compact-pixel">
-          <div class="pixel-word" data-pixel-text>随风而行</div>
+    <div class="music-player" id="musicPlayer">
+        <div class="music-cover">
+            <img id="musicCover" src="/static/homepage/avatar.jpg" alt="歌曲封面">
+            <div class="music-cover-placeholder" id="musicCoverPlaceholder" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+            </div>
         </div>
-      </header>
-
-      <section class="intro-card fade-in glass-section">
-        <div class="section-label"><span>01</span> ABOUT</div>
-        <h3 class="section-title">个人简介</h3>
-        <p class="intro-text" data-introduction>
-          我是 UsotsukiKaze。这里是我的个人中转站，用来集中展示正在维护的项目、常用入口和公开资料。
-        </p>
-      </section>
-
-      <section class="skills-card fade-in glass-section" id="skills">
-        <div class="section-label"><span>02</span> STACK</div>
-        <h3 class="section-title">正在使用</h3>
-        <div class="skills-grid" data-skills></div>
-      </section>
-
-      <section class="projects-card fade-in glass-section" id="projects">
-        <div class="section-label"><span>03</span> PROJECTS</div>
-        <h3 class="section-title">入口与项目</h3>
-        <div class="projects-grid" data-projects></div>
-      </section>
-
-      <section class="contact-card fade-in glass-section" id="contact">
-        <div>
-          <div class="section-label"><span>04</span> CONNECT</div>
-          <h3 class="section-title">在 GitHub 找到我</h3>
-          <p>代码、项目和公开动态都集中在这里。</p>
+        <div class="music-info">
+            <div class="music-title" id="musicTitle">繁星、新生，与你</div>
+            <div class="music-artist" id="musicArtist">鸣潮先约电台 · YUE.STEVEN</div>
         </div>
-        <a class="github-button" data-github href="https://github.com/UsotsukiKaze" target="_blank" rel="noopener noreferrer">
-          github.com/UsotsukiKaze <span aria-hidden="true">↗</span>
-        </a>
-      </section>
+        <div class="music-controls">
+            <button class="music-btn" id="musicPrev" type="button" title="重新播放">
+                <svg viewBox="0 0 24 24"><path d="M19 20 9 12l10-8v16zM5 19V5"/></svg>
+            </button>
+            <button class="music-btn music-play-btn" id="musicPlay" type="button" title="播放或暂停">
+                <svg class="icon-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7z"/></svg>
+                <svg class="icon-pause" viewBox="0 0 24 24" style="display:none"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
+            </button>
+            <button class="music-btn" id="musicNext" type="button" title="重新开始">
+                <svg viewBox="0 0 24 24"><path d="m5 4 10 8-10 8V4zM19 5v14"/></svg>
+            </button>
+        </div>
+        <audio id="musicAudio" src="/static/homepage/astrum-unicum.mp3" preload="metadata" autoplay loop></audio>
+        <div class="music-progress-wrap" id="musicProgressWrap"><div class="music-progress-bar" id="musicProgressBar"></div></div>
+    </div>
 
-      <footer class="site-footer">
-        <span>© <span data-year></span> <span data-site-name>UsotsukiKaze</span></span>
-        <span>POWERED BY PICMANAGER</span>
-      </footer>
-    </main>
-  </div>
-
-  <script src="/static/homepage/site.js" defer></script>
+    <script>
+        window.__musicPlayerConfig = {
+            mode: "custom",
+            playlist: [{
+                name: "繁星、新生，与你",
+                artist: "鸣潮先约电台 · YUE.STEVEN",
+                cover: "/static/homepage/avatar.jpg",
+                url: "/static/homepage/astrum-unicum.mp3"
+            }]
+        };
+    </script>
+    <script src="/static/homepage/site.js" defer></script>
+    <script src="/static/homepage/music-player.js" defer></script>
 </body>
 </html>

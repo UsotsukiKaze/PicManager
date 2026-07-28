@@ -1,0 +1,82 @@
+.glass-radio-group {
+    --bg: rgba(255, 255, 255, 0.06);
+    --text: #999;
+  
+    display: flex;
+    position: relative;
+    background: var(--bg);
+    border-radius: 1rem;
+    backdrop-filter: blur(12px);
+    box-shadow:
+      inset 1px 1px 4px rgba(255, 255, 255, 0.15),
+      inset -1px -1px 6px rgba(0, 0, 0, 0.3),
+      0 4px 12px rgba(0, 0, 0, 0.15);
+    overflow: hidden;
+    width: 100%;
+  }
+  
+  .glass-radio-group input {
+    display: none;
+  }
+  
+  .glass-radio-group label {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.75rem 0;
+    cursor: pointer;
+    color: var(--text);
+    position: relative;
+    z-index: 2;
+    transition: color 0.3s ease-in-out;
+  }
+
+  .glass-radio-group label svg {
+    width: 20px;
+    height: 20px;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    fill: none;
+  }
+  
+  .glass-radio-group label:hover {
+    color: #ccc;
+  }
+  
+  .glass-radio-group input:checked + label {
+    color: #fff;
+  }
+  
+  .glass-glider {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: calc(100% / 4);
+    border-radius: 1rem;
+    z-index: 1;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.35));
+    box-shadow:
+      0 0 16px rgba(255, 255, 255, 0.15),
+      0 0 8px rgba(255, 255, 255, 0.1) inset;
+    transition:
+      transform 0.5s cubic-bezier(0.37, 1.95, 0.66, 0.56),
+      background 0.4s ease-in-out,
+      box-shadow 0.4s ease-in-out;
+  }
+  
+  #glass-mail:checked ~ .glass-glider {
+    transform: translateX(0%);
+  }
+  
+  #glass-chat:checked ~ .glass-glider {
+    transform: translateX(100%);
+  }
+  
+  #glass-link:checked ~ .glass-glider {
+    transform: translateX(200%);
+  }
+  
+  #glass-phone:checked ~ .glass-glider {
+    transform: translateX(300%);
+  }

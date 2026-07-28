@@ -1,0 +1,291 @@
+html {
+    scroll-behavior: smooth;
+}
+
+/* 像素横幅在 CSS Grid 中不能参与最小内容宽度计算，否则会反向撑宽右栏。 */
+.main-content {
+    min-width: 0;
+}
+
+.pixel-grid {
+    min-width: 0;
+}
+
+.avatar-placeholder {
+    font-family: Arial, sans-serif;
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -2px;
+}
+
+.marquee-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 86px;
+    height: 34px;
+    padding: 0 12px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    color: rgba(255, 255, 255, 0.7);
+    background: rgba(255, 255, 255, 0.05);
+    font-family: monospace;
+    font-size: 10px;
+    text-decoration: none;
+    transition: 0.2s ease;
+}
+
+.marquee-link:hover {
+    border-color: rgba(var(--accent-rgb), 0.45);
+    color: #fff;
+    background: rgba(var(--accent-rgb), 0.12);
+    transform: translateY(-2px);
+}
+
+/* 原模板此处滚动的是小图标；改成文字入口后保持同样的卡片高度，但不再截断文字。 */
+.sidebar .content .benefits {
+    min-width: 0;
+    position: static;
+}
+
+.sidebar .content .basic-marquee {
+    gap: 6px;
+    animation: none;
+}
+
+.sidebar .content .marquee-link {
+    min-width: 0;
+    flex: 1;
+    height: 34px;
+    padding: 0;
+    white-space: nowrap;
+}
+
+.sidebar .content .marquee-link img {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+}
+
+.pattern-bg {
+    background:
+        linear-gradient(rgba(8, 11, 15, 0.56), rgba(8, 11, 15, 0.64)),
+        url("/static/homepage/background.jpg") center / cover no-repeat;
+    filter: blur(4px);
+    transform: scale(1.025);
+}
+
+.bg-blur {
+    background: rgba(9, 12, 16, 0.3);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+}
+
+.comms-grid--single {
+    display: block;
+}
+
+.contact-link {
+    color: inherit;
+    text-decoration: none;
+}
+
+.contact-link:hover {
+    color: var(--accent);
+}
+
+.group-float {
+    position: fixed;
+    z-index: 1100;
+    right: 20px;
+    top: 50%;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 14px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 999px;
+    color: rgba(255, 255, 255, 0.9);
+    background: rgba(20, 24, 30, 0.82);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    cursor: pointer;
+    transform: translateY(-50%);
+    transition: transform 0.22s ease, background 0.22s ease;
+}
+
+.group-float:hover {
+    background: rgba(40, 48, 60, 0.9);
+    transform: translateY(-50%) translateX(-3px);
+}
+
+.group-float svg {
+    width: 19px;
+    height: 19px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+}
+
+.group-float span {
+    font-size: 12px;
+}
+
+.group-panel {
+    position: fixed;
+    z-index: 1101;
+    right: 20px;
+    top: 50%;
+    width: 208px;
+    padding: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 18px;
+    color: rgba(255, 255, 255, 0.88);
+    background: rgba(18, 22, 28, 0.9);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(18px, -50%) scale(0.94);
+    transform-origin: right center;
+    transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.group-panel.show {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(-56px, -50%) scale(1);
+}
+
+.group-panel p {
+    margin: 0 0 12px;
+    font-size: 13px;
+    text-align: center;
+}
+
+.group-panel img {
+    display: block;
+    width: 100%;
+    border-radius: 10px;
+}
+
+.group-close {
+    position: absolute;
+    top: 6px;
+    right: 9px;
+    width: 26px;
+    height: 26px;
+    border: 0;
+    color: rgba(255, 255, 255, 0.65);
+    background: transparent;
+    cursor: pointer;
+    font-size: 22px;
+    line-height: 1;
+}
+
+@media (max-width: 640px) {
+    .group-float {
+        right: 12px;
+        top: auto;
+        bottom: 84px;
+        transform: none;
+    }
+
+    .group-float:hover {
+        transform: translateY(-2px);
+    }
+
+    .group-panel {
+        right: 12px;
+        top: auto;
+        bottom: 132px;
+        transform: translateY(12px) scale(0.94);
+        transform-origin: right bottom;
+    }
+
+    .group-panel.show {
+        transform: translateY(0) scale(1);
+    }
+}
+
+.links-card {
+    display: grid;
+    grid-template-columns: 1fr minmax(280px, 0.9fr);
+    gap: 36px;
+    align-items: center;
+}
+
+.links-copy p {
+    color: var(--text-secondary);
+    line-height: 1.8;
+}
+
+.external-links {
+    display: grid;
+    gap: 10px;
+}
+
+.external-links a {
+    display: grid;
+    grid-template-columns: 78px 1fr auto;
+    gap: 14px;
+    align-items: center;
+    padding: 15px 16px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    color: rgba(255, 255, 255, 0.62);
+    background: rgba(255, 255, 255, 0.025);
+    text-decoration: none;
+    transition: 0.18s ease;
+}
+
+.external-links a:hover {
+    border-color: rgba(var(--accent-rgb), 0.35);
+    color: #fff;
+    transform: translateX(3px);
+}
+
+.external-links span {
+    color: var(--text-muted);
+    font-family: monospace;
+    font-size: 9px;
+    text-transform: uppercase;
+}
+
+.external-links strong {
+    overflow: hidden;
+    font-size: 12px;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.external-links i {
+    color: rgb(var(--accent-rgb));
+    font-style: normal;
+}
+
+.site-footer {
+    display: flex;
+    justify-content: space-between;
+    padding: 20px 4px 8px;
+    color: var(--text-muted);
+    font-family: monospace;
+    font-size: 9px;
+}
+
+@media (max-width: 768px) {
+    .links-card {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    html {
+        scroll-behavior: auto;
+    }
+}

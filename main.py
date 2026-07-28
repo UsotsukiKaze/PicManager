@@ -19,7 +19,6 @@ from app.routers.auth_routes import router as auth_router
 from app.routers.integrations.bot import router as bot_router
 from app.routers.public import router as public_router
 from app.routers.system import router as system_router
-from app.routers.site import router as site_router
 from app.security.permissions import require_admin_user_id
 
 UI_ASSET_VERSION = str(int(time.time()))
@@ -207,8 +206,6 @@ app.include_router(bot_router, prefix="/api/bot")
 app.include_router(admin_router, prefix="/api/admin")
 app.include_router(auth_router, prefix="/auth")
 app.include_router(admin_router, prefix="/admin")
-app.include_router(site_router, prefix="/api")
-
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     """Serve the personal homepage on its domains, otherwise PicManager."""
@@ -228,12 +225,6 @@ async def homepage_preview():
     """Direct preview route for the personal homepage."""
     return FileResponse(os.path.join(settings.BASE_DIR, "static", "homepage", "index.html"))
 
-
-@app.get("/site-admin", response_class=HTMLResponse)
-async def site_admin_page(request: Request):
-    """Protected editor for the personal homepage."""
-    require_admin_user_id(request)
-    return FileResponse(os.path.join(settings.BASE_DIR, "static", "site-admin.html"))
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page():

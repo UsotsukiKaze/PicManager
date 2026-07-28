@@ -1,138 +1,136 @@
 (function () {
-  "use strict";
+    "use strict";
 
-  const $all = (selector) => Array.from(document.querySelectorAll(selector));
+    var pixelAnimationId = null;
+    var pixelObserver = null;
 
-  function safeUrl(value, fallback) {
-    try {
-      const url = new URL(value, window.location.origin);
-      return ["http:", "https:"].includes(url.protocol) ? url.href : fallback;
-    } catch (_) {
-      return fallback;
-    }
-  }
+    function renderPixelBanner(text) {
+        var grid = document.getElementById("pixelGrid");
+        if (!grid) return;
 
-  function setText(selector, value) {
-    $all(selector).forEach((node) => {
-      node.textContent = value;
-    });
-  }
+        if (pixelAnimationId) cancelAnimationFrame(pixelAnimationId);
+        if (pixelObserver) pixelObserver.disconnect();
 
-  function renderSkills(skills) {
-    const container = document.querySelector("[data-skills]");
-    if (!container) return;
-    container.replaceChildren(
-      ...skills.map((skill) => {
-        const tag = document.createElement("span");
-        tag.className = "skill-tag";
-        tag.textContent = skill;
-        return tag;
-      })
-    );
-  }
+        var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        var containerWidth = grid.parentElement.clientWidth || 420;
+        var gap = 1;
+        var cellSize = containerWidth < 500 ? 4 : 5;
+        var cols = Math.max(38, Math.min(70, Math.floor((containerWidth + gap) / (cellSize + gap))));
+        var rows = containerWidth < 500 ? 14 : 16;
 
-  function renderProjects(projects) {
-    const container = document.querySelector("[data-projects]");
-    if (!container) return;
+        var canvas = document.createElement("canvas");
+        canvas.width = cols;
+        canvas.height = rows;
+        var context = canvas.getContext("2d");
+        context.fillStyle = "#000";
+        context.fillRect(0, 0, cols, rows);
+        context.fillStyle = "#fff";
+        context.font = "italic 100 " + (rows - 2) + 'px "Microsoft YaHei", "PingFang SC", sans-serif';
+        context.textAlign = "center";
+        context.textBaseline = "middle";
+        context.fillText(text, cols / 2, rows / 2);
 
-    const cards = projects.map((project, index) => {
-      const card = document.createElement("a");
-      card.className = "project-item project-link";
-      card.dataset.index = String(index + 1).padStart(2, "0");
-      card.href = safeUrl(project.url, "#");
-      card.target = "_blank";
-      card.rel = "noopener noreferrer";
+        var data = context.getImageData(0, 0, cols, rows);
+        var active = [];
+        var fragment = document.createDocumentFragment();
+        grid.replaceChildren();
+        grid.style.display = "grid";
+        grid.style.gridTemplateColumns = "repeat(" + cols + ", " + cellSize + "px)";
+        grid.style.gap = gap + "px";
 
-      const icon = document.createElement("div");
-      icon.className = "project-icon";
-      icon.textContent = project.title.slice(0, 1).toUpperCase();
+        for (var row = 0; row < rows; row += 1) {
+            for (var column = 0; column < cols; column += 1) {
+                var cell = document.createElement("span");
+                cell.style.width = cellSize + "px";
+                cell.style.height = cellSize + "px";
+                cell.style.borderRadius = "1px";
+                if (data.data[(row * cols + column) * 4] > 80) {
+                    cell.className = "pixel-active";
+                    active.push({ element: cell, column: column });
+                } else {
+                    cell.style.background = "rgba(255,255,255,0.09)";
+                }
+                fragment.appendChild(cell);
+            }
+        }
+        grid.appendChild(fragment);
 
-      const title = document.createElement("div");
-      title.className = "project-title";
-      title.textContent = project.title;
+        if (reducedMotion) {
+            active.forEach(function (pixel) {
+                pixel.element.style.background = "hsl(205,80%,66%)";
+            });
+            return;
+        }
 
-      const description = document.createElement("div");
-      description.className = "project-desc";
-      description.textContent = project.description;
+        var offset = 0;
+        function animate() {
+            active.forEach(function (pixel) {
+                var hue = ((pixel.column / cols) * 240 + offset) % 360;
+                pixel.element.style.background = "hsl(" + hue + ",80%,66%)";
+            });
+            offset = (offset - 0.35 + 360) % 360;
+            pixelAnimationId = requestAnimationFrame(animate);
+        }
 
-      const action = document.createElement("div");
-      action.className = "project-action";
-      action.textContent = `${project.label} ↗`;
-
-      card.append(icon, title, description, action);
-      return card;
-    });
-
-    container.replaceChildren(...cards);
-  }
-
-  function renderAvatar(url, displayName) {
-    const avatar = document.getElementById("avatar");
-    if (!avatar) return;
-    if (!url) {
-      const initials = avatar.querySelector(".avatar-initials");
-      if (initials) {
-        initials.textContent = displayName
-          .split(/[\s_-]+/)
-          .map((part) => part[0])
-          .join("")
-          .slice(0, 2)
-          .toUpperCase();
-      }
-      return;
-    }
-
-    const image = document.createElement("img");
-    image.className = "avatar-img";
-    image.alt = `${displayName} 的头像`;
-    image.src = safeUrl(url, "");
-    image.addEventListener("error", () => image.remove(), { once: true });
-    avatar.replaceChildren(image);
-  }
-
-  function applyConfig(config) {
-    document.title = `${config.display_name} · Personal Space`;
-    setText("[data-site-name]", config.display_name);
-    setText("[data-welcome]", config.welcome);
-    setText("[data-subtitle]", config.subtitle);
-    setText("[data-pixel-text]", config.pixel_text);
-    setText("[data-introduction]", config.introduction);
-
-    const github = document.querySelector("[data-github]");
-    if (github) {
-      github.href = safeUrl(config.github_url, "https://github.com/UsotsukiKaze");
-      github.firstChild.textContent = `${new URL(github.href).host}${new URL(github.href).pathname} `;
+        pixelObserver = new IntersectionObserver(function (entries) {
+            if (entries[0].isIntersecting) {
+                if (!pixelAnimationId) animate();
+            } else if (pixelAnimationId) {
+                cancelAnimationFrame(pixelAnimationId);
+                pixelAnimationId = null;
+            }
+        }, { threshold: 0.1 });
+        pixelObserver.observe(grid);
     }
 
-    document.documentElement.style.setProperty("--site-accent", config.appearance.accent);
-    document.documentElement.style.setProperty("--site-accent-secondary", config.appearance.accent_secondary);
-    renderAvatar(config.avatar_url, config.display_name);
-    renderSkills(config.skills);
-    renderProjects(config.projects);
-  }
+    var navMap = {
+        "nav-about": "about",
+        "nav-projects": "projects",
+        "nav-contact": "contact"
+    };
 
-  function showError() {
-    const notice = document.createElement("div");
-    notice.className = "load-error";
-    notice.textContent = "站点配置暂时无法读取，正在显示默认内容。";
-    document.body.appendChild(notice);
-  }
-
-  document.querySelector("[data-year]").textContent = new Date().getFullYear();
-
-  fetch("/api/site/config", { headers: { Accept: "application/json" } })
-    .then((response) => {
-      if (!response.ok) throw new Error("Config request failed");
-      return response.json();
-    })
-    .then(applyConfig)
-    .catch(showError);
-
-  const navLinks = $all(".simple-nav a");
-  navLinks.forEach((link) => {
-    link.addEventListener("click", () => {
-      navLinks.forEach((item) => item.classList.remove("active"));
-      link.classList.add("active");
+    Object.keys(navMap).forEach(function (radioId) {
+        var radio = document.getElementById(radioId);
+        if (!radio) return;
+        radio.addEventListener("change", function () {
+            var target = document.getElementById(navMap[radioId]);
+            if (radio.checked && target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
     });
-  });
+
+    var observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+            if (entry.isIntersecting) entry.target.classList.add("visible");
+        });
+    }, { threshold: 0.08 });
+
+    document.querySelectorAll(".fade-in").forEach(function (element) {
+        observer.observe(element);
+    });
+
+    var mainContent = document.querySelector(".main-content");
+    if (mainContent) mainContent.classList.add("loaded");
+    var year = document.getElementById("year");
+    if (year) year.textContent = new Date().getFullYear();
+
+    var groupToggle = document.getElementById("groupToggle");
+    var groupPanel = document.getElementById("groupPanel");
+    var groupClose = document.getElementById("groupClose");
+    function setGroupPanel(open) {
+        if (!groupToggle || !groupPanel) return;
+        groupPanel.classList.toggle("show", open);
+        groupPanel.setAttribute("aria-hidden", String(!open));
+        groupToggle.setAttribute("aria-expanded", String(open));
+    }
+    if (groupToggle) groupToggle.addEventListener("click", function () {
+        setGroupPanel(!groupPanel.classList.contains("show"));
+    });
+    if (groupClose) groupClose.addEventListener("click", function () { setGroupPanel(false); });
+    renderPixelBanner("随风而行");
+
+    var resizeTimer;
+    window.addEventListener("resize", function () {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(function () { renderPixelBanner("随风而行"); }, 180);
+    });
 })();

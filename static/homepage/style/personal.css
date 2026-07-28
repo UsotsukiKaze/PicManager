@@ -5,6 +5,8 @@ html {
 /* 像素横幅在 CSS Grid 中不能参与最小内容宽度计算，否则会反向撑宽右栏。 */
 .main-content {
     min-width: 0;
+    opacity: 1;
+    transition: none;
 }
 
 .pixel-grid {

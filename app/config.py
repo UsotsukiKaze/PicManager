@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     
     # 数据库配置
     DATABASE_URL: str = f"sqlite:///{os.path.join(DATA_PATH, 'picmanager.db')}"
+    SITE_CONTENT_FILE: str = os.path.join(DATA_PATH, "site_content.json")
+    HOMEPAGE_HOSTS: str = "usotsuki-kaze.com,www.usotsuki-kaze.com"
     
     # 上传配置
     MAX_FILE_SIZE: int = 50 * 1024 * 1024  # 50MB

@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="UsotsukiKaze 的个人主页、项目入口与公开资料。">
+  <meta name="theme-color" content="#181c21">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="UsotsukiKaze · Personal Space">
+  <meta property="og:description" content="个人主页、PicManager 项目入口与 GitHub。">
+  <meta property="og:url" content="https://usotsuki-kaze.com/">
+  <meta property="og:image" content="https://usotsuki-kaze.com/static/homepage/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="UsotsukiKaze · Personal Space">
+  <meta name="twitter:description" content="个人主页、PicManager 项目入口与 GitHub。">
+  <meta name="twitter:image" content="https://usotsuki-kaze.com/static/homepage/og.png">
+  <title>UsotsukiKaze · Personal Space</title>
+  <link rel="preload" href="/static/homepage/ZQKNNY-Medium-2.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/homepage/style/main.css">
+  <link rel="stylesheet" href="/static/homepage/style/word.css">
+  <link rel="stylesheet" href="/static/homepage/style/custom.css">
+</head>
+<body>
+  <div class="bg" aria-hidden="true">
+    <div class="pattern-bg">
+      <svg class="cube-svg" viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <pattern id="cube" x="0" y="0" width="60" height="52" patternUnits="userSpaceOnUse">
+            <path d="M30 0 L60 15 L60 41 L30 52 L0 41 L0 15 Z" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="0.5"/>
+            <path d="M30 26 L60 15 M30 26 L0 15 M30 26 L30 52" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#cube)"/>
+      </svg>
+    </div>
+  </div>
+  <div class="bg-blur" aria-hidden="true"></div>
+
+  <div class="container site-shell">
+    <aside class="sidebar">
+      <a class="avatar-card" href="#about" aria-label="返回个人简介">
+        <div class="avatar" id="avatar">
+          <span class="avatar-initials">UK</span>
+        </div>
+      </a>
+
+      <div class="identity-mini">
+        <strong data-site-name>UsotsukiKaze</strong>
+        <span>PERSONAL SPACE</span>
+      </div>
+
+      <nav class="simple-nav" aria-label="页面导航">
+        <a class="active" href="#about"><span>01</span>简介</a>
+        <a href="#skills"><span>02</span>技能</a>
+        <a href="#projects"><span>03</span>项目</a>
+        <a href="#contact"><span>04</span>链接</a>
+      </nav>
+
+      <div class="sidebar-status">
+        <span class="status-light"></span>
+        <span>ONLINE</span>
+      </div>
+    </aside>
+
+    <main class="main-content loaded">
+      <header class="hero-panel fade-in" id="about">
+        <p class="hero-kicker">WELCOME / 欢迎</p>
+        <h1 class="title-wrap">
+          <span class="title-prefix" data-welcome>欢迎来到</span>
+          <span class="title" data-site-name>UsotsukiKaze</span>
+        </h1>
+        <h2 class="subtitle-wrap">
+          <span class="subtitle-prefix" data-subtitle>A quiet corner for code and ideas</span>
+        </h2>
+        <div class="pixel-banner compact-pixel">
+          <div class="pixel-word" data-pixel-text>随风而行</div>
+        </div>
+      </header>
+
+      <section class="intro-card fade-in glass-section">
+        <div class="section-label"><span>01</span> ABOUT</div>
+        <h3 class="section-title">个人简介</h3>
+        <p class="intro-text" data-introduction>
+          我是 UsotsukiKaze。这里是我的个人中转站，用来集中展示正在维护的项目、常用入口和公开资料。
+        </p>
+      </section>
+
+      <section class="skills-card fade-in glass-section" id="skills">
+        <div class="section-label"><span>02</span> STACK</div>
+        <h3 class="section-title">正在使用</h3>
+        <div class="skills-grid" data-skills></div>
+      </section>
+
+      <section class="projects-card fade-in glass-section" id="projects">
+        <div class="section-label"><span>03</span> PROJECTS</div>
+        <h3 class="section-title">入口与项目</h3>
+        <div class="projects-grid" data-projects></div>
+      </section>
+
+      <section class="contact-card fade-in glass-section" id="contact">
+        <div>
+          <div class="section-label"><span>04</span> CONNECT</div>
+          <h3 class="section-title">在 GitHub 找到我</h3>
+          <p>代码、项目和公开动态都集中在这里。</p>
+        </div>
+        <a class="github-button" data-github href="https://github.com/UsotsukiKaze" target="_blank" rel="noopener noreferrer">
+          github.com/UsotsukiKaze <span aria-hidden="true">↗</span>
+        </a>
+      </section>
+
+      <footer class="site-footer">
+        <span>© <span data-year></span> <span data-site-name>UsotsukiKaze</span></span>
+        <span>POWERED BY PICMANAGER</span>
+      </footer>
+    </main>
+  </div>
+
+  <script src="/static/homepage/site.js" defer></script>
+</body>
+</html>

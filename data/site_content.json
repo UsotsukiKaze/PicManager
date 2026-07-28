@@ -1,0 +1,35 @@
+{
+  "display_name": "UsotsukiKaze",
+  "welcome": "欢迎来到",
+  "subtitle": "A quiet corner for code and ideas",
+  "pixel_text": "随风而行",
+  "introduction": "我是 UsotsukiKaze。这里是我的个人中转站，用来集中展示正在维护的项目、常用入口和公开资料。最近主要在开发 PicManager。",
+  "skills": [
+    "Python",
+    "FastAPI",
+    "JavaScript",
+    "CSS",
+    "SQLite",
+    "Git"
+  ],
+  "projects": [
+    {
+      "title": "PicManager",
+      "description": "面向图片收藏、标签整理与快速检索的图片管理工具。",
+      "url": "https://pic.usotsuki-kaze.com/",
+      "label": "进入项目"
+    },
+    {
+      "title": "GitHub",
+      "description": "查看我的开源项目、代码与近期开发动态。",
+      "url": "https://github.com/UsotsukiKaze",
+      "label": "查看主页"
+    }
+  ],
+  "github_url": "https://github.com/UsotsukiKaze",
+  "avatar_url": null,
+  "appearance": {
+    "accent": "#a7c7ff",
+    "accent_secondary": "#d7b6ff"
+  }
+}

@@ -1,0 +1,324 @@
+@font-face {
+    font-family: 'ZQKNNY';
+    src: url('../ZQKNNY-Medium-2.woff2') format('woff2');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+}
+
+/* 帖子灯箱（完整内容弹窗） */
+.post-lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity .22s ease, visibility .22s ease;
+}
+.post-lightbox.show {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+.post-lightbox-dialog {
+    width: min(920px, 100%);
+    max-height: min(82vh, 820px);
+    overflow: hidden;
+    border-radius: 18px;
+    border: 1px solid rgba(255,255,255,0.14);
+    background: rgba(20, 20, 24, 0.82);
+    box-shadow: 0 18px 50px rgba(0,0,0,0.45);
+    transform: translateY(14px) scale(.98);
+    opacity: 0;
+    transition: transform .22s ease, opacity .22s ease;
+}
+.post-lightbox.show .post-lightbox-dialog {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+}
+.post-lightbox-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 16px 16px 10px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.10);
+}
+.post-lightbox-title {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: .2px;
+    color: rgba(255,255,255,0.95);
+}
+.post-lightbox-subtitle {
+    margin: 6px 0 0 0;
+    font-size: 13px;
+    line-height: 1.4;
+    color: rgba(255,255,255,0.66);
+}
+.post-lightbox-close {
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.14);
+    background: rgba(255,255,255,0.08);
+    color: rgba(255,255,255,0.9);
+    cursor: pointer;
+    transition: transform .15s ease, background .15s ease;
+}
+.post-lightbox-close:hover { background: rgba(255,255,255,0.12); }
+.post-lightbox-close:active { transform: scale(.98); }
+.post-lightbox-body {
+    padding: 14px 16px 18px 16px;
+    overflow: auto;
+    max-height: calc(min(82vh, 820px) - 60px);
+}
+.post-lightbox-cover {
+    width: 100%;
+    height: auto;
+    border-radius: 14px;
+    display: none;
+    margin: 0 0 12px 0;
+    border: 1px solid rgba(255,255,255,0.10);
+}
+.post-lightbox-content {
+    color: rgba(255,255,255,0.86);
+    font-size: 14px;
+    line-height: 1.8;
+    word-break: break-word;
+}
+.post-lightbox-content img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 12px;
+}
+.post-lightbox-content a { color: rgba(160, 220, 255, 0.95); }
+
+/* 帖子卡片副标题 */
+.post-subtitle {
+    margin: 8px 0 0 0;
+    font-size: 13px;
+    line-height: 1.35;
+    color: rgba(255,255,255,0.68);
+    display: -webkit-box;
+    line-clamp: 2;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .post-lightbox, .post-lightbox-dialog, .post-lightbox-close {
+        transition: none !important;
+    }
+}
+
+/* ========== 赞助侧边栏按钮 ========== */
+.sponsor-tab {
+    position: fixed;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 14px 10px;
+    background: rgba(20, 20, 24, 0.82);
+    border: 1px solid rgba(255,255,255,0.14);
+    border-right: none;
+    border-radius: 14px 0 0 14px;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    cursor: pointer;
+    color: rgba(255,255,255,0.85);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: .3px;
+    box-shadow: -4px 0 20px rgba(0,0,0,0.25);
+    transition: background .18s ease, transform .18s ease, box-shadow .18s ease;
+    user-select: none;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+}
+.sponsor-tab:hover {
+    background: rgba(30, 30, 36, 0.92);
+    transform: translateY(-50%) translateX(-3px);
+    box-shadow: -6px 0 24px rgba(0,0,0,0.35);
+}
+.sponsor-tab:active {
+    transform: translateY(-50%) translateX(-1px);
+}
+.sponsor-tab svg {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    stroke: rgba(255, 120, 120, 0.9);
+    writing-mode: horizontal-tb;
+}
+.sponsor-tab span {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+}
+
+/* ========== 赞助弹窗遮罩 ========== */
+.sponsor-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9998;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity .22s ease, visibility .22s ease;
+}
+.sponsor-overlay.show {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+/* ========== 赞助弹窗主体 ========== */
+.sponsor-dialog {
+    width: min(480px, 100%);
+    border-radius: 18px;
+    border: 1px solid rgba(255,255,255,0.14);
+    background: rgba(20, 20, 24, 0.88);
+    box-shadow: 0 18px 50px rgba(0,0,0,0.45);
+    transform: translateY(14px) scale(.98);
+    opacity: 0;
+    transition: transform .22s ease, opacity .22s ease;
+    overflow: hidden;
+}
+.sponsor-overlay.show .sponsor-dialog {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+}
+.sponsor-dialog-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 18px 18px 12px 18px;
+    border-bottom: 1px solid rgba(255,255,255,0.10);
+}
+.sponsor-dialog-title {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: .2px;
+    color: rgba(255,255,255,0.95);
+}
+.sponsor-dialog-subtitle {
+    margin: 5px 0 0 0;
+    font-size: 13px;
+    line-height: 1.4;
+    color: rgba(255,255,255,0.60);
+}
+.sponsor-dialog-close {
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.14);
+    background: rgba(255,255,255,0.08);
+    color: rgba(255,255,255,0.9);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform .15s ease, background .15s ease;
+}
+.sponsor-dialog-close svg { width: 16px; height: 16px; }
+.sponsor-dialog-close:hover { background: rgba(255,255,255,0.12); }
+.sponsor-dialog-close:active { transform: scale(.95); }
+
+/* ========== 赞助弹窗内容区 ========== */
+.sponsor-dialog-body {
+    padding: 20px 18px 22px 18px;
+}
+.sponsor-qr-list {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+.sponsor-qr-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+}
+.sponsor-qr-img-wrap {
+    width: 150px;
+    height: 150px;
+    border-radius: 14px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.06);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.sponsor-qr-img-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    border-radius: 12px;
+}
+.sponsor-qr-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    color: rgba(255,255,255,0.35);
+    font-size: 12px;
+}
+.sponsor-qr-placeholder svg {
+    width: 36px;
+    height: 36px;
+    stroke: rgba(255,255,255,0.25);
+}
+.sponsor-qr-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.75);
+    letter-spacing: .2px;
+}
+.sponsor-empty {
+    text-align: center;
+    color: rgba(255,255,255,0.4);
+    font-size: 14px;
+    padding: 20px 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sponsor-overlay, .sponsor-dialog, .sponsor-tab {
+        transition: none !important;
+    }
+}
+@media (max-width: 600px) {
+    .sponsor-tab {
+        padding: 10px 8px;
+        font-size: 11px;
+    }
+    .sponsor-tab svg { width: 17px; height: 17px; }
+    .sponsor-qr-img-wrap { width: 130px; height: 130px; }
+}

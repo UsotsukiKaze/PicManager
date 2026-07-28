@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>主页设置 · UsotsukiKaze</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0d1015; --panel:#171b22; --line:#2a303a; --text:#edf0f5; --muted:#9299a5; --accent:#a7c7ff; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:radial-gradient(circle at 15% 0,#18233a 0,transparent 28%),var(--bg); color:var(--text); font:14px/1.6 system-ui,sans-serif; }
+    button,input,textarea { font:inherit; }
+    .wrap { width:min(980px,calc(100% - 32px)); margin:38px auto 80px; }
+    header { display:flex; align-items:center; justify-content:space-between; gap:20px; margin-bottom:24px; }
+    h1 { margin:0; font-size:26px; }
+    header p { margin:5px 0 0; color:var(--muted); }
+    a { color:var(--accent); text-decoration:none; }
+    form { display:grid; gap:18px; }
+    .panel { padding:24px; border:1px solid var(--line); border-radius:18px; background:rgba(23,27,34,.92); }
+    .panel h2 { margin:0 0 18px; font-size:17px; }
+    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+    label { display:grid; gap:7px; color:var(--muted); font-size:12px; }
+    .full { grid-column:1/-1; }
+    input,textarea { width:100%; border:1px solid var(--line); border-radius:10px; outline:none; background:#10141a; color:var(--text); padding:11px 12px; }
+    input:focus,textarea:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(167,199,255,.1); }
+    textarea { min-height:110px; resize:vertical; }
+    input[type=color] { min-height:44px; padding:4px; }
+    .project { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:16px; border:1px solid var(--line); border-radius:13px; margin-top:12px; }
+    .project-actions { grid-column:1/-1; display:flex; justify-content:flex-end; }
+    .toolbar { position:sticky; bottom:14px; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:14px 18px; border:1px solid var(--line); border-radius:15px; background:rgba(13,16,21,.92); backdrop-filter:blur(16px); }
+    button { border:0; border-radius:10px; padding:10px 16px; cursor:pointer; color:#111722; background:var(--accent); font-weight:650; }
+    button.secondary { border:1px solid var(--line); color:var(--text); background:transparent; }
+    button.danger { color:#ffb4b4; background:transparent; }
+    #status { color:var(--muted); }
+    @media(max-width:700px) { .grid,.project { grid-template-columns:1fr; } .full,.project-actions { grid-column:auto; } header { align-items:flex-start; flex-direction:column; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>主页设置</h1>
+        <p>这里只管理中转站内容，不包含博客、留言、邮件或商城。</p>
+      </div>
+      <a href="/home" target="_blank">打开主页 ↗</a>
+    </header>
+
+    <form id="settingsForm">
+      <section class="panel">
+        <h2>基本信息</h2>
+        <div class="grid">
+          <label>显示名称<input name="display_name" maxlength="60" required></label>
+          <label>欢迎语<input name="welcome" maxlength="40"></label>
+          <label class="full">英文副标题<input name="subtitle" maxlength="120"></label>
+          <label>像素横幅文字<input name="pixel_text" maxlength="24"></label>
+          <label>头像地址（可留空）<input name="avatar_url" type="url" placeholder="https://..."></label>
+          <label class="full">个人简介<textarea name="introduction" maxlength="600"></textarea></label>
+          <label class="full">技能标签（每行一个）<textarea name="skills" placeholder="Python&#10;FastAPI&#10;JavaScript"></textarea></label>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>主题颜色</h2>
+        <div class="grid">
+          <label>主色<input name="accent" type="color"></label>
+          <label>辅助色<input name="accent_secondary" type="color"></label>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:16px">
+          <h2 style="margin:0">项目入口</h2>
+          <button class="secondary" id="addProject" type="button">添加项目</button>
+        </div>
+        <div id="projects"></div>
+      </section>
+
+      <section class="panel">
+        <h2>公开链接</h2>
+        <label>GitHub 地址<input name="github_url" type="url" required></label>
+      </section>
+
+      <div class="toolbar">
+        <span id="status">正在读取配置…</span>
+        <button type="submit">保存设置</button>
+      </div>
+    </form>
+  </div>
+
+  <template id="projectTemplate">
+    <div class="project">
+      <label>名称<input data-field="title" maxlength="80" required></label>
+      <label>按钮文字<input data-field="label" maxlength="24" value="打开" required></label>
+      <label class="full">说明<input data-field="description" maxlength="240"></label>
+      <label class="full">目标地址<input data-field="url" type="url" required></label>
+      <div class="project-actions"><button class="danger" data-remove type="button">删除</button></div>
+    </div>
+  </template>
+
+  <script>
+    const form = document.getElementById("settingsForm");
+    const projectsNode = document.getElementById("projects");
+    const template = document.getElementById("projectTemplate");
+    const statusNode = document.getElementById("status");
+
+    function addProject(project = {}) {
+      const node = template.content.firstElementChild.cloneNode(true);
+      node.querySelectorAll("[data-field]").forEach((input) => {
+        input.value = project[input.dataset.field] || input.value || "";
+      });
+      node.querySelector("[data-remove]").addEventListener("click", () => node.remove());
+      projectsNode.appendChild(node);
+    }
+
+    function setStatus(text, error = false) {
+      statusNode.textContent = text;
+      statusNode.style.color = error ? "#ffaaaa" : "";
+    }
+
+    function fill(config) {
+      ["display_name", "welcome", "subtitle", "pixel_text", "introduction", "github_url"].forEach((key) => {
+        form.elements[key].value = config[key] || "";
+      });
+      form.elements.avatar_url.value = config.avatar_url || "";
+      form.elements.skills.value = (config.skills || []).join("\n");
+      form.elements.accent.value = config.appearance.accent;
+      form.elements.accent_secondary.value = config.appearance.accent_secondary;
+      projectsNode.replaceChildren();
+      (config.projects || []).forEach(addProject);
+      setStatus("配置已载入");
+    }
+
+    function collect() {
+      return {
+        display_name: form.elements.display_name.value.trim(),
+        welcome: form.elements.welcome.value.trim(),
+        subtitle: form.elements.subtitle.value.trim(),
+        pixel_text: form.elements.pixel_text.value.trim(),
+        introduction: form.elements.introduction.value.trim(),
+        skills: form.elements.skills.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean),
+        projects: Array.from(projectsNode.querySelectorAll(".project")).map((node) => {
+          const value = (field) => node.querySelector(`[data-field="${field}"]`).value.trim();
+          return { title:value("title"), description:value("description"), url:value("url"), label:value("label") };
+        }),
+        github_url: form.elements.github_url.value.trim(),
+        avatar_url: form.elements.avatar_url.value.trim() || null,
+        appearance: {
+          accent: form.elements.accent.value,
+          accent_secondary: form.elements.accent_secondary.value
+        }
+      };
+    }
+
+    fetch("/api/site/config")
+      .then((response) => {
+        if (!response.ok) throw new Error(response.status === 401 ? "请先以管理员身份登录 PicManager" : "读取失败");
+        return response.json();
+      })
+      .then(fill)
+      .catch((error) => setStatus(error.message, true));
+
+    document.getElementById("addProject").addEventListener("click", () => addProject());
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      setStatus("正在保存…");
+      try {
+        const response = await fetch("/api/admin/site/config", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(collect())
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || "保存失败");
+        fill(result);
+        setStatus("已保存，刷新主页即可看到变化");
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    });
+  </script>
+</body>
+</html>

@@ -205,19 +205,33 @@
                 <svg viewBox="0 0 24 24"><path d="m5 4 10 8-10 8V4zM19 5v14"/></svg>
             </button>
         </div>
-        <audio id="musicAudio" src="/static/homepage/astrum-unicum.mp3" preload="metadata" autoplay loop></audio>
+        <audio id="musicAudio" src="/static/homepage/astrum-unicum.mp3" preload="metadata" autoplay></audio>
         <div class="music-progress-wrap" id="musicProgressWrap"><div class="music-progress-bar" id="musicProgressBar"></div></div>
     </div>
 
     <script>
         window.__musicPlayerConfig = {
             mode: "custom",
-            playlist: [{
-                name: "繁星、新生，与你",
-                artist: "鸣潮先约电台 · YUE.STEVEN",
-                cover: "/static/homepage/avatar.jpg",
-                url: "/static/homepage/astrum-unicum.mp3"
-            }]
+            playlist: [
+                {
+                    name: "繁星、新生，与你",
+                    artist: "鸣潮先约电台 · YUE.STEVEN",
+                    cover: "/static/homepage/avatar.jpg",
+                    url: "/static/homepage/astrum-unicum.mp3"
+                },
+                {
+                    name: "纸飞机",
+                    artist: "鸣潮先约电台 · 飞行雪绒",
+                    cover: "/static/homepage/avatar.jpg",
+                    url: "/static/homepage/paper-plane.flac"
+                },
+                {
+                    name: "星辉抵达之日",
+                    artist: "鸣潮先约电台 · baitian · waka",
+                    cover: "/static/homepage/avatar.jpg",
+                    url: "/static/homepage/starlight-arrival.flac"
+                }
+            ]
         };
     </script>
     <script src="/static/homepage/site.js?v=20260728-2" defer></script>

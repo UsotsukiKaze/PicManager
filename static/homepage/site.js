@@ -17,6 +17,28 @@
         var cellSize = containerWidth < 500 ? 4 : 5;
         var cols = Math.max(38, Math.min(70, Math.floor((containerWidth + gap) / (cellSize + gap))));
         var rows = containerWidth < 500 ? 14 : 16;
+        var pixelPalette = [
+            [225, 244, 255],
+            [163, 211, 247],
+            [91, 164, 229],
+            [124, 143, 231],
+            [228, 169, 214],
+            [205, 181, 242]
+        ];
+
+        function getPixelColor(position) {
+            var normalized = ((position % 1) + 1) % 1;
+            var scaled = normalized * (pixelPalette.length - 1);
+            var index = Math.floor(scaled);
+            var progress = scaled - index;
+            var start = pixelPalette[index];
+            var end = pixelPalette[Math.min(index + 1, pixelPalette.length - 1)];
+            var red = Math.round(start[0] + (end[0] - start[0]) * progress);
+            var green = Math.round(start[1] + (end[1] - start[1]) * progress);
+            var blue = Math.round(start[2] + (end[2] - start[2]) * progress);
+
+            return "rgb(" + red + ", " + green + ", " + blue + ")";
+        }
 
         var canvas = document.createElement("canvas");
         canvas.width = cols;
@@ -57,7 +79,7 @@
 
         if (reducedMotion) {
             active.forEach(function (pixel) {
-                pixel.element.style.background = "hsl(205,80%,66%)";
+                pixel.element.style.background = getPixelColor(0.34);
             });
             return;
         }
@@ -65,10 +87,10 @@
         var offset = 0;
         function animate() {
             active.forEach(function (pixel) {
-                var hue = ((pixel.column / cols) * 240 + offset) % 360;
-                pixel.element.style.background = "hsl(" + hue + ",80%,66%)";
+                var position = pixel.column / Math.max(cols - 1, 1) + offset;
+                pixel.element.style.background = getPixelColor(position);
             });
-            offset = (offset - 0.35 + 360) % 360;
+            offset = (offset + 0.0012) % 1;
             pixelAnimationId = requestAnimationFrame(animate);
         }
 

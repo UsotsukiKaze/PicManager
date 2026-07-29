@@ -15,14 +15,14 @@
     <title>UsotsukiKaze · Personal Space</title>
     <link rel="icon" href="/static/homepage/favicon.ico" sizes="any">
     <link rel="preload" href="/static/homepage/ZQKNNY-Medium-2.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/static/homepage/style/main.css?v=20260728-2">
-    <link rel="stylesheet" href="/static/homepage/style/word.css?v=20260728-2">
-    <link rel="stylesheet" href="/static/homepage/style/new.css?v=20260728-2">
-    <link rel="stylesheet" href="/static/homepage/style/icon.css?v=20260728-2">
-    <link rel="stylesheet" href="/static/homepage/style/lan.css?v=20260728-2">
-    <link rel="stylesheet" href="/static/homepage/style/aoo.css?v=20260728-2">
-    <link rel="stylesheet" href="/static/homepage/style/personal.css?v=20260728-2">
-    <link rel="stylesheet" href="/static/homepage/style/music-player.css?v=20260728-2">
+    <link rel="stylesheet" href="/static/homepage/style/main.css?v=20260729-3">
+    <link rel="stylesheet" href="/static/homepage/style/word.css?v=20260729-3">
+    <link rel="stylesheet" href="/static/homepage/style/new.css?v=20260729-3">
+    <link rel="stylesheet" href="/static/homepage/style/icon.css?v=20260729-3">
+    <link rel="stylesheet" href="/static/homepage/style/lan.css?v=20260729-3">
+    <link rel="stylesheet" href="/static/homepage/style/aoo.css?v=20260729-3">
+    <link rel="stylesheet" href="/static/homepage/style/personal.css?v=20260729-11">
+    <link rel="stylesheet" href="/static/homepage/style/music-player.css?v=20260729-4">
 </head>
 <body>
     <div class="bg" aria-hidden="true">
@@ -39,6 +39,10 @@
         </div>
     </div>
     <div class="bg-blur" aria-hidden="true"></div>
+
+    <button class="ameath-pet" id="ameathPet" type="button" aria-label="爱弥斯：悬停互动，点击播放语音">
+        <img id="ameathPetImage" src="/static/homepage/ameath/idle1.gif" alt="游荡的爱弥斯">
+    </button>
 
     <div class="container">
         <aside class="sidebar">
@@ -208,6 +212,7 @@
         <audio id="musicAudio" src="/static/homepage/astrum-unicum.mp3" preload="metadata" autoplay></audio>
         <div class="music-progress-wrap" id="musicProgressWrap"><div class="music-progress-bar" id="musicProgressBar"></div></div>
     </div>
+    <audio id="ameathVoiceAudio" preload="none"></audio>
 
     <script>
         window.__musicPlayerConfig = {
@@ -230,11 +235,98 @@
                     artist: "鸣潮先约电台 · baitian · waka",
                     cover: "/static/homepage/avatar.jpg",
                     url: "/static/homepage/starlight-arrival.flac"
+                },
+                {
+                    id: "ameath-flowers",
+                    name: "碎花",
+                    artist: "飞行雪绒",
+                    cover: "/static/homepage/ameath/ameath_content.png",
+                    url: "/static/homepage/ameath/flowers.mp3"
+                },
+                {
+                    id: "ameath-paper-plane",
+                    name: "纸飞机",
+                    artist: "飞行雪绒",
+                    cover: "/static/homepage/ameath/ameath_content.png",
+                    url: "/static/homepage/ameath/paper-plane.mp3"
+                },
+                {
+                    id: "ameath-farewell-star",
+                    name: "远航星的告别",
+                    artist: "飞行雪绒",
+                    cover: "/static/homepage/ameath/ameath_content.png",
+                    url: "/static/homepage/ameath/farewell-star.mp3"
+                },
+                {
+                    id: "ameath-spring-star",
+                    name: "那颗星梦见的春日",
+                    artist: "飞行雪绒",
+                    cover: "/static/homepage/ameath/ameath_content.png",
+                    url: "/static/homepage/ameath/spring-star.mp3"
+                },
+                {
+                    id: "ameath-save-world",
+                    name: "一起去拯救世界吧",
+                    artist: "Ameath · 语音",
+                    cover: "/static/homepage/ameath/ameath_content.png",
+                    url: "/static/homepage/ameath/voice-save-world.wav"
+                },
+                {
+                    id: "ameath-see-me",
+                    name: "你，看见我了",
+                    artist: "Ameath · 语音",
+                    cover: "/static/homepage/ameath/ameath_content.png",
+                    url: "/static/homepage/ameath/voice-see-me.wav"
+                },
+                {
+                    id: "ameath-hm",
+                    name: "嗯",
+                    artist: "Ameath · 语音",
+                    cover: "/static/homepage/ameath/ameath_content.png",
+                    url: "/static/homepage/ameath/voice-hm.wav"
+                },
+                {
+                    id: "ameath-humming",
+                    name: "嗯，哼哼",
+                    artist: "Ameath · 语音",
+                    cover: "/static/homepage/ameath/ameath_content.png",
+                    url: "/static/homepage/ameath/voice-humming.wav"
+                },
+                {
+                    id: "ameath-giggle",
+                    name: "嗯，嘿嘿",
+                    artist: "Ameath · 语音",
+                    cover: "/static/homepage/ameath/ameath_content.png",
+                    url: "/static/homepage/ameath/voice-giggle.wav"
+                },
+                {
+                    id: "ameath-heehee",
+                    name: "嘿嘿",
+                    artist: "Ameath · 语音",
+                    cover: "/static/homepage/ameath/ameath_content.png",
+                    url: "/static/homepage/ameath/voice-heehee.wav"
+                },
+                {
+                    id: "ameath-system-ready",
+                    name: "现实系统，侵入完成",
+                    artist: "Ameath · 语音",
+                    cover: "/static/homepage/ameath/ameath_content.png",
+                    url: "/static/homepage/ameath/voice-system-ready.wav"
+                },
+                {
+                    id: "ameath-look-here",
+                    name: "看这里",
+                    artist: "Ameath · 语音",
+                    cover: "/static/homepage/ameath/ameath_content.png",
+                    url: "/static/homepage/ameath/voice-look-here.wav"
                 }
             ]
         };
+        window.__musicPlayerConfig.ameathPlaylist = window.__musicPlayerConfig.playlist.splice(3, 4);
+        window.__musicPlayerConfig.voicePlaylist = window.__musicPlayerConfig.playlist.splice(3);
     </script>
-    <script src="/static/homepage/site.js?v=20260728-2" defer></script>
-    <script src="/static/homepage/music-player.js?v=20260728-2" defer></script>
+    <script src="/static/homepage/site.js?v=20260729-4" defer></script>
+    <script src="/static/homepage/music-player.js?v=20260729-6" defer></script>
+    <script src="/static/homepage/ameath-pet.js?v=20260729-3" defer></script>
 </body>
 </html>

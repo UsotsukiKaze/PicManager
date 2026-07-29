@@ -29,8 +29,21 @@
     // 读取配置
     var cfg = window.__musicPlayerConfig || {};
     var mode = cfg.mode || 'random';
-    var playlist = cfg.playlist || [];
+    var playlists = {
+        "default": cfg.playlist || [],
+        ameath: cfg.ameathPlaylist || []
+    };
+    var activePlaylist = "default";
+    var playlist = playlists[activePlaylist];
     var plIdx = -1; // 当前歌单索引
+
+    function updateTextScroll(element) {
+        window.requestAnimationFrame(function() {
+            var overflow = Math.ceil(element.scrollWidth - element.clientWidth);
+            element.classList.toggle('is-scrolling', overflow > 4);
+            element.style.setProperty('--music-scroll-distance', '-' + Math.max(0, overflow + 10) + 'px');
+        });
+    }
 
     // ---- 通用：设置当前歌曲 UI ----
     function applySong(song) {
@@ -55,6 +68,8 @@
 
         titleEl.textContent = song.name || '未知歌曲';
         artistEl.textContent = song.artist || song.artistsname || '未知歌手';
+        updateTextScroll(titleEl);
+        updateTextScroll(artistEl);
 
         if (song.url) {
             audio.src = song.url;
@@ -168,6 +183,40 @@
         loadSong('next').then(function() {
             if (wasPlaying && audio.src) audio.play().catch(function() {});
         });
+    });
+
+    window.addEventListener('homepage:play-track', function(event) {
+        var requestedId = event.detail && event.detail.id;
+        if (!requestedId || mode !== 'custom') return;
+        var requestedIndex = playlist.findIndex(function(song) { return song.id === requestedId; });
+        if (requestedIndex < 0) return;
+
+        plIdx = requestedIndex;
+        applySong(playlist[plIdx]);
+        audio.play().catch(function() {
+            // 某些浏览器会限制非点击触发的播放；点击爱弥斯时可正常播放。
+        });
+    });
+
+    window.addEventListener('homepage:select-playlist', function(event) {
+        var detail = event.detail || {};
+        var requestedPlaylist = detail.name;
+        if (mode !== 'custom' || !playlists[requestedPlaylist] || !playlists[requestedPlaylist].length) return;
+
+        activePlaylist = requestedPlaylist;
+        playlist = playlists[activePlaylist];
+        plIdx = 0;
+        if (isPlaying) audio.pause();
+        applySong(playlist[plIdx]);
+        window.dispatchEvent(new CustomEvent('homepage:pet-state', {
+            detail: { singing: activePlaylist === 'ameath' }
+        }));
+
+        if (detail.play) {
+            audio.play().catch(function() {
+                // 浏览器会允许由双击触发的这次播放；其他情况保留播放按钮。
+            });
+        }
     });
 
     audio.addEventListener('play', function() {

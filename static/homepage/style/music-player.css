@@ -8,16 +8,20 @@
     flex-wrap: wrap;
     gap: 12px;
     padding: 10px 16px;
-    background: rgba(30, 33, 40, 0.85);
+    background: linear-gradient(120deg, rgba(35, 89, 139, 0.91), rgba(102, 115, 181, 0.89) 50%, rgba(190, 117, 172, 0.86));
+    background-size: 180% 180%;
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(194, 224, 255, 0.3);
     border-radius: 50px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 8px 32px rgba(17, 39, 83, 0.5), 0 0 20px rgba(218, 145, 204, 0.13);
     z-index: 1000;
     overflow: visible;
-    transition: transform 0.3s ease, opacity 0.3s ease, padding-bottom 0.3s ease, border-radius 0.3s ease;
+    transition: transform 0.3s ease, opacity 0.3s ease, padding-bottom 0.3s ease, border-radius 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+    box-sizing: border-box;
+    width: 320px;
     max-width: 320px;
+    animation: musicGradientFlow 9s ease-in-out infinite;
 }
 .music-player.show-progress {
     padding-bottom: 22px;
@@ -25,8 +29,14 @@
 }
 
 .music-player:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    transform: translateY(-5px) scale(1.015);
+    border-color: rgba(246, 207, 234, 0.58);
+    box-shadow: 0 15px 44px rgba(17, 39, 83, 0.62), 0 0 28px rgba(226, 151, 209, 0.3);
+}
+
+@keyframes musicGradientFlow {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
 }
 
 .music-cover {
@@ -87,6 +97,7 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    will-change: transform;
 }
 
 .music-artist {
@@ -95,6 +106,19 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    will-change: transform;
+}
+
+.music-title.is-scrolling,
+.music-artist.is-scrolling {
+    overflow: visible;
+    text-overflow: clip;
+    animation: musicTextScroll 6.4s ease-in-out 0.8s infinite alternate;
+}
+
+@keyframes musicTextScroll {
+    from { transform: translateX(0); }
+    to { transform: translateX(var(--music-scroll-distance, 0)); }
 }
 
 .music-controls {
@@ -120,7 +144,8 @@
 
 .music-btn:hover {
     color: #fff;
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(232, 202, 255, 0.24);
+    box-shadow: 0 0 14px rgba(198, 160, 255, 0.25);
 }
 
 .music-btn:disabled {
@@ -140,12 +165,12 @@
 .music-play-btn {
     width: 36px;
     height: 36px;
-    background: rgba(255, 255, 255, 0.1);
+    background: linear-gradient(135deg, rgba(177, 223, 255, 0.34), rgba(236, 169, 217, 0.32));
     color: #fff;
 }
 
 .music-play-btn:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: linear-gradient(135deg, rgba(188, 230, 255, 0.5), rgba(242, 177, 222, 0.48));
 }
 
 .music-play-btn svg {
@@ -180,7 +205,7 @@
     height: 100%;
     width: 0%;
     min-width: 6px;
-    background: rgba(255, 255, 255, 0.92);
+    background: linear-gradient(90deg, #a7dcff, #c6b7ff 52%, #f1afd6);
     border-radius: 999px;
     transition: width 0.25s linear;
     position: relative;
@@ -211,6 +236,7 @@
         bottom: 10px;
         right: 10px;
         left: 10px;
+        width: auto;
         max-width: none;
         padding: 8px 12px;
         gap: 10px;

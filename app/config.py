@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     ROOT_QQ: str = "1356890337"
     CORS_ALLOW_ORIGINS: str = "http://127.0.0.1:8000,http://localhost:8000"
     SESSION_COOKIE_SECURE: bool = False
+    SESSION_COOKIE_DOMAIN: str | None = None
     TRUST_PROXY_HEADERS: bool = False
     
     class Config:

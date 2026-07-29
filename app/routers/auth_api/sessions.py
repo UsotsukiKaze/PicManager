@@ -76,6 +76,7 @@ async def login_with_qq_ticket(ticket_data: schemas.QQTicketLogin, request: Requ
             max_age=USER_SESSION_TIMEOUT,
             samesite="Lax",
             secure=settings.SESSION_COOKIE_SECURE,
+            domain=settings.SESSION_COOKIE_DOMAIN or None,
         )
 
         return {
@@ -104,6 +105,7 @@ async def guest_login(request: Request, response: Response):
                 max_age=USER_SESSION_TIMEOUT,
                 samesite="Lax",
                 secure=settings.SESSION_COOKIE_SECURE,
+                domain=settings.SESSION_COOKIE_DOMAIN or None,
             )
 
             return {
@@ -122,6 +124,7 @@ async def guest_login(request: Request, response: Response):
             max_age=GUEST_SESSION_TIMEOUT,
             samesite="Lax",
             secure=settings.SESSION_COOKIE_SECURE,
+            domain=settings.SESSION_COOKIE_DOMAIN or None,
         )
         
         # 获取今日剩余操作次数

@@ -116,7 +116,11 @@
         if (!radio) return;
         radio.addEventListener("change", function () {
             var target = document.getElementById(navMap[radioId]);
-            if (radio.checked && target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+            if (!radio.checked || !target) return;
+            var targetTop = target.getBoundingClientRect().top + window.scrollY;
+            var preferredOffset = window.innerHeight * 0.25;
+            var destination = Math.max(0, targetTop - preferredOffset);
+            window.scrollTo({ top: destination, behavior: "smooth" });
         });
     });
 

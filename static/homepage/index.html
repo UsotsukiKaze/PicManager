@@ -21,7 +21,7 @@
     <link rel="stylesheet" href="/static/homepage/style/icon.css?v=20260729-3">
     <link rel="stylesheet" href="/static/homepage/style/lan.css?v=20260729-3">
     <link rel="stylesheet" href="/static/homepage/style/aoo.css?v=20260729-3">
-    <link rel="stylesheet" href="/static/homepage/style/personal.css?v=20260729-11">
+    <link rel="stylesheet" href="/static/homepage/style/personal.css?v=20260729-20">
     <link rel="stylesheet" href="/static/homepage/style/music-player.css?v=20260729-4">
 </head>
 <body>
@@ -52,12 +52,20 @@
                 </div>
             </div>
 
+            <div class="profile-status" aria-label="个人状态">
+                <span class="profile-status-dot" aria-hidden="true"></span>
+                <div>
+                    <strong>UsotsukiKaze</strong>
+                    <small>时刻保持质疑</small>
+                </div>
+            </div>
+
             <div class="content" id="appMarquee" aria-label="快捷入口">
                 <div class="benefits">
                     <div class="basic-marquee basic-marquee-1">
                         <a class="marquee-link" href="https://github.com/UsotsukiKaze" target="_blank" rel="noopener noreferrer" aria-label="GitHub"><img src="https://github.com/favicon.ico" alt="GitHub"></a>
                         <a class="marquee-link" href="https://pic.usotsuki-kaze.com" target="_blank" rel="noopener noreferrer" aria-label="PicManager"><img src="https://pic.usotsuki-kaze.com/favicon.ico" alt="PicManager"></a>
-                        <a class="marquee-link" href="https://github.com/UsotsukiKaze/PicManager" target="_blank" rel="noopener noreferrer" aria-label="PicManager 源码"><img src="https://github.com/favicon.ico" alt="Source Code"></a>
+                        <a class="marquee-link" href="https://gitee.com/usotsuki-kaze" target="_blank" rel="noopener noreferrer" aria-label="Gitee"><img src="https://gitee.com/favicon.ico" alt="Gitee"></a>
                         <a class="marquee-link" href="https://usotsuki-kaze.com" aria-label="个人主页"><img src="/static/homepage/favicon.ico" alt="Personal Space"></a>
                     </div>
                 </div>
@@ -110,7 +118,7 @@
                 <div class="projects-grid">
                     <a class="project-item project-link" href="https://pic.usotsuki-kaze.com" target="_blank" rel="noopener noreferrer">
                         <div class="project-icon">
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+                            <img src="https://pic.usotsuki-kaze.com/favicon.ico" alt="小爱图库图标">
                         </div>
                         <div class="project-title">小爱图库</div>
                         <div class="project-desc">图片收藏、标签整理与快速检索工具</div>
@@ -131,7 +139,7 @@
                     </a>
                     <a class="project-item project-link" href="https://usotsuki-kaze.com">
                         <div class="project-icon">
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z"/></svg>
+                            <img src="/static/homepage/favicon.ico" alt="个人空间图标">
                         </div>
                         <div class="project-title">Personal Space</div>
                         <div class="project-desc">就是这里喵~</div>
@@ -144,7 +152,7 @@
                     <h3 class="section-title comms-title">联系我</h3>
                     <p class="comms-subtitle">你可以直接查看联系方式，或写一封邮件给我。</p>
                 </div>
-                <div class="comms-grid comms-grid--single">
+                <div class="comms-grid guestbook-layout">
                     <section class="comms-col comms-contact" aria-label="联系方式">
                         <h4 class="comms-col-title">联系方式</h4>
                         <div class="contact-info">
@@ -166,7 +174,32 @@
                             </a>
                         </div>
                     </section>
+                    <div class="comms-divider" aria-hidden="true"></div>
+                    <section class="comms-col guestbook-compose" aria-label="留言板">
+                        <h4 class="comms-col-title">留言板</h4>
+                        <form id="guestbookForm" class="guestbook-form">
+                            <label>
+                                <span>昵称</span>
+                                <input id="guestbookNickname" name="nickname" maxlength="32" placeholder="怎么称呼你？" required>
+                            </label>
+                            <label>
+                                <span>留言</span>
+                                <textarea id="guestbookContent" name="content" maxlength="500" rows="4" placeholder="留下想说的话吧…" required></textarea>
+                            </label>
+                            <div class="guestbook-actions">
+                                <span id="guestbookHint" role="status"></span>
+                                <button type="submit">发送留言</button>
+                            </div>
+                        </form>
+                    </section>
                 </div>
+                <section class="guestbook-comments" aria-label="留言展示">
+                    <div class="guestbook-comments-header">
+                        <h4 class="comms-col-title">最新留言</h4>
+                        <span id="guestbookCount"></span>
+                    </div>
+                    <div id="guestbookList" class="guestbook-list" aria-live="polite"></div>
+                </section>
             </section>
 
             <footer class="site-footer fade-in">
@@ -265,6 +298,20 @@
                     url: "/static/homepage/ameath/spring-star.mp3"
                 },
                 {
+                    id: "ameath-little-miracle",
+                    name: "小小奇迹",
+                    artist: "飞行雪绒",
+                    cover: "/static/homepage/ameath/ameath_content.png",
+                    url: "/static/homepage/ameath/little-miracle.mp3"
+                },
+                {
+                    id: "ameath-star-torch",
+                    name: "星炬不熄",
+                    artist: "飞行雪绒",
+                    cover: "/static/homepage/ameath/ameath_content.png",
+                    url: "/static/homepage/ameath/star-torch.mp3"
+                },
+                {
                     id: "ameath-save-world",
                     name: "一起去拯救世界吧",
                     artist: "Ameath · 语音",
@@ -322,11 +369,12 @@
                 }
             ]
         };
-        window.__musicPlayerConfig.ameathPlaylist = window.__musicPlayerConfig.playlist.splice(3, 4);
+        window.__musicPlayerConfig.ameathPlaylist = window.__musicPlayerConfig.playlist.splice(3, 6);
         window.__musicPlayerConfig.voicePlaylist = window.__musicPlayerConfig.playlist.splice(3);
     </script>
-    <script src="/static/homepage/site.js?v=20260729-4" defer></script>
+    <script src="/static/homepage/site.js?v=20260729-5" defer></script>
     <script src="/static/homepage/music-player.js?v=20260729-6" defer></script>
     <script src="/static/homepage/ameath-pet.js?v=20260729-3" defer></script>
+    <script src="/static/homepage/guestbook.js?v=20260729-2" defer></script>
 </body>
 </html>

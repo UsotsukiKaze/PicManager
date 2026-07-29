@@ -192,6 +192,12 @@ def apply_migrations():
 
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_file_status_created_id ON images (file_status, created_at, image_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_thumb_status ON images (thumb_status)"))
+
+        # guestbook_messages.parent_id
+        guestbook_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(guestbook_messages)"))]
+        if guestbook_columns and "parent_id" not in guestbook_columns:
+            conn.execute(text("ALTER TABLE guestbook_messages ADD COLUMN parent_id INTEGER"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_guestbook_messages_parent_id ON guestbook_messages (parent_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_image_character_character_image ON image_character_association (character_id, image_id)"))
 
         conn.execute(text(

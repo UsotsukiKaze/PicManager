@@ -377,4 +377,5 @@ class GuestbookMessage(Base):
     nickname = Column(String(32), nullable=False)
     content = Column(Text, nullable=False)
     parent_id = Column(Integer, ForeignKey("guestbook_messages.id"), nullable=True, index=True)
+    author_qq = Column(String(20), nullable=True, index=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)

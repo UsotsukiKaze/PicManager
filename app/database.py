@@ -198,6 +198,9 @@ def apply_migrations():
         if guestbook_columns and "parent_id" not in guestbook_columns:
             conn.execute(text("ALTER TABLE guestbook_messages ADD COLUMN parent_id INTEGER"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_guestbook_messages_parent_id ON guestbook_messages (parent_id)"))
+        if guestbook_columns and "author_qq" not in guestbook_columns:
+            conn.execute(text("ALTER TABLE guestbook_messages ADD COLUMN author_qq VARCHAR(20)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_guestbook_messages_author_qq ON guestbook_messages (author_qq)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_image_character_character_image ON image_character_association (character_id, image_id)"))
 
         conn.execute(text(

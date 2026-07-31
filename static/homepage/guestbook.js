@@ -16,6 +16,7 @@
     function formatTime(value) {
         var date = new Date(value);
         return Number.isNaN(date.getTime()) ? "刚刚" : date.toLocaleString("zh-CN", {
+            timeZone: "Asia/Shanghai",
             month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"
         });
     }
@@ -52,7 +53,7 @@
         row.className = "guestbook-message-row";
             var avatar = document.createElement("img");
             avatar.className = "guestbook-avatar";
-            avatar.src = avatarUrl;
+            avatar.src = message.is_owner ? "/static/homepage/avatar.jpg" : avatarUrl;
             avatar.alt = "";
             var body = document.createElement("div");
             body.className = "guestbook-message-body";

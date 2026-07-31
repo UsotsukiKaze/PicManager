@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from time import monotonic
 
 from fastapi import APIRouter, HTTPException, Request
@@ -14,6 +14,7 @@ router = APIRouter(prefix="/guestbook", tags=["guestbook"])
 
 POST_INTERVAL_SECONDS = 30
 _last_post_at: dict[str, float] = {}
+BEIJING_TIMEZONE = timezone(timedelta(hours=8))
 
 
 class GuestbookMessageCreate(BaseModel):
@@ -26,12 +27,15 @@ class GuestbookReplyCreate(BaseModel):
 
 
 def serialize_message(message: GuestbookMessage) -> dict:
+    created_at = message.created_at or datetime.utcnow()
+    created_at_beijing = created_at.replace(tzinfo=timezone.utc).astimezone(BEIJING_TIMEZONE)
     return {
         "id": message.id,
         "nickname": message.nickname,
         "content": message.content,
         "parent_id": message.parent_id,
-        "created_at": message.created_at.isoformat() if message.created_at else datetime.utcnow().isoformat(),
+        "is_owner": message.author_qq == settings.ROOT_QQ,
+        "created_at": created_at_beijing.isoformat(),
     }
 
 
@@ -109,7 +113,7 @@ def create_message(payload: GuestbookMessageCreate, request: Request):
 
 @router.post("/{message_id}/replies", status_code=201)
 def reply_to_message(message_id: int, payload: GuestbookReplyCreate, request: Request):
-    require_root_user_id(request)
+    owner_user_id = require_root_user_id(request)
     content = payload.content.strip()
     if not content:
         raise HTTPException(status_code=422, detail="回复不能为空")
@@ -121,7 +125,13 @@ def reply_to_message(message_id: int, payload: GuestbookReplyCreate, request: Re
         ).first()
         if not parent:
             raise HTTPException(status_code=404, detail="留言不存在")
-        reply = GuestbookMessage(nickname="UsotsukiKaze", content=content, parent_id=parent.id)
+        owner = db.query(User).filter(User.id == owner_user_id).first()
+        reply = GuestbookMessage(
+            nickname=(owner.nickname if owner and owner.nickname else "拈风"),
+            content=content,
+            parent_id=parent.id,
+            author_qq=(owner.qq_number if owner else settings.ROOT_QQ),
+        )
         db.add(reply)
         db.flush()
         db.refresh(reply)

@@ -111,6 +111,35 @@
         "nav-contact": "contact"
     };
 
+    var activeNavScroll = 0;
+
+    function scrollToSection(destination) {
+        var start = window.scrollY;
+        var distance = destination - start;
+        var duration = Math.min(1050, Math.max(720, Math.abs(distance) * 0.45));
+        var startedAt = performance.now();
+        var scrollToken = ++activeNavScroll;
+        var root = document.documentElement;
+        var previousBehavior = root.style.scrollBehavior;
+        root.style.scrollBehavior = "auto";
+
+        function frame(now) {
+            if (scrollToken !== activeNavScroll) return;
+            var progress = Math.min(1, (now - startedAt) / duration);
+            var eased = progress < 0.5
+                ? 4 * progress * progress * progress
+                : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+            window.scrollTo(0, start + distance * eased);
+            if (progress < 1) {
+                window.requestAnimationFrame(frame);
+            } else {
+                root.style.scrollBehavior = previousBehavior;
+            }
+        }
+
+        window.requestAnimationFrame(frame);
+    }
+
     Object.keys(navMap).forEach(function (radioId) {
         var radio = document.getElementById(radioId);
         if (!radio) return;
@@ -120,7 +149,7 @@
             var targetTop = target.getBoundingClientRect().top + window.scrollY;
             var preferredOffset = window.innerHeight * 0.25;
             var destination = Math.max(0, targetTop - preferredOffset);
-            window.scrollTo({ top: destination, behavior: "smooth" });
+            scrollToSection(destination);
         });
     });
 

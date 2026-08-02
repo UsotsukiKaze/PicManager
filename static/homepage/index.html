@@ -21,8 +21,8 @@
     <link rel="stylesheet" href="/static/homepage/style/icon.css?v=20260729-3">
     <link rel="stylesheet" href="/static/homepage/style/lan.css?v=20260729-3">
     <link rel="stylesheet" href="/static/homepage/style/aoo.css?v=20260729-3">
-    <link rel="stylesheet" href="/static/homepage/style/personal.css?v=20260729-20">
-    <link rel="stylesheet" href="/static/homepage/style/music-player.css?v=20260729-4">
+    <link rel="stylesheet" href="/static/homepage/style/personal.css?v=20260802-12">
+    <link rel="stylesheet" href="/static/homepage/style/music-player.css?v=20260802-6">
 </head>
 <body>
     <div class="bg" aria-hidden="true">
@@ -39,9 +39,13 @@
         </div>
     </div>
     <div class="bg-blur" aria-hidden="true"></div>
+    <div class="meteor-field" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span><span></span>
+    </div>
 
     <button class="ameath-pet" id="ameathPet" type="button" aria-label="爱弥斯：悬停互动，点击播放语音">
         <img id="ameathPetImage" src="/static/homepage/ameath/idle1.gif" alt="游荡的爱弥斯">
+        <span class="ameath-lyric" id="ameathLyric" aria-live="polite"></span>
     </button>
 
     <div class="container">
@@ -123,6 +127,7 @@
                         </div>
                         <div class="project-title">小爱图库</div>
                         <div class="project-desc">图片收藏、标签整理与快速检索工具</div>
+                        <div class="project-extra"><span class="project-status is-online">ONLINE</span><span>FastAPI · Cloudflare Tunnel</span></div>
                     </a>
                     <a class="project-item project-link" href="https://ygkit.usotsuki-kaze.com/" target="_blank" rel="noopener noreferrer">
                         <div class="project-icon">
@@ -130,6 +135,7 @@
                         </div>
                         <div class="project-title">YGKit</div>
                         <div class="project-desc">与北岸@northshore416合作改编的鸣潮工具箱</div>
+                        <div class="project-extra"><span class="project-status is-online">ONLINE</span><span>鸣潮工具 · @northshore416</span></div>
                     </a>
                     <a class="project-item project-link" href="https://github.com/UsotsukiKaze" target="_blank" rel="noopener noreferrer">
                         <div class="project-icon">
@@ -137,6 +143,7 @@
                         </div>
                         <div class="project-title">GitHub</div>
                         <div class="project-desc">我的一些小鬼点子</div>
+                        <div class="project-extra"><span class="project-status">OPEN SOURCE</span><span>代码、实验与更新记录</span></div>
                     </a>
                     <a class="project-item project-link" href="https://usotsuki-kaze.com">
                         <div class="project-icon">
@@ -144,6 +151,7 @@
                         </div>
                         <div class="project-title">Personal Space</div>
                         <div class="project-desc">就是这里喵~</div>
+                        <div class="project-extra"><span class="project-status">YOU ARE HERE</span><span>个人中转站 · 持续维护中</span></div>
                     </a>
                 </div>
             </div>
@@ -232,6 +240,7 @@
             <div class="music-artist" id="musicArtist">鸣潮先约电台 · YUE.STEVEN</div>
         </div>
         <div class="music-controls">
+            <button class="music-btn music-lyric-btn" id="musicLyrics" type="button" title="显示歌词" aria-pressed="false">词</button>
             <button class="music-btn" id="musicPrev" type="button" title="重新播放">
                 <svg viewBox="0 0 24 24"><path d="M19 20 9 12l10-8v16zM5 19V5"/></svg>
             </button>
@@ -245,6 +254,11 @@
         </div>
         <audio id="musicAudio" src="/static/homepage/astrum-unicum.mp3" preload="metadata" autoplay></audio>
         <div class="music-progress-wrap" id="musicProgressWrap"><div class="music-progress-bar" id="musicProgressBar"></div></div>
+        <div class="music-playlist" id="musicPlaylist" aria-label="当前歌单">
+            <div class="music-playlist-header"><span>播放队列</span><span id="musicPlaylistMode"></span></div>
+            <div class="music-playlist-items" id="musicPlaylistItems"></div>
+            <label class="music-volume" for="musicVolume"><span>音量</span><input id="musicVolume" type="range" min="0" max="100" value="70" aria-label="音乐音量"></label>
+        </div>
     </div>
     <audio id="ameathVoiceAudio" preload="none"></audio>
 
@@ -255,61 +269,85 @@
                 {
                     name: "繁星、新生，与你",
                     artist: "鸣潮先约电台 · YUE.STEVEN",
-                    cover: "/static/homepage/avatar.jpg",
+                    cover: "/static/homepage/covers/astrum-unicum.jpg",
                     url: "/static/homepage/astrum-unicum.mp3"
                 },
                 {
                     name: "纸飞机",
                     artist: "鸣潮先约电台 · 飞行雪绒",
-                    cover: "/static/homepage/avatar.jpg",
+                    cover: "/static/homepage/covers/paper-plane.jpg",
+                    lyric: "/static/homepage/lyrics/paper-plane.lrc?v=20260802-2",
+                    lyricStart: 30.23,
+                    lyricPairMode: "alternating",
                     url: "/static/homepage/paper-plane.flac"
                 },
                 {
                     name: "星辉抵达之日",
                     artist: "鸣潮先约电台 · baitian · waka",
-                    cover: "/static/homepage/avatar.jpg",
+                    cover: "/static/homepage/covers/starlight-arrival.jpg",
+                    lyric: "/static/homepage/lyrics/starlight-arrival.lrc?v=20260802-2",
+                    lyricStart: 1.28,
+                    lyricPairMode: "alternating",
                     url: "/static/homepage/starlight-arrival.flac"
                 },
                 {
                     id: "ameath-flowers",
                     name: "碎花",
                     artist: "飞行雪绒",
-                    cover: "/static/homepage/ameath/ameath_content.png",
+                    cover: "/static/homepage/covers/flowers.jpg",
+                    lyric: "/static/homepage/lyrics/flowers.lrc?v=20260802-2",
+                    lyricStart: 12.59,
+                    lyricPairMode: "alternating",
                     url: "/static/homepage/ameath/flowers.mp3"
                 },
                 {
                     id: "ameath-paper-plane",
                     name: "纸飞机",
                     artist: "飞行雪绒",
-                    cover: "/static/homepage/ameath/ameath_content.png",
+                    cover: "/static/homepage/covers/paper-plane.jpg",
+                    lyric: "/static/homepage/lyrics/paper-plane.lrc?v=20260802-2",
+                    lyricStart: 30.23,
+                    lyricPairMode: "alternating",
                     url: "/static/homepage/ameath/paper-plane.mp3"
                 },
                 {
                     id: "ameath-farewell-star",
                     name: "远航星的告别",
                     artist: "飞行雪绒",
-                    cover: "/static/homepage/ameath/ameath_content.png",
+                    cover: "/static/homepage/covers/farewell-star.jpg",
+                    lyric: "/static/homepage/lyrics/farewell-star.lrc?v=20260802-2",
+                    lyricStart: 23.76,
+                    lyricPairMode: "alternating",
                     url: "/static/homepage/ameath/farewell-star.mp3"
                 },
                 {
                     id: "ameath-spring-star",
                     name: "那颗星梦见的春日",
                     artist: "飞行雪绒",
-                    cover: "/static/homepage/ameath/ameath_content.png",
+                    cover: "/static/homepage/covers/spring-star.jpg",
+                    lyric: "/static/homepage/lyrics/spring-star.lrc?v=20260802-2",
+                    lyricStart: 13.06,
+                    lyricOffset: -0.75,
+                    lyricPairMode: "alternating",
                     url: "/static/homepage/ameath/spring-star.mp3"
                 },
                 {
                     id: "ameath-little-miracle",
                     name: "小小奇迹",
                     artist: "飞行雪绒",
-                    cover: "/static/homepage/ameath/ameath_content.png",
+                    cover: "/static/homepage/covers/little-miracle.jpg",
+                    lyric: "/static/homepage/lyrics/little-miracle.lrc?v=20260802-2",
+                    lyricStart: 22.57,
+                    lyricPairMode: "alternating",
                     url: "/static/homepage/ameath/little-miracle.mp3"
                 },
                 {
                     id: "ameath-star-torch",
                     name: "星炬不熄",
                     artist: "飞行雪绒",
-                    cover: "/static/homepage/ameath/ameath_content.png",
+                    cover: "/static/homepage/covers/star-torch.jpg",
+                    lyric: "/static/homepage/lyrics/star-torch.lrc?v=20260802-2",
+                    lyricStart: 11.91,
                     url: "/static/homepage/ameath/star-torch.mp3"
                 },
                 {
@@ -373,9 +411,9 @@
         window.__musicPlayerConfig.ameathPlaylist = window.__musicPlayerConfig.playlist.splice(3, 6);
         window.__musicPlayerConfig.voicePlaylist = window.__musicPlayerConfig.playlist.splice(3);
     </script>
-    <script src="/static/homepage/site.js?v=20260729-5" defer></script>
-    <script src="/static/homepage/music-player.js?v=20260729-6" defer></script>
-    <script src="/static/homepage/ameath-pet.js?v=20260729-3" defer></script>
+    <script src="/static/homepage/site.js?v=20260802-1" defer></script>
+    <script src="/static/homepage/music-player.js?v=20260802-7" defer></script>
+    <script src="/static/homepage/ameath-pet.js?v=20260802-8" defer></script>
     <script src="/static/homepage/guestbook.js?v=20260731-1" defer></script>
 </body>
 </html>

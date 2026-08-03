@@ -366,3 +366,14 @@ class BotLoginTicketResponse(BaseModel):
 class QQTicketLogin(BaseModel):
     ticket: str
     purpose: str = "login"
+
+
+class SSOExchangeRequest(BaseModel):
+    ticket: str
+
+
+class SSOIdentityResponse(BaseModel):
+    qq_number: str
+    nickname: Optional[str] = None
+    avatar_url: Optional[str] = None
+    role: str

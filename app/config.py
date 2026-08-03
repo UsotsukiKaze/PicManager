@@ -35,10 +35,13 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     DEBUG: bool = True
+    ENABLE_API_DOCS: bool = False
     
     # 安全配置
     SECRET_KEY: str = "your-secret-key-here"  # 在生产环境中应该设置为随机字符串
     BOT_API_TOKEN: str = ""
+    PHROLOVA_SSO_TOKEN: str = ""
+    PHROLOVA_PUBLIC_BASE_URL: str = ""
     PUBLIC_BASE_URL: str = ""
     LOGIN_TICKET_TTL_SECONDS: int = 300
     ROOT_QQ: str = "1356890337"

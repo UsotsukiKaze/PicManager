@@ -13,7 +13,7 @@ from ..config import settings
 from ..models import LoginTicket
 
 DEFAULT_TICKET_TTL_SECONDS = 300
-ALLOWED_PURPOSES = {"login", "upload", "admin"}
+ALLOWED_PURPOSES = {"login", "upload", "admin", "phrolova"}
 
 
 @dataclass
@@ -71,18 +71,33 @@ def create_login_ticket(
 
 def consume_login_ticket(db: Session, ticket: str, purpose: str = "login") -> LoginTicket:
     ticket_hash = hash_ticket((ticket or "").strip())
+    normalized_purpose = normalize_purpose(purpose)
+    now = datetime.utcnow()
     record = db.query(LoginTicket).filter(LoginTicket.ticket_hash == ticket_hash).first()
     if not record:
         raise HTTPException(status_code=401, detail="Invalid login ticket")
     if record.used_at is not None:
         raise HTTPException(status_code=401, detail="Login ticket has already been used")
-    if record.expires_at <= datetime.utcnow():
+    if record.expires_at <= now:
         raise HTTPException(status_code=401, detail="Login ticket has expired")
-    if record.purpose != normalize_purpose(purpose):
+    if record.purpose != normalized_purpose:
         raise HTTPException(status_code=403, detail="Login ticket purpose mismatch")
 
-    record.used_at = datetime.utcnow()
+    consumed = (
+        db.query(LoginTicket)
+        .filter(
+            LoginTicket.id == record.id,
+            LoginTicket.used_at.is_(None),
+            LoginTicket.expires_at > now,
+            LoginTicket.purpose == normalized_purpose,
+        )
+        .update({LoginTicket.used_at: now}, synchronize_session=False)
+    )
+    if consumed != 1:
+        db.rollback()
+        raise HTTPException(status_code=401, detail="Login ticket is no longer valid")
     db.flush()
+    db.refresh(record)
     return record
 
 

@@ -153,3 +153,7 @@ MIT
 ## 贡献
 
 欢迎提交 Issue 与 PR
+
+## Phrolova SSO
+
+PicManager can act as the QQ identity authority for Phrolova. Configure `PHROLOVA_SSO_TOKEN` and `PHROLOVA_PUBLIC_BASE_URL`; the bot creates a purpose-scoped, single-use ticket and Phrolova exchanges it through `POST /api/sso/exchange` with a Bearer token. Keep this endpoint and token server-side only.

@@ -17,6 +17,7 @@ from app.services import ImageService
 from app.routers.admin_routes import router as admin_router
 from app.routers.auth_routes import router as auth_router
 from app.routers.integrations.bot import router as bot_router
+from app.routers.integrations.sso import router as sso_router
 from app.routers.public import router as public_router
 from app.routers.system import router as system_router
 from app.security.permissions import require_admin_user_id
@@ -40,7 +41,10 @@ app = FastAPI(
     title="PicManager",
     description="图片编号管理系统 - 基于标签的图片元数据管理工具",
     version="0.1.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url="/docs" if settings.ENABLE_API_DOCS else None,
+    redoc_url="/redoc" if settings.ENABLE_API_DOCS else None,
+    openapi_url="/openapi.json" if settings.ENABLE_API_DOCS else None,
 )
 
 def _cors_origins() -> list[str]:
@@ -203,6 +207,7 @@ app.mount("/resource/emojis", StaticFiles(directory=settings.EMOJI_PATH), name="
 app.include_router(public_router, prefix="/api")
 app.include_router(system_router, prefix="/api/system")
 app.include_router(bot_router, prefix="/api/bot")
+app.include_router(sso_router, prefix="/api/sso")
 app.include_router(admin_router, prefix="/api/admin")
 app.include_router(auth_router, prefix="/auth")
 app.include_router(admin_router, prefix="/admin")
@@ -254,7 +259,10 @@ def main():
     log_info(f"图片存储: {settings.STORE_PATH}")
     log_info(f"临时目录: {settings.TEMP_PATH}")
     log_info(f"Web界面: http://{settings.HOST}:{settings.PORT}")
-    log_info(f"API文档: http://{settings.HOST}:{settings.PORT}/docs")
+    if settings.ENABLE_API_DOCS:
+        log_info(f"API文档: http://{settings.HOST}:{settings.PORT}/docs")
+    else:
+        log_info("API文档: 已关闭")
     
     uvicorn.run(
         "main:app",

@@ -18,3 +18,16 @@ def require_bot_api_key(authorization: Optional[str] = Header(default=None)) -> 
 
     if not hmac.compare_digest(token, configured_token):
         raise HTTPException(status_code=403, detail="Invalid bot API token")
+
+
+def require_phrolova_sso_key(authorization: Optional[str] = Header(default=None)) -> None:
+    """Authenticate the Phrolova backend when it exchanges a one-time ticket."""
+    configured_token = getattr(settings, "PHROLOVA_SSO_TOKEN", "")
+    if not configured_token:
+        raise HTTPException(status_code=503, detail="Phrolova SSO token is not configured")
+
+    scheme, _, token = (authorization or "").partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(status_code=401, detail="Missing Phrolova SSO token")
+    if not hmac.compare_digest(token, configured_token):
+        raise HTTPException(status_code=403, detail="Invalid Phrolova SSO token")

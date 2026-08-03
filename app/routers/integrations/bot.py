@@ -278,9 +278,16 @@ def create_bot_login_ticket(ticket_create: schemas.BotLoginTicketCreate):
             redirect_path=ticket_create.redirect_path,
             created_by=ticket_create.created_by,
         )
+        if issued.record.purpose == "phrolova":
+            base_url = settings.PHROLOVA_PUBLIC_BASE_URL.rstrip("/")
+            if not base_url:
+                raise HTTPException(status_code=503, detail="Phrolova public URL is not configured")
+            login_url = f"{base_url}/auth/qq#ticket={issued.ticket}"
+        else:
+            login_url = build_login_url(issued.ticket, issued.record.redirect_path)
         return schemas.BotLoginTicketResponse(
             ticket=issued.ticket,
-            login_url=build_login_url(issued.ticket, issued.record.redirect_path),
+            login_url=login_url,
             expires_at=issued.record.expires_at,
             purpose=issued.record.purpose,
             qq_number=issued.record.qq_number,

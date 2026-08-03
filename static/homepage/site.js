@@ -108,6 +108,7 @@
     var navMap = {
         "nav-about": "about",
         "nav-projects": "projects",
+        "nav-games": "games",
         "nav-contact": "contact"
     };
 

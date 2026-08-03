@@ -6,8 +6,9 @@ import tempfile
 from ... import schemas
 from ...config import settings
 from ...database import get_db_context
+from ...models import User, UserRole
 from ...security.api_key import require_bot_api_key
-from ...security.tickets import build_login_url, create_login_ticket
+from ...security.tickets import build_login_url, create_login_ticket, normalize_qq_number
 from ...services import CharacterService, EmojiService, EmotionTagService, FeatureTagService, GroupService, ImageService
 
 router = APIRouter(dependencies=[Depends(require_bot_api_key)])
@@ -271,9 +272,33 @@ async def upload_bot_emoji(
 def create_bot_login_ticket(ticket_create: schemas.BotLoginTicketCreate):
     """Issue a one-time QQ login ticket for the bot management plugin."""
     with get_db_context() as db:
+        qq_number = normalize_qq_number(ticket_create.qq_number)
+        nickname = (ticket_create.nickname or "").strip()[:100] or None
+        avatar_url = (ticket_create.avatar_url or "").strip()[:500] or None
+        user = db.query(User).filter(User.qq_number == qq_number).first()
+        if user is None:
+            user = User(
+                qq_number=qq_number,
+                role=UserRole.ROOT.value if qq_number == settings.ROOT_QQ else UserRole.USER.value,
+                password_hash=None,
+                nickname=nickname or f"QQ用户{qq_number[-4:]}",
+                avatar_url=avatar_url or f"https://q1.qlogo.cn/g?b=qq&nk={qq_number}&s=640",
+            )
+            db.add(user)
+        else:
+            if qq_number == settings.ROOT_QQ:
+                user.role = UserRole.ROOT.value
+            elif user.role == UserRole.ROOT.value:
+                user.role = UserRole.USER.value
+            user.password_hash = None
+            if nickname:
+                user.nickname = nickname
+            if avatar_url:
+                user.avatar_url = avatar_url
+
         issued = create_login_ticket(
             db,
-            qq_number=ticket_create.qq_number,
+            qq_number=qq_number,
             purpose=ticket_create.purpose,
             redirect_path=ticket_create.redirect_path,
             created_by=ticket_create.created_by,

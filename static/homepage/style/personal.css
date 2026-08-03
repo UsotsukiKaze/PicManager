@@ -234,6 +234,177 @@ html {
     display: none;
 }
 
+.games-card {
+    margin-top: 36px;
+}
+
+.games-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.games-heading .section-title {
+    margin-bottom: 0;
+}
+
+.games-kicker {
+    color: rgba(211, 229, 255, 0.54);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+}
+
+.games-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.game-item {
+    position: relative;
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 20px;
+    min-height: 126px;
+    padding: 24px 26px;
+    overflow: hidden;
+    color: inherit;
+    text-decoration: none;
+    border: 1px solid rgba(201, 224, 255, 0.2);
+    border-radius: 20px;
+    background: linear-gradient(120deg, rgba(91, 164, 220, 0.14), rgba(119, 125, 194, 0.12) 52%, rgba(224, 153, 204, 0.14));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 14px 36px rgba(15, 39, 81, 0.18);
+    transition: transform 0.42s cubic-bezier(.16, 1, .3, 1), border-color 0.35s ease, box-shadow 0.35s ease, background 0.35s ease;
+}
+
+.game-item::after {
+    content: "";
+    position: absolute;
+    inset: -50% auto -50% -28%;
+    width: 32%;
+    pointer-events: none;
+    opacity: 0;
+    transform: rotate(18deg);
+    background: linear-gradient(90deg, transparent, rgba(224, 241, 255, 0.18), transparent);
+    transition: left 0.7s ease, opacity 0.3s ease;
+}
+
+.game-item:hover {
+    transform: translateY(-4px);
+    border-color: rgba(220, 232, 255, 0.42);
+    background: linear-gradient(120deg, rgba(87, 170, 231, 0.22), rgba(126, 127, 201, 0.18) 52%, rgba(229, 152, 207, 0.21));
+    box-shadow: 0 18px 44px rgba(13, 38, 84, 0.3), 0 0 28px rgba(225, 151, 207, 0.13);
+}
+
+.game-item:hover::after {
+    left: 108%;
+    opacity: 1;
+}
+
+.game-icon {
+    display: grid;
+    place-items: center;
+    width: 72px;
+    height: 72px;
+    border-radius: 21px;
+    background: linear-gradient(135deg, rgba(147, 209, 250, 0.2), rgba(229, 165, 211, 0.19));
+    border: 1px solid rgba(218, 232, 255, 0.22);
+    box-shadow: 0 10px 24px rgba(18, 42, 87, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.13);
+}
+
+.game-icon img {
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
+    transition: transform 0.45s cubic-bezier(.16, 1, .3, 1), filter 0.35s ease;
+}
+
+.game-item:hover .game-icon img {
+    transform: translateY(-3px) rotate(-3deg) scale(1.06);
+    filter: drop-shadow(0 6px 10px rgba(155, 204, 255, 0.32));
+}
+
+.game-copy {
+    min-width: 0;
+}
+
+.game-copy .project-title,
+.game-copy .project-desc {
+    text-align: left;
+}
+
+.game-copy .project-desc {
+    margin-top: 7px;
+    line-height: 1.65;
+}
+
+.game-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin-top: 12px;
+}
+
+.game-tags span {
+    padding: 4px 9px;
+    color: rgba(226, 240, 255, 0.75);
+    font-size: 10px;
+    border: 1px solid rgba(203, 225, 255, 0.16);
+    border-radius: 999px;
+    background: rgba(132, 181, 224, 0.08);
+}
+
+.game-cta {
+    white-space: nowrap;
+    padding: 10px 14px;
+    color: rgba(244, 249, 255, 0.9);
+    font-size: 12px;
+    border-radius: 999px;
+    background: linear-gradient(120deg, rgba(108, 181, 237, 0.25), rgba(222, 151, 205, 0.22));
+    transition: transform 0.35s ease, box-shadow 0.35s ease;
+}
+
+.game-item:hover .game-cta {
+    transform: translateX(3px);
+    box-shadow: 0 0 18px rgba(209, 165, 224, 0.18);
+}
+
+@media (max-width: 720px) {
+    .games-card {
+        margin-top: 28px;
+    }
+
+    .game-item {
+        grid-template-columns: 58px minmax(0, 1fr);
+        gap: 14px;
+        min-height: 0;
+        padding: 18px 16px;
+    }
+
+    .game-icon {
+        width: 58px;
+        height: 58px;
+        border-radius: 17px;
+    }
+
+    .game-icon img {
+        width: 39px;
+        height: 39px;
+    }
+
+    .game-cta {
+        grid-column: 1 / -1;
+        justify-self: stretch;
+        text-align: center;
+    }
+
+    .game-tags {
+        gap: 5px;
+    }
+}
+
 .ameath-lyric {
     --lyric-shift-x: -50%;
     position: absolute;

@@ -353,6 +353,8 @@ class BotLoginTicketCreate(BaseModel):
     purpose: str = "login"
     redirect_path: Optional[str] = "/"
     created_by: Optional[str] = None
+    nickname: Optional[str] = None
+    avatar_url: Optional[str] = None
 
 
 class BotLoginTicketResponse(BaseModel):

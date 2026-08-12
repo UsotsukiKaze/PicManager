@@ -67,11 +67,12 @@ def get_random_image(
     group_id: Optional[int] = None,
     character_id: Optional[int] = None,
     exclude_group_id: Optional[int] = None,
-    feature_tag_id: Optional[int] = None
+    feature_tag_id: Optional[int] = None,
+    max_age_rating: Optional[str] = None
 ):
     """随机获取图片"""
     with get_db_context() as db:
-        image = ImageService.get_random_image(db, group_id, character_id, exclude_group_id, feature_tag_id)
+        image = ImageService.get_random_image(db, group_id, character_id, exclude_group_id, feature_tag_id, max_age_rating)
         if not image:
             raise HTTPException(status_code=404, detail="Image not found")
         return image
@@ -208,6 +209,7 @@ def update_image(image_id: str, image_update: schemas.ImageUpdate, request: Requ
             "character_ids": [character.id for character in db_image.characters],
             "group_ids": [group.id for group in db_image.groups],
             "feature_tag_ids": [tag.id for tag in db_image.feature_tags],
+            "age_rating": db_image.age_rating or "all",
         }
         update_data = changed_update_data(update_data, original_data)
         if not update_data:

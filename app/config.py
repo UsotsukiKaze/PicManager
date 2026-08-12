@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     PENDING_PATH: str = os.path.join(RESOURCE_PATH, "pending")
     THUMB_PATH: str = os.path.join(RESOURCE_PATH, "thumbs")
     EMOJI_PATH: str = os.path.join(RESOURCE_PATH, "emojis")
+    AVATAR_PATH: str = os.path.join(RESOURCE_PATH, "avatars")
     
     # 数据库配置
     DATABASE_URL: str = f"sqlite:///{os.path.join(DATA_PATH, 'picmanager.db')}"
@@ -26,6 +27,9 @@ class Settings(BaseSettings):
     THUMBNAIL_SIZE: int = 480
     THUMBNAIL_QUALITY: int = 86
     THUMBNAIL_WEBP_METHOD: int = 4
+    AVATAR_MAX_FILE_SIZE: int = 256 * 1024
+    AVATAR_UPLOAD_MAX_FILE_SIZE: int = 10 * 1024 * 1024
+    AVATAR_SIZE: int = 512
     
     # 分页配置
     DEFAULT_PAGE_SIZE: int = 50
@@ -45,6 +49,8 @@ class Settings(BaseSettings):
     PUBLIC_BASE_URL: str = ""
     LOGIN_TICKET_TTL_SECONDS: int = 300
     ROOT_QQ: str = "1356890337"
+    AGE_RATING_SUPERUSERS: str = ""
+    AGE_RATING_ASSERTION_SECRET: str = ""
     CORS_ALLOW_ORIGINS: str = "http://127.0.0.1:8000,http://localhost:8000"
     SESSION_COOKIE_SECURE: bool = False
     SESSION_COOKIE_DOMAIN: str | None = None

@@ -13,15 +13,22 @@ from ..auth import get_current_session, check_guest_limit
 import tempfile
 import os
 import json
+import re
 from datetime import datetime
 
 router = APIRouter()
+
+
+def _validate_managed_avatar(avatar_url: Optional[str]) -> None:
+    if avatar_url and not re.fullmatch(r"/resource/avatars/[0-9a-f]{32}\.webp", avatar_url):
+        raise HTTPException(status_code=400, detail="头像必须通过裁剪上传生成")
 
 
 # 分组相关路由
 @router.post("/groups/", response_model=Union[schemas.Group, dict])
 def create_group(group: schemas.GroupCreate, request: Request):
     """创建分组"""
+    _validate_managed_avatar(group.avatar_url)
     with get_db_context() as db:
         existing = db.query(models.Group).filter(models.Group.name == group.name).first()
         if existing:
@@ -58,6 +65,7 @@ def create_group(group: schemas.GroupCreate, request: Request):
             image_data=json.dumps({
                 "name": group.name,
                 "aliases": group.aliases or [],
+                "avatar_url": group.avatar_url,
                 "description": group.description
             })
         )
@@ -81,6 +89,7 @@ def get_popular_groups(limit: int = 5):
             db.query(
                 models.Group.id,
                 models.Group.name,
+                models.Group.avatar_url,
                 image_count.label("image_count"),
             )
             .join(models.Character, models.Character.group_id == models.Group.id)
@@ -90,15 +99,20 @@ def get_popular_groups(limit: int = 5):
             )
             .join(models.Image, models.Image.image_id == models.image_character_association.c.image_id)
             .filter(models.Image.file_status == ImageService.AVAILABLE)
-            .group_by(models.Group.id, models.Group.name)
+            .group_by(models.Group.id, models.Group.name, models.Group.avatar_url)
             .order_by(image_count.desc(), models.Group.name.asc())
             .limit(safe_limit)
             .all()
         )
 
         return [
-            {"id": group_id, "name": name, "image_count": count}
-            for group_id, name, count in rows
+            {
+                "id": group_id,
+                "name": name,
+                "avatar_url": avatar_url or "/favicon.ico",
+                "image_count": count,
+            }
+            for group_id, name, avatar_url, count in rows
         ]
 
 @router.get("/groups/{group_id}", response_model=schemas.Group)
@@ -138,11 +152,14 @@ def update_group(group_id: int, group_update: schemas.GroupUpdate, request: Requ
         existing = db.query(models.Group).filter(models.Group.id == group_id).first()
         if not existing:
             raise HTTPException(status_code=404, detail="Group not found")
+        if "avatar_url" in group_update.model_fields_set and group_update.avatar_url != existing.avatar_url:
+            _validate_managed_avatar(group_update.avatar_url)
 
         update_data = group_update.dict(exclude_unset=True)
         original_data = {
             "name": existing.name,
             "aliases": [alias.alias for alias in existing.aliases] if existing.aliases else [],
+            "avatar_url": existing.avatar_url,
             "description": existing.description,
         }
         update_data = changed_update_data(update_data, original_data)

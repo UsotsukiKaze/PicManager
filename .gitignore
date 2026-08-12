@@ -20,6 +20,7 @@ resource/temp/
 resource/pending/
 resource/thumbs/
 resource/emojis/
+resource/avatars/
 
 logs/
 *.log

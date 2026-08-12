@@ -33,6 +33,7 @@ class UIManager {
         this.lastThumbnailMaintenanceAt = 0;
         this.thumbnailObserver = null;
         this.imageLoadRequestId = 0;
+        this.avatarCropState = null;
         
         this.initializeEventListeners();
     }
@@ -937,11 +938,14 @@ class UIManager {
 
         container.innerHTML = groups.map(group => `
             <div class="list-item">
-                <div class="list-item-info">
-                    <div class="list-item-name">${group.name}</div>
-                    <div class="list-item-description">
-                        ${group.description || '无描述'}
-                        ${group.aliases && group.aliases.length ? ` | 别称: ${group.aliases.join(' / ')}` : ''}
+                <div class="entity-list-main">
+                    <img class="entity-avatar" src="${this.getEntityAvatar(group)}" alt="${this.escapeHomeRankingText(group.name)}的头像" loading="lazy" decoding="async" onerror="ui.handleEntityAvatarFallback(this)">
+                    <div class="list-item-info">
+                        <div class="list-item-name">${group.name}</div>
+                        <div class="list-item-description">
+                            ${group.description || '无描述'}
+                            ${group.aliases && group.aliases.length ? ` | 别称: ${group.aliases.join(' / ')}` : ''}
+                        </div>
                     </div>
                 </div>
                 <div class="list-item-actions">
@@ -1030,6 +1034,208 @@ class UIManager {
         })[character]);
     }
 
+    getEntityAvatar(item) {
+        const fallback = '/favicon.ico';
+        if (!item || !item.avatar_url) return fallback;
+        try {
+            const url = new URL(item.avatar_url, window.location.origin);
+            return ['http:', 'https:'].includes(url.protocol)
+                ? this.escapeHomeRankingText(url.href)
+                : fallback;
+        } catch (error) {
+            return fallback;
+        }
+    }
+
+    handleEntityAvatarFallback(image) {
+        image.onerror = null;
+        image.src = '/favicon.ico';
+    }
+
+    renderAvatarUploader(prefix, currentUrl = '') {
+        const hasCustomAvatar = Boolean(currentUrl && currentUrl !== '/favicon.ico');
+        const preview = hasCustomAvatar ? this.getEntityAvatar({ avatar_url: currentUrl }) : '/favicon.ico';
+        return `
+            <div class="avatar-upload-field" data-avatar-prefix="${prefix}">
+                <input type="hidden" id="${prefix}-avatar-url" value="${hasCustomAvatar ? this.escapeHomeRankingText(currentUrl) : ''}">
+                <input type="file" id="${prefix}-avatar-file" accept="image/jpeg,image/png,image/webp,image/gif,image/bmp" hidden>
+                <button type="button" class="avatar-upload-preview" onclick="document.getElementById('${prefix}-avatar-file').click()" aria-label="选择并裁剪头像">
+                    <img id="${prefix}-avatar-preview" src="${preview}" alt="头像预览" onerror="ui.handleEntityAvatarFallback(this)">
+                    <span>选择图片</span>
+                </button>
+                <div class="avatar-upload-actions">
+                    <button type="button" class="btn-link" onclick="document.getElementById('${prefix}-avatar-file').click()">上传并裁剪</button>
+                    <button type="button" class="btn-link avatar-reset-button" onclick="ui.resetAvatarUpload('${prefix}')">恢复网页图标</button>
+                    <small>正方形框选；保存后自动平滑缩放并压缩至 256 KiB 内。</small>
+                </div>
+            </div>
+        `;
+    }
+
+    bindAvatarUploader(prefix) {
+        const input = document.getElementById(`${prefix}-avatar-file`);
+        if (!input) return;
+        input.addEventListener('change', () => {
+            const file = input.files?.[0];
+            input.value = '';
+            if (file) this.openAvatarCropper(prefix, file);
+        });
+    }
+
+    resetAvatarUpload(prefix) {
+        const hidden = document.getElementById(`${prefix}-avatar-url`);
+        const preview = document.getElementById(`${prefix}-avatar-preview`);
+        if (hidden) hidden.value = '';
+        if (preview) preview.src = '/favicon.ico';
+    }
+
+    openAvatarCropper(prefix, file) {
+        if (!file.type.startsWith('image/')) {
+            this.showToast('请选择图片文件', 'error');
+            return;
+        }
+        if (file.size > 10 * 1024 * 1024) {
+            this.showToast('头像原图不能超过 10 MiB', 'error');
+            return;
+        }
+
+        const objectUrl = URL.createObjectURL(file);
+        const content = `
+            <div class="avatar-crop-dialog">
+                <p class="avatar-crop-hint">拖动画面调整位置，使用滑杆缩放；正方形框内区域会成为头像。</p>
+                <div class="avatar-crop-viewport" id="avatar-crop-viewport">
+                    <img id="avatar-crop-image" src="${objectUrl}" alt="待裁剪头像" draggable="false">
+                    <span class="avatar-crop-frame" aria-hidden="true"></span>
+                </div>
+                <label class="avatar-crop-zoom">缩放
+                    <input id="avatar-crop-zoom" type="range" min="1" max="4" step="0.01" value="1">
+                </label>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="ui.cancelAvatarCropper()">取消</button>
+                    <button type="button" class="btn btn-primary" id="avatar-crop-confirm" onclick="ui.confirmAvatarCropper()">裁剪并上传</button>
+                </div>
+            </div>
+        `;
+        this.showModal('裁剪头像', content, true);
+        this.avatarCropState = { prefix, file, objectUrl, x: 0, y: 0, zoom: 1, dragging: false };
+        this.initializeAvatarCropper();
+    }
+
+    initializeAvatarCropper() {
+        const state = this.avatarCropState;
+        const viewport = document.getElementById('avatar-crop-viewport');
+        const image = document.getElementById('avatar-crop-image');
+        const zoom = document.getElementById('avatar-crop-zoom');
+        if (!state || !viewport || !image || !zoom) return;
+
+        const initializeImage = () => {
+            state.naturalWidth = image.naturalWidth;
+            state.naturalHeight = image.naturalHeight;
+            state.baseScale = Math.max(viewport.clientWidth / image.naturalWidth, viewport.clientHeight / image.naturalHeight);
+            state.x = 0;
+            state.y = 0;
+            this.updateAvatarCropTransform();
+        };
+        if (image.complete && image.naturalWidth) {
+            initializeImage();
+        } else {
+            image.addEventListener('load', initializeImage, { once: true });
+        }
+        zoom.addEventListener('input', () => {
+            state.zoom = Number(zoom.value);
+            this.updateAvatarCropTransform();
+        });
+        viewport.addEventListener('pointerdown', event => {
+            state.dragging = true;
+            state.pointerX = event.clientX;
+            state.pointerY = event.clientY;
+            viewport.setPointerCapture(event.pointerId);
+        });
+        viewport.addEventListener('pointermove', event => {
+            if (!state.dragging) return;
+            state.x += event.clientX - state.pointerX;
+            state.y += event.clientY - state.pointerY;
+            state.pointerX = event.clientX;
+            state.pointerY = event.clientY;
+            this.updateAvatarCropTransform();
+        });
+        const endDrag = () => { state.dragging = false; };
+        viewport.addEventListener('pointerup', endDrag);
+        viewport.addEventListener('pointercancel', endDrag);
+    }
+
+    updateAvatarCropTransform() {
+        const state = this.avatarCropState;
+        const viewport = document.getElementById('avatar-crop-viewport');
+        const image = document.getElementById('avatar-crop-image');
+        if (!state?.baseScale || !viewport || !image) return;
+
+        const scale = state.baseScale * state.zoom;
+        const width = state.naturalWidth * scale;
+        const height = state.naturalHeight * scale;
+        const maxX = Math.max(0, (width - viewport.clientWidth) / 2);
+        const maxY = Math.max(0, (height - viewport.clientHeight) / 2);
+        state.x = Math.max(-maxX, Math.min(maxX, state.x));
+        state.y = Math.max(-maxY, Math.min(maxY, state.y));
+        image.style.width = `${width}px`;
+        image.style.height = `${height}px`;
+        image.style.transform = `translate(calc(-50% + ${state.x}px), calc(-50% + ${state.y}px))`;
+    }
+
+    async confirmAvatarCropper() {
+        const state = this.avatarCropState;
+        const viewport = document.getElementById('avatar-crop-viewport');
+        const button = document.getElementById('avatar-crop-confirm');
+        if (!state?.baseScale || !viewport || !button) return;
+
+        button.disabled = true;
+        button.textContent = '处理中…';
+        try {
+            const scale = state.baseScale * state.zoom;
+            const sourceSide = viewport.clientWidth / scale;
+            const centerX = state.naturalWidth / 2 - state.x / scale;
+            const centerY = state.naturalHeight / 2 - state.y / scale;
+            const sourceX = Math.max(0, Math.min(state.naturalWidth - sourceSide, centerX - sourceSide / 2));
+            const sourceY = Math.max(0, Math.min(state.naturalHeight - sourceSide, centerY - sourceSide / 2));
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024;
+            canvas.height = 1024;
+            const context = canvas.getContext('2d');
+            context.imageSmoothingEnabled = true;
+            context.imageSmoothingQuality = 'high';
+            const source = document.getElementById('avatar-crop-image');
+            const imageSource = await createImageBitmap(state.file, {
+                imageOrientation: 'from-image',
+            });
+            context.drawImage(imageSource, sourceX, sourceY, sourceSide, sourceSide, 0, 0, canvas.width, canvas.height);
+            imageSource.close();
+            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+            if (!blob) throw new Error('生成裁剪图片失败');
+            const result = await api.processAvatar(blob);
+            const hidden = document.getElementById(`${state.prefix}-avatar-url`);
+            const preview = document.getElementById(`${state.prefix}-avatar-preview`);
+            if (hidden) hidden.value = result.avatar_url;
+            if (preview) preview.src = `${result.avatar_url}?v=${Date.now()}`;
+            this.releaseAvatarCropState();
+            this.closeModal();
+            this.showToast(`头像已处理（${Math.ceil(result.file_size / 1024)} KiB）`, 'success');
+        } catch (error) {
+            this.showToast(`头像处理失败: ${error.message}`, 'error');
+            button.disabled = false;
+            button.textContent = '裁剪并上传';
+        }
+    }
+
+    cancelAvatarCropper() {
+        this.releaseAvatarCropState();
+        this.closeModal();
+    }
+
+    releaseAvatarCropState() {
+        if (this.avatarCropState?.objectUrl) URL.revokeObjectURL(this.avatarCropState.objectUrl);
+        this.avatarCropState = null;
+    }
+
     getHomeRankingAvatar(item) {
         const fallback = `https://q1.qlogo.cn/g?b=qq&nk=${encodeURIComponent(item.qq_number || '')}&s=100`;
         if (!item.avatar_url) return fallback;
@@ -1073,7 +1279,7 @@ class UIManager {
         container.innerHTML = items.map((item, index) => `
             <div class="home-ranking-row">
                 <span class="home-ranking-position">${index + 1}</span>
-                <span class="home-ranking-group-mark" aria-hidden="true"></span>
+                <img class="home-ranking-avatar" src="${this.getEntityAvatar(item)}" alt="" loading="lazy" decoding="async" onerror="ui.handleEntityAvatarFallback(this)">
                 <span class="home-ranking-name">${this.escapeHomeRankingText(item.name)}</span>
                 <strong>${item.count}<small>张</small></strong>
             </div>
@@ -1092,6 +1298,7 @@ class UIManager {
         container.innerHTML = items.map((item, index) => `
             <div class="leaderboard-item">
                 <div class="leaderboard-rank">${index + 1}</div>
+                <img class="leaderboard-avatar" src="${this.getEntityAvatar(item)}" alt="" loading="lazy" decoding="async" onerror="ui.handleEntityAvatarFallback(this)">
                 <div class="leaderboard-info">
                     <div class="leaderboard-name">${item.name}</div>
                     <div class="leaderboard-sub">${item.group_name || '未分组'}</div>
@@ -1194,12 +1401,15 @@ class UIManager {
 
         container.innerHTML = characters.map(character => `
             <div class="list-item">
-                <div class="list-item-info">
-                    <div class="list-item-name">${character.name}</div>
-                    <div class="list-item-description">
-                        分组: ${character.group_name}
-                        ${character.nicknames && character.nicknames.length ? ` | 昵称: ${character.nicknames.join(' / ')}` : ''}
-                        ${character.feature_tags && character.feature_tags.length ? ` | 特征: ${character.feature_tags.map(tag => tag.name).join(' / ')}` : ''}
+                <div class="entity-list-main">
+                    <img class="entity-avatar" src="${this.getEntityAvatar(character)}" alt="${this.escapeHomeRankingText(character.name)}的头像" loading="lazy" decoding="async" onerror="ui.handleEntityAvatarFallback(this)">
+                    <div class="list-item-info">
+                        <div class="list-item-name">${character.name}</div>
+                        <div class="list-item-description">
+                            分组: ${character.group_name}
+                            ${character.nicknames && character.nicknames.length ? ` | 昵称: ${character.nicknames.join(' / ')}` : ''}
+                            ${character.feature_tags && character.feature_tags.length ? ` | 特征: ${character.feature_tags.map(tag => tag.name).join(' / ')}` : ''}
+                        </div>
                     </div>
                 </div>
                 <div class="list-item-actions">
@@ -1314,9 +1524,17 @@ class UIManager {
         groups.slice(0, chipClasses.length).forEach((group, index) => {
             const chip = document.createElement('span');
             chip.className = `orbit-chip ${chipClasses[index]}`;
-            chip.textContent = group.image_count > 0
+            const avatar = document.createElement('img');
+            avatar.className = 'orbit-chip-avatar';
+            avatar.src = this.getEntityAvatar(group);
+            avatar.alt = '';
+            avatar.loading = 'lazy';
+            avatar.onerror = () => this.handleEntityAvatarFallback(avatar);
+            const label = document.createElement('span');
+            label.textContent = group.image_count > 0
                 ? `${group.name} · ${group.image_count}张`
                 : group.name;
+            chip.append(avatar, label);
             orbit.appendChild(chip);
         });
     }
@@ -1409,6 +1627,9 @@ class UIManager {
     }
 
     closeModal() {
+        if (document.getElementById('modal-body')?.lastElementChild?.querySelector('.avatar-crop-dialog')) {
+            this.releaseAvatarCropState();
+        }
         if (this.modalStack.length > 0) {
             // 恢复上一个模态框
             const previous = this.modalStack.pop();
@@ -1721,6 +1942,10 @@ class UIManager {
                     <input type="text" id="group-aliases" class="form-input" placeholder="多个别称用英文逗号分隔">
                 </div>
                 <div class="form-group">
+                    <label>分组头像</label>
+                    ${this.renderAvatarUploader('group')}
+                </div>
+                <div class="form-group">
                     <label for="group-description">备注</label>
                     <textarea id="group-description" class="form-textarea"></textarea>
                 </div>
@@ -1737,6 +1962,7 @@ class UIManager {
             e.preventDefault();
             await this.createGroup(isNested);
         });
+        this.bindAvatarUploader('group');
     }
 
     async createGroup(isNested = false) {
@@ -1744,6 +1970,7 @@ class UIManager {
             const data = {
                 name: document.getElementById('group-name').value,
                 aliases: this.parseAliasInput('group-aliases'),
+                avatar_url: document.getElementById('group-avatar-url').value || null,
                 description: document.getElementById('group-description').value || null
             };
             
@@ -1814,6 +2041,10 @@ class UIManager {
                         <input type="text" id="character-nicknames" class="form-input" placeholder="多个昵称用英文逗号分隔">
                     </div>
                     <div class="form-group">
+                        <label>角色头像</label>
+                        ${this.renderAvatarUploader('character')}
+                    </div>
+                    <div class="form-group">
                         <label>特征标签</label>
                         <div id="create-character-feature-selector"></div>
                         <button type="button" class="btn-link" onclick="ui.showCreateFeatureTagModal(true)">添加特征</button>
@@ -1836,6 +2067,7 @@ class UIManager {
             });
             window.imageTagSelectors['create-character-feature-selector'] = featureSelector;
             featureSelector.setData({ groups: [], characters: [], featureTags });
+            this.bindAvatarUploader('character');
 
         } catch (error) {
             this.showToast('加载分组失败', 'error');
@@ -1854,6 +2086,7 @@ class UIManager {
                 feature_tag_ids: window.imageTagSelectors['create-character-feature-selector']
                     ? window.imageTagSelectors['create-character-feature-selector'].getValue().feature_tag_ids
                     : [],
+                avatar_url: document.getElementById('character-avatar-url').value || null,
                 description: document.getElementById('character-description').value || null
             };
             
@@ -2044,6 +2277,10 @@ class UIManager {
                         <input type="text" id="edit-group-aliases" class="form-input" value="${(currentGroup.aliases || []).join(', ')}" placeholder="多个别称用英文逗号分隔">
                     </div>
                     <div class="form-group">
+                        <label>分组头像</label>
+                        ${this.renderAvatarUploader('edit-group', currentGroup.avatar_url)}
+                    </div>
+                    <div class="form-group">
                         <label for="edit-group-description">备注</label>
                         <textarea id="edit-group-description" class="form-textarea">${currentGroup.description || ''}</textarea>
                     </div>
@@ -2060,6 +2297,7 @@ class UIManager {
                 e.preventDefault();
                 await this.updateGroup(groupId);
             });
+            this.bindAvatarUploader('edit-group');
         } catch (error) {
             this.showToast(`加载分组信息失败: ${error.message}`, 'error');
         }
@@ -2070,6 +2308,7 @@ class UIManager {
             const data = {
                 name: document.getElementById('edit-group-name').value,
                 aliases: this.parseAliasInput('edit-group-aliases'),
+                avatar_url: document.getElementById('edit-group-avatar-url').value || null,
                 description: document.getElementById('edit-group-description').value || null
             };
             
@@ -2147,6 +2386,10 @@ class UIManager {
                         <input type="text" id="edit-character-nicknames" class="form-input" value="${(currentCharacter.nicknames || []).join(', ')}" placeholder="多个昵称用英文逗号分隔">
                     </div>
                     <div class="form-group">
+                        <label>角色头像</label>
+                        ${this.renderAvatarUploader('edit-character', currentCharacter.avatar_url)}
+                    </div>
+                    <div class="form-group">
                         <label>特征标签</label>
                         <div id="edit-character-feature-selector"></div>
                         <button type="button" class="btn-link" onclick="ui.showCreateFeatureTagModal(true)">添加特征</button>
@@ -2170,6 +2413,7 @@ class UIManager {
             window.imageTagSelectors['edit-character-feature-selector'] = featureSelector;
             featureSelector.setData({ groups: [], characters: [], featureTags });
             featureSelector.setSelected({ group_ids: [], character_ids: [], feature_tag_ids: selectedFeatureIds });
+            this.bindAvatarUploader('edit-character');
         } catch (error) {
             this.showToast(`加载角色信息失败: ${error.message}`, 'error');
         }
@@ -2187,6 +2431,7 @@ class UIManager {
                 feature_tag_ids: window.imageTagSelectors['edit-character-feature-selector']
                     ? window.imageTagSelectors['edit-character-feature-selector'].getValue().feature_tag_ids
                     : [],
+                avatar_url: document.getElementById('edit-character-avatar-url').value || null,
                 description: document.getElementById('edit-character-description').value || null
             };
             
@@ -2247,6 +2492,7 @@ class UIManager {
             ['原始文件', image.original_filename || '未知'],
             ['文件大小', size],
             ['分辨率', resolution],
+            ['年龄分级', image.age_rating === 'all' ? '全年龄' : String(image.age_rating || 'all').toUpperCase()],
             ['PID', image.pid || '无'],
             ['创建时间', new Date(image.created_at).toLocaleString()]
         ].map(([label, value]) => `
@@ -2279,6 +2525,12 @@ class UIManager {
                     <div class="form-group">
                         <label for="edit-image-pid">PID</label>
                         <input type="text" id="edit-image-pid" class="form-input" value="${image.pid || ''}">
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-image-age-rating">年龄分级</label>
+                        <select id="edit-image-age-rating" class="form-select">
+                            ${['all', 'r12', 'r16', 'r18'].map(value => `<option value="${value}" ${value === (image.age_rating || 'all') ? 'selected' : ''}>${value === 'all' ? '全年龄' : value.toUpperCase()}</option>`).join('')}
+                        </select>
                     </div>
                     <div class="form-group">
                         <label for="edit-image-description">备注</label>
@@ -2326,6 +2578,7 @@ class UIManager {
                 character_ids: selectedCharacters,
                 group_ids: selectedTags.group_ids || [],
                 feature_tag_ids: selectedTags.feature_tag_ids || [],
+                age_rating: document.getElementById('edit-image-age-rating')?.value || 'all',
                 pid: document.getElementById('edit-image-pid').value || null,
                 description: document.getElementById('edit-image-description').value || null
             };
@@ -2375,7 +2628,14 @@ class UIManager {
                         <div class="image-detail-head">
                             <div>
                                 <span>图片名片</span>
-                                <h3>${this.formatImageTags(image)}</h3>
+                                <div class="image-detail-title-row">
+                                    <h3>${this.formatImageTags(image)}</h3>
+                                    <div class="image-detail-character-avatars" aria-label="角色头像">
+                                        ${(image.characters || []).map(character => `
+                                            <img src="${this.getEntityAvatar(character)}" alt="${this.escapeHomeRankingText(character.name)}的头像" title="${this.escapeHomeRankingText(character.name)}" loading="lazy" decoding="async" onerror="ui.handleEntityAvatarFallback(this)">
+                                        `).join('')}
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <div class="detail-meta-grid">

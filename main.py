@@ -141,6 +141,7 @@ os.makedirs(settings.TEMP_PATH, exist_ok=True)
 os.makedirs(settings.PENDING_PATH, exist_ok=True)  # 待审核文件目录
 os.makedirs(settings.THUMB_PATH, exist_ok=True)
 os.makedirs(settings.EMOJI_PATH, exist_ok=True)
+os.makedirs(settings.AVATAR_PATH, exist_ok=True)
 
 # 提供resource目录的静态文件服务
 @app.get("/resource/temp/{filename}")
@@ -204,6 +205,7 @@ def original_image(image_id: str):
 # Only published store images are public.
 app.mount("/resource/store", StaticFiles(directory=settings.STORE_PATH), name="resource_store")
 app.mount("/resource/emojis", StaticFiles(directory=settings.EMOJI_PATH), name="resource_emojis")
+app.mount("/resource/avatars", StaticFiles(directory=settings.AVATAR_PATH), name="resource_avatars")
 
 # 注册API路由
 app.include_router(public_router, prefix="/api")

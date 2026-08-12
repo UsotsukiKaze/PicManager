@@ -166,6 +166,15 @@ class UploadManager {
                                     <input type="text" class="batch-pid form-input" placeholder="可选">
                                 </div>
                                 <div class="batch-form-group">
+                                    <label class="batch-label">年龄分级</label>
+                                    <select class="batch-age-rating form-select">
+                                        <option value="all" selected>全年龄</option>
+                                        <option value="r12">R12</option>
+                                        <option value="r16">R16</option>
+                                        <option value="r18">R18</option>
+                                    </select>
+                                </div>
+                                <div class="batch-form-group">
                                     <label class="batch-label">备注</label>
                                     <input type="text" class="batch-description form-input" placeholder="可不填">
                                 </div>
@@ -255,6 +264,7 @@ class UploadManager {
                 character_ids: selectedCharacters,
                 group_ids: selectedTags.group_ids || [],
                 feature_tag_ids: selectedTags.feature_tag_ids || [],
+                age_rating: document.getElementById('single-age-rating')?.value || 'all',
                 pid: document.getElementById('single-pid').value || null,
                 description: document.getElementById('single-description').value || null
             };
@@ -308,6 +318,7 @@ class UploadManager {
                     character_ids: selectedCharacters,
                     group_ids: selectedTags.group_ids || [],
                     feature_tag_ids: selectedTags.feature_tag_ids || [],
+                    age_rating: item.querySelector('.batch-age-rating')?.value || 'all',
                     pid: item.querySelector('.batch-pid').value || null,
                     description: item.querySelector('.batch-description').value || null
                 };
@@ -379,6 +390,8 @@ class UploadManager {
         
         const pidInput = document.getElementById('single-pid');
         if (pidInput) pidInput.value = '';
+        const ageRatingInput = document.getElementById('single-age-rating');
+        if (ageRatingInput) ageRatingInput.value = 'all';
         
         const descInput = document.getElementById('single-description');
         if (descInput) descInput.value = '';
@@ -485,6 +498,15 @@ class UploadManager {
                         <input type="text" id="temp-pid" class="form-input" placeholder="输入 PID">
                     </div>
                     <div class="form-group">
+                        <label for="temp-age-rating">年龄分级</label>
+                        <select id="temp-age-rating" class="form-select">
+                            <option value="all" selected>全年龄</option>
+                            <option value="r12">R12</option>
+                            <option value="r16">R16</option>
+                            <option value="r18">R18</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
                         <label for="temp-description">备注（可不填）</label>
                         <textarea id="temp-description" class="form-textarea" placeholder="写点备注"></textarea>
                     </div>
@@ -565,6 +587,7 @@ class UploadManager {
                 character_ids: selectedCharacters,
                 group_ids: selectedTags.group_ids || [],
                 feature_tag_ids: selectedTags.feature_tag_ids || [],
+                age_rating: document.getElementById('temp-age-rating')?.value || 'all',
                 pid: document.getElementById('temp-pid').value || null,
                 description: document.getElementById('temp-description').value || null
             };

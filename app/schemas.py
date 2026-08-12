@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import List, Optional
 from datetime import datetime
 
@@ -6,6 +6,7 @@ from datetime import datetime
 class GroupBase(BaseModel):
     name: str
     aliases: Optional[List[str]] = None
+    avatar_url: Optional[str] = None
     description: Optional[str] = None
 
 class GroupCreate(GroupBase):
@@ -14,6 +15,7 @@ class GroupCreate(GroupBase):
 class GroupUpdate(BaseModel):
     name: Optional[str] = None
     aliases: Optional[List[str]] = None
+    avatar_url: Optional[str] = None
     description: Optional[str] = None
 
 class Group(GroupBase):
@@ -33,6 +35,7 @@ class CharacterBase(BaseModel):
     nicknames: Optional[List[str]] = None
     group_id: int
     feature_tag_ids: Optional[List[int]] = None
+    avatar_url: Optional[str] = None
     description: Optional[str] = None
 
 class CharacterCreate(CharacterBase):
@@ -43,6 +46,7 @@ class CharacterUpdate(BaseModel):
     nicknames: Optional[List[str]] = None
     group_id: Optional[int] = None
     feature_tag_ids: Optional[List[int]] = None
+    avatar_url: Optional[str] = None
     description: Optional[str] = None
 
 class Character(CharacterBase):
@@ -108,6 +112,15 @@ class EmotionTag(EmotionTagBase):
 class ImageBase(BaseModel):
     pid: Optional[str] = None
     description: Optional[str] = None
+    age_rating: str = "all"
+
+    @field_validator("age_rating")
+    @classmethod
+    def validate_age_rating(cls, value: str) -> str:
+        normalized = str(value or "all").strip().lower()
+        if normalized not in {"all", "r12", "r16", "r18"}:
+            raise ValueError("age_rating must be one of: all, r12, r16, r18")
+        return normalized
 
 class ImageCreate(ImageBase):
     character_ids: List[int] = []
@@ -120,6 +133,17 @@ class ImageUpdate(BaseModel):
     character_ids: Optional[List[int]] = None
     group_ids: Optional[List[int]] = None
     feature_tag_ids: Optional[List[int]] = None
+    age_rating: Optional[str] = None
+
+    @field_validator("age_rating")
+    @classmethod
+    def validate_age_rating(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = str(value).strip().lower()
+        if normalized not in {"all", "r12", "r16", "r18"}:
+            raise ValueError("age_rating must be one of: all, r12, r16, r18")
+        return normalized
 
 class Image(ImageBase):
     image_id: str
@@ -147,6 +171,7 @@ class RandomImageResponse(BaseModel):
     characters: List[CharacterWithGroupName] = []
     groups: List[Group] = []
     feature_tags: List[FeatureTag] = []
+    age_rating: str = "all"
 
 # 搜索和查询模型
 class ImageSearchParams(BaseModel):
@@ -155,6 +180,7 @@ class ImageSearchParams(BaseModel):
     feature_tag_id: Optional[int] = None
     pid: Optional[str] = None
     description: Optional[str] = None
+    age_rating: Optional[str] = None
     limit: Optional[int] = 50
     offset: Optional[int] = 0
 
@@ -223,6 +249,7 @@ class UploadImageRequest(BaseModel):
     feature_tag_ids: List[int] = []
     pid: Optional[str] = None
     description: Optional[str] = None
+    age_rating: str = "all"
 
 class UploadImageResponse(BaseModel):
     image_id: str
@@ -236,6 +263,7 @@ class TempImageUpload(BaseModel):
     feature_tag_ids: List[int] = []
     pid: Optional[str] = None
     description: Optional[str] = None
+    age_rating: str = "all"
 
 # 批量上传
 class BatchUploadImageRequest(BaseModel):
@@ -370,6 +398,38 @@ class BotLoginTicketResponse(BaseModel):
     expires_at: datetime
     purpose: str
     qq_number: str
+
+
+class BotAgeRatingUpdate(BaseModel):
+    age_rating: str
+    actor_id: str
+    actor_role: str
+    timestamp: int
+    nonce: str
+    signature: str
+
+
+class BotAgeAuthorizationCreate(BaseModel):
+    group_id: str
+    requested_by: str
+    requested_by_name: Optional[str] = None
+    source_group_name: Optional[str] = None
+    requested_by_role: str
+    timestamp: int
+    nonce: str
+    signature: str
+
+
+class BotAgeAuthorizationDecision(BaseModel):
+    reviewer_id: str
+    timestamp: int
+    nonce: str
+    signature: str
+
+
+class BotAgeAuthorizationResolve(BaseModel):
+    authorization_group_id: str
+    message_id: str
 
 
 class QQTicketLogin(BaseModel):

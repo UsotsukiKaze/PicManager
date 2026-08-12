@@ -2,16 +2,53 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from PIL import Image
 import os
 import tempfile
+from datetime import datetime
+from uuid import uuid4
+import hashlib
+import hmac
+import time
 
 from ... import schemas
 from ...config import settings
 from ...database import get_db_context
-from ...models import User, UserRole
+from ...models import AgeAssertionNonce, AgeAuthorizationRequest, GroupAgeSetting, User, UserRole
 from ...security.api_key import require_bot_api_key
 from ...security.tickets import build_login_url, create_login_ticket, normalize_qq_number
 from ...services import CharacterService, EmojiService, EmotionTagService, FeatureTagService, GroupService, ImageService
 
 router = APIRouter(dependencies=[Depends(require_bot_api_key)])
+
+
+def _age_superusers() -> set[str]:
+    values = {
+        item.strip()
+        for item in str(getattr(settings, "AGE_RATING_SUPERUSERS", "")).split(",")
+        if item.strip()
+    }
+    values.add(str(settings.ROOT_QQ))
+    return values
+
+
+def _verify_age_assertion(action: str, subject_id: str, subject_role: str, target: str,
+                          timestamp: int, nonce: str, signature: str, db=None) -> None:
+    secret = str(getattr(settings, "AGE_RATING_ASSERTION_SECRET", ""))
+    if not secret:
+        raise HTTPException(status_code=503, detail="Age assertion secret is not configured")
+    now = int(time.time())
+    if abs(now - int(timestamp)) > 120:
+        raise HTTPException(status_code=401, detail="Age assertion expired")
+    nonce = str(nonce or "").strip()
+    if len(nonce) < 16:
+        raise HTTPException(status_code=401, detail="Age assertion nonce is invalid")
+    message = "|".join((action, str(subject_id), str(subject_role), str(target), str(timestamp), nonce))
+    expected = hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, str(signature or "")):
+        raise HTTPException(status_code=401, detail="Age assertion signature is invalid")
+    if db is not None:
+        if db.query(AgeAssertionNonce).filter(AgeAssertionNonce.nonce == nonce).first():
+            raise HTTPException(status_code=401, detail="Age assertion nonce is reused")
+        db.add(AgeAssertionNonce(nonce=nonce))
+        db.flush()
 
 
 def _public_image_url(file_path: str) -> str:
@@ -164,6 +201,12 @@ def get_bot_random_image(
     character_id: int | None = None,
     exclude_group_id: int | None = None,
     feature_tag_id: int | None = None,
+    audience: str = "group",
+    audience_id: str | None = None,
+    requester_id: str | None = None,
+    assertion_timestamp: int | None = None,
+    assertion_nonce: str | None = None,
+    assertion_signature: str | None = None,
 ):
     """Return a random image using bot-oriented target resolution."""
     resolved = None
@@ -179,7 +222,26 @@ def get_bot_random_image(
             elif resolved["type"] == "group":
                 group_id = resolved["item"]["id"]
 
-        image = ImageService.get_random_image(db, group_id, character_id, exclude_group_id, feature_tag_id)
+        requester_is_superuser = False
+        if requester_id and str(requester_id) in _age_superusers():
+            _verify_age_assertion(
+                "random", str(requester_id), "superuser", f"{audience}:{audience_id or ''}",
+                int(assertion_timestamp or 0), str(assertion_nonce or ""), str(assertion_signature or ""), db,
+            )
+            requester_is_superuser = True
+        if requester_is_superuser:
+            max_age_rating = "r18"
+        elif audience == "private":
+            max_age_rating = "r12"
+        else:
+            setting = db.query(GroupAgeSetting).filter(
+                GroupAgeSetting.group_id == str(audience_id or "")
+            ).first()
+            max_age_rating = setting.age_rating if setting else "r12"
+
+        image = ImageService.get_random_image(
+            db, group_id, character_id, exclude_group_id, feature_tag_id, max_age_rating
+        )
         if not image:
             raise HTTPException(status_code=404, detail="Image not found")
 
@@ -188,6 +250,170 @@ def get_bot_random_image(
             result["matched_type"] = resolved["type"]
             result["matched_name"] = resolved["item"].get("name")
         return result
+
+
+@router.get("/age-rating")
+def get_bot_age_rating(
+    audience: str = "group",
+    audience_id: str | None = None,
+    requester_id: str | None = None,
+    assertion_timestamp: int | None = None,
+    assertion_nonce: str | None = None,
+    assertion_signature: str | None = None,
+):
+    """Return PicManager's effective ceiling for a bot conversation."""
+    if requester_id and str(requester_id) in _age_superusers():
+        with get_db_context() as db:
+            _verify_age_assertion(
+                "rating", str(requester_id), "superuser", f"{audience}:{audience_id or ''}",
+                int(assertion_timestamp or 0), str(assertion_nonce or ""), str(assertion_signature or ""), db,
+            )
+            return {"age_rating": "r18", "source": "superuser"}
+    if audience == "private":
+        return {"age_rating": "r12", "source": "private_default"}
+    with get_db_context() as db:
+        setting = db.query(GroupAgeSetting).filter(
+            GroupAgeSetting.group_id == str(audience_id or "")
+        ).first()
+        return {
+            "age_rating": setting.age_rating if setting else "r12",
+            "source": "group_setting" if setting else "group_default",
+        }
+
+
+@router.put("/groups/{group_id}/age-rating")
+def update_bot_group_age_rating(group_id: str, update: schemas.BotAgeRatingUpdate):
+    """Set All/R12/R16; R18 can only be granted through authorization approval."""
+    rating = str(update.age_rating or "").strip().lower()
+    role = str(update.actor_role or "").strip().lower()
+    if rating not in {"all", "r12", "r16"}:
+        raise HTTPException(status_code=400, detail="R18 requires authorization")
+    if role not in {"admin", "owner", "superuser"}:
+        raise HTTPException(status_code=403, detail="Group admin permission required")
+    with get_db_context() as db:
+        _verify_age_assertion(
+            "set_rating", str(update.actor_id), role, f"{group_id}:{rating}",
+            update.timestamp, update.nonce, update.signature, db,
+        )
+        setting = db.query(GroupAgeSetting).filter(GroupAgeSetting.group_id == group_id).first()
+        if not setting:
+            setting = GroupAgeSetting(group_id=group_id)
+            db.add(setting)
+        setting.age_rating = rating
+        setting.updated_by = str(update.actor_id)
+        db.flush()
+        return {"group_id": group_id, "age_rating": rating}
+
+
+@router.post("/age-authorizations")
+def create_bot_age_authorization(request_data: schemas.BotAgeAuthorizationCreate):
+    """Create an R18 request for forwarding; this does not grant access."""
+    role = str(request_data.requested_by_role or "").strip().lower()
+    if role not in {"admin", "owner", "superuser"}:
+        raise HTTPException(status_code=403, detail="Group admin permission required")
+    with get_db_context() as db:
+        _verify_age_assertion(
+            "request_r18", str(request_data.requested_by), role, str(request_data.group_id),
+            request_data.timestamp, request_data.nonce, request_data.signature, db,
+        )
+        pending = db.query(AgeAuthorizationRequest).filter(
+            AgeAuthorizationRequest.group_id == str(request_data.group_id),
+            AgeAuthorizationRequest.status == "pending",
+        ).order_by(AgeAuthorizationRequest.created_at.desc()).first()
+        if pending:
+            return {"request_id": pending.request_id, "status": pending.status, "reused": True}
+        record = AgeAuthorizationRequest(
+            request_id=str(uuid4()),
+            group_id=str(request_data.group_id),
+            requested_by=str(request_data.requested_by),
+            requested_by_name=request_data.requested_by_name,
+            source_group_name=request_data.source_group_name,
+        )
+        db.add(record)
+        db.flush()
+        return {"request_id": record.request_id, "status": record.status, "reused": False}
+
+
+@router.get("/age-authorizations/{request_id}")
+def get_bot_age_authorization(request_id: str):
+    with get_db_context() as db:
+        record = db.query(AgeAuthorizationRequest).filter(
+            AgeAuthorizationRequest.request_id == request_id
+        ).first()
+        if not record:
+            raise HTTPException(status_code=404, detail="Authorization request not found")
+        return {
+            "request_id": record.request_id,
+            "group_id": record.group_id,
+            "status": record.status,
+            "reviewed_by": record.reviewed_by,
+        }
+
+
+@router.put("/age-authorizations/{request_id}/relay")
+def bind_bot_age_authorization_relay(
+    request_id: str, relay: schemas.BotAgeAuthorizationResolve
+):
+    with get_db_context() as db:
+        record = db.query(AgeAuthorizationRequest).filter(
+            AgeAuthorizationRequest.request_id == request_id,
+            AgeAuthorizationRequest.status == "pending",
+        ).first()
+        if not record:
+            raise HTTPException(status_code=404, detail="Pending authorization request not found")
+        record.authorization_group_id = str(relay.authorization_group_id)
+        record.authorization_message_id = str(relay.message_id)
+        db.flush()
+        return {"request_id": request_id, "status": record.status}
+
+
+@router.get("/age-authorizations/relay/{authorization_group_id}/{message_id}")
+def resolve_bot_age_authorization_relay(authorization_group_id: str, message_id: str):
+    with get_db_context() as db:
+        record = db.query(AgeAuthorizationRequest).filter(
+            AgeAuthorizationRequest.authorization_group_id == authorization_group_id,
+            AgeAuthorizationRequest.authorization_message_id == message_id,
+            AgeAuthorizationRequest.status == "pending",
+        ).first()
+        if not record:
+            raise HTTPException(status_code=404, detail="Pending authorization request not found")
+        return {"request_id": record.request_id, "group_id": record.group_id, "status": record.status}
+
+
+@router.post("/age-authorizations/{request_id}/approve")
+def approve_bot_age_authorization(
+    request_id: str, decision: schemas.BotAgeAuthorizationDecision
+):
+    """PicManager validates the asserted Superuser decision and performs the grant."""
+    if str(decision.reviewer_id) not in _age_superusers():
+        raise HTTPException(status_code=403, detail="Superuser permission required")
+    with get_db_context() as db:
+        _verify_age_assertion(
+            "approve_r18", str(decision.reviewer_id), "superuser", request_id,
+            decision.timestamp, decision.nonce, decision.signature, db,
+        )
+        record = db.query(AgeAuthorizationRequest).filter(
+            AgeAuthorizationRequest.request_id == request_id
+        ).first()
+        if not record:
+            raise HTTPException(status_code=404, detail="Authorization request not found")
+        if record.status == "approved":
+            return {"request_id": record.request_id, "group_id": record.group_id, "status": record.status}
+        if record.status != "pending":
+            raise HTTPException(status_code=409, detail="Authorization request is not pending")
+        setting = db.query(GroupAgeSetting).filter(
+            GroupAgeSetting.group_id == record.group_id
+        ).first()
+        if not setting:
+            setting = GroupAgeSetting(group_id=record.group_id)
+            db.add(setting)
+        setting.age_rating = "r18"
+        setting.updated_by = str(decision.reviewer_id)
+        record.status = "approved"
+        record.reviewed_by = str(decision.reviewer_id)
+        record.reviewed_at = datetime.utcnow()
+        db.flush()
+        return {"request_id": record.request_id, "group_id": record.group_id, "status": record.status}
 
 
 @router.get("/emojis/random")

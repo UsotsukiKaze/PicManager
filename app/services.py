@@ -11,6 +11,8 @@ from PIL import Image as PILImage
 import shutil
 import uuid
 
+DEFAULT_ENTITY_AVATAR = "/favicon.ico"
+
 class GroupService:
     """分组服务"""
 
@@ -34,6 +36,7 @@ class GroupService:
             "id": group.id,
             "name": group.name,
             "aliases": GroupService._get_aliases(group),
+            "avatar_url": group.avatar_url or DEFAULT_ENTITY_AVATAR,
             "description": group.description,
             "created_at": group.created_at,
             "updated_at": group.updated_at
@@ -168,6 +171,7 @@ class CharacterService:
             "id": db_character.id,
             "name": db_character.name,
             "nicknames": CharacterService._get_nicknames(db_character),
+            "avatar_url": db_character.avatar_url or DEFAULT_ENTITY_AVATAR,
             "feature_tag_ids": [tag.id for tag in db_character.feature_tags],
             "feature_tags": CharacterService._feature_tags_to_dict(db_character.feature_tags),
             "group_id": db_character.group_id,
@@ -192,6 +196,7 @@ class CharacterService:
             "id": character.id,
             "name": character.name,
             "nicknames": CharacterService._get_nicknames(character),
+            "avatar_url": character.avatar_url or DEFAULT_ENTITY_AVATAR,
             "feature_tag_ids": [tag.id for tag in character.feature_tags],
             "feature_tags": CharacterService._feature_tags_to_dict(character.feature_tags),
             "group_id": character.group_id,
@@ -216,6 +221,7 @@ class CharacterService:
                 "id": character.id,
                 "name": character.name,
                 "nicknames": CharacterService._get_nicknames(character),
+                "avatar_url": character.avatar_url or DEFAULT_ENTITY_AVATAR,
                 "feature_tag_ids": [tag.id for tag in character.feature_tags],
                 "feature_tags": CharacterService._feature_tags_to_dict(character.feature_tags),
                 "group_id": character.group_id,
@@ -269,6 +275,7 @@ class CharacterService:
                 "id": db_character.id,
                 "name": db_character.name,
                 "nicknames": CharacterService._get_nicknames(db_character),
+                "avatar_url": db_character.avatar_url or DEFAULT_ENTITY_AVATAR,
                 "feature_tag_ids": [tag.id for tag in db_character.feature_tags],
                 "feature_tags": CharacterService._feature_tags_to_dict(db_character.feature_tags),
                 "group_id": db_character.group_id,
@@ -553,6 +560,7 @@ class EmojiService:
                     "id": group.id,
                     "name": group.name,
                     "aliases": GroupService._get_aliases(group),
+                    "avatar_url": group.avatar_url or DEFAULT_ENTITY_AVATAR,
                     "description": group.description,
                     "created_at": group.created_at,
                     "updated_at": group.updated_at,
@@ -564,6 +572,7 @@ class EmojiService:
                     "id": char.id,
                     "name": char.name,
                     "nicknames": CharacterService._get_nicknames(char),
+                    "avatar_url": char.avatar_url or DEFAULT_ENTITY_AVATAR,
                     "group_id": char.group_id,
                     "feature_tag_ids": [tag.id for tag in char.feature_tags],
                     "feature_tags": CharacterService._feature_tags_to_dict(char.feature_tags),
@@ -718,6 +727,16 @@ class ImageService:
     THUMB_FAILED = "failed"
     RANDOM_RECENT_LIMIT = 50
     _random_recent_image_ids = defaultdict(lambda: deque(maxlen=ImageService.RANDOM_RECENT_LIMIT))
+    AGE_RATINGS = ("all", "r12", "r16", "r18")
+
+    @staticmethod
+    def allowed_age_ratings(max_age_rating: Optional[str]) -> tuple[str, ...]:
+        value = str(max_age_rating or "").strip().lower()
+        if not value:
+            return ImageService.AGE_RATINGS
+        if value not in ImageService.AGE_RATINGS:
+            raise ValueError("Invalid age rating")
+        return ImageService.AGE_RATINGS[:ImageService.AGE_RATINGS.index(value) + 1]
     
     @staticmethod
     def image_full_path(image: models.Image) -> str:
@@ -821,6 +840,7 @@ class ImageService:
             "image_id": image.image_id,
             "pid": image.pid,
             "description": image.description,
+            "age_rating": image.age_rating or "all",
             "original_filename": image.original_filename,
             "file_extension": image.file_extension,
             "file_size": image.file_size,
@@ -836,6 +856,7 @@ class ImageService:
                     "id": char.id,
                     "name": char.name,
                     "nicknames": CharacterService._get_nicknames(char),
+                    "avatar_url": char.avatar_url or DEFAULT_ENTITY_AVATAR,
                     "group_id": char.group_id,
                     "feature_tag_ids": [tag.id for tag in char.feature_tags],
                     "feature_tags": CharacterService._feature_tags_to_dict(char.feature_tags),
@@ -851,6 +872,7 @@ class ImageService:
                     "id": group.id,
                     "name": group.name,
                     "aliases": GroupService._get_aliases(group),
+                    "avatar_url": group.avatar_url or DEFAULT_ENTITY_AVATAR,
                     "description": group.description,
                     "created_at": group.created_at,
                     "updated_at": group.updated_at,
@@ -981,6 +1003,7 @@ class ImageService:
             image_id=image_id,
             pid=image.pid,
             description=image.description,
+            age_rating=image.age_rating,
             original_filename=original_filename,
             file_extension=file_extension,
             file_path=relative_path,
@@ -1033,10 +1056,13 @@ class ImageService:
         group_id: Optional[int] = None,
         character_id: Optional[int] = None,
         exclude_group_id: Optional[int] = None,
-        feature_tag_id: Optional[int] = None
+        feature_tag_id: Optional[int] = None,
+        max_age_rating: Optional[str] = None,
     ) -> Optional[dict]:
         """Return a random image while avoiding recent repeats in the same filter scope."""
         query = db.query(models.Image).filter(models.Image.file_status == ImageService.AVAILABLE)
+        if max_age_rating:
+            query = query.filter(models.Image.age_rating.in_(ImageService.allowed_age_ratings(max_age_rating)))
 
         if group_id:
             query = query.filter(models.Image.groups.any(models.Group.id == group_id))
@@ -1059,6 +1085,7 @@ class ImageService:
             int(character_id) if character_id else None,
             int(feature_tag_id) if feature_tag_id else None,
             int(exclude_group_id) if exclude_group_id else None,
+            str(max_age_rating or ""),
         )
         recent_ids = ImageService._random_recent_image_ids[scope_key]
         missing_found = False
@@ -1101,6 +1128,7 @@ class ImageService:
             "characters": image_dict["characters"],
             "groups": image_dict["groups"],
             "feature_tags": image_dict["feature_tags"],
+            "age_rating": image_dict["age_rating"],
         }
     
     @staticmethod
@@ -1133,6 +1161,8 @@ class ImageService:
         
         if params.description:
             query = query.filter(models.Image.description.like(f"%{params.description}%"))
+        if params.age_rating:
+            query = query.filter(models.Image.age_rating == params.age_rating.lower())
         
         offset = params.offset or 0
         limit = params.limit or settings.DEFAULT_PAGE_SIZE

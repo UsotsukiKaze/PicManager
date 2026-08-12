@@ -12,15 +12,22 @@ from ..auth import get_current_session, check_guest_limit
 import tempfile
 import os
 import json
+import re
 from datetime import datetime
 
 router = APIRouter()
+
+
+def _validate_managed_avatar(avatar_url: Optional[str]) -> None:
+    if avatar_url and not re.fullmatch(r"/resource/avatars/[0-9a-f]{32}\.webp", avatar_url):
+        raise HTTPException(status_code=400, detail="头像必须通过裁剪上传生成")
 
 
 # 角色相关路由
 @router.post("/characters/", response_model=Union[schemas.CharacterWithGroupName, dict])
 def create_character(character: schemas.CharacterCreate, request: Request):
     """创建角色"""
+    _validate_managed_avatar(character.avatar_url)
     with get_db_context() as db:
         existing = db.query(models.Character).filter(
             models.Character.group_id == character.group_id,
@@ -73,6 +80,7 @@ def create_character(character: schemas.CharacterCreate, request: Request):
             image_data=json.dumps({
                 "name": character.name,
                 "group_id": character.group_id,
+                "avatar_url": character.avatar_url,
                 "description": character.description,
                 "nicknames": character.nicknames,
                 "feature_tag_ids": character.feature_tag_ids or []
@@ -125,6 +133,8 @@ def update_character(character_id: int, character_update: schemas.CharacterUpdat
         existing = db.query(models.Character).filter(models.Character.id == character_id).first()
         if not existing:
             raise HTTPException(status_code=404, detail="Character not found")
+        if "avatar_url" in character_update.model_fields_set and character_update.avatar_url != existing.avatar_url:
+            _validate_managed_avatar(character_update.avatar_url)
 
         if character_update.group_id:
             group_exists = db.query(models.Group).filter(models.Group.id == character_update.group_id).first()
@@ -145,6 +155,7 @@ def update_character(character_id: int, character_update: schemas.CharacterUpdat
             "nicknames": [nickname.nickname for nickname in existing.nicknames] if existing.nicknames else [],
             "group_id": existing.group_id,
             "feature_tag_ids": [tag.id for tag in existing.feature_tags] if existing.feature_tags else [],
+            "avatar_url": existing.avatar_url,
             "description": existing.description,
         }
         update_data = changed_update_data(update_data, original_data)

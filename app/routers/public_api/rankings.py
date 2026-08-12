@@ -87,6 +87,7 @@ def get_rankings(limit: int = 10):
                     "character_id": character.id,
                     "name": character.name,
                     "group_name": group.name if group else None,
+                    "avatar_url": character.avatar_url or "/favicon.ico",
                     "count": row.query_count
                 })
         else:
@@ -98,6 +99,7 @@ def get_rankings(limit: int = 10):
                     "character_id": character.id,
                     "name": character.name,
                     "group_name": group.name if group else None,
+                    "avatar_url": character.avatar_url or "/favicon.ico",
                     "count": 0
                 })
 
@@ -145,6 +147,7 @@ def get_rankings(limit: int = 10):
         recent_group_rows = db.query(
             Group.id,
             Group.name,
+            Group.avatar_url,
             func.count(func.distinct(models.Image.image_id)).label("image_count"),
         ).join(
             models.image_group_association,
@@ -158,6 +161,7 @@ def get_rankings(limit: int = 10):
         ).group_by(
             Group.id,
             Group.name,
+            Group.avatar_url,
         ).order_by(
             func.count(func.distinct(models.Image.image_id)).desc(),
             Group.name.asc(),
@@ -171,6 +175,7 @@ def get_rankings(limit: int = 10):
                 {
                     "group_id": row.id,
                     "name": row.name,
+                    "avatar_url": row.avatar_url or "/favicon.ico",
                     "count": row.image_count,
                 }
                 for row in recent_group_rows

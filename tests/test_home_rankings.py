@@ -52,6 +52,16 @@ def test_rankings_count_recent_available_images_by_group(monkeypatch):
 
     assert result["recent_days"] == 30
     assert result["recent_groups"] == [
-        {"group_id": first_group.id, "name": "近期第一", "count": 2},
-        {"group_id": second_group.id, "name": "近期第二", "count": 1},
+        {
+            "group_id": first_group.id,
+            "name": "近期第一",
+            "avatar_url": "/favicon.ico",
+            "count": 2,
+        },
+        {
+            "group_id": second_group.id,
+            "name": "近期第二",
+            "avatar_url": "/favicon.ico",
+            "count": 1,
+        },
     ]

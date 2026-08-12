@@ -13,6 +13,13 @@ class UserRole(enum.Enum):
     USER = "user"
     GUEST = "guest"
 
+
+class AgeRating(enum.Enum):
+    ALL = "all"
+    R12 = "r12"
+    R16 = "r16"
+    R18 = "r18"
+
 # 待审核请求类型枚举
 class RequestType(enum.Enum):
     ADD = "add"
@@ -183,6 +190,7 @@ class Group(Base):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(255), unique=True, nullable=False, index=True)
+    avatar_url = Column(String(1000), nullable=True)
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -212,6 +220,7 @@ class Character(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(255), nullable=False, index=True)
     group_id = Column(Integer, ForeignKey('groups.id'), nullable=False)
+    avatar_url = Column(String(1000), nullable=True)
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -298,6 +307,8 @@ class Image(Base):
     pid = Column(String(255), nullable=True, index=True)
     # 图片描述
     description = Column(Text, nullable=True)
+    # 独立年龄分级，不与普通特征标签混用
+    age_rating = Column(String(10), nullable=False, default=AgeRating.ALL.value, index=True)
     # 原始文件名
     original_filename = Column(String(500), nullable=True)
     # 文件扩展名
@@ -323,6 +334,42 @@ class Image(Base):
     
     def __repr__(self):
         return f"<Image(image_id='{self.image_id}', pid='{self.pid}')>"
+
+
+class GroupAgeSetting(Base):
+    """Bot group content ceiling managed by PicManager."""
+    __tablename__ = 'group_age_settings'
+
+    group_id = Column(String(32), primary_key=True)
+    age_rating = Column(String(10), nullable=False, default=AgeRating.R12.value)
+    updated_by = Column(String(32), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AgeAuthorizationRequest(Base):
+    """Auditable R18 authorization request; approval is owned by PicManager."""
+    __tablename__ = 'age_authorization_requests'
+
+    request_id = Column(String(36), primary_key=True)
+    group_id = Column(String(32), nullable=False, index=True)
+    requested_by = Column(String(32), nullable=False)
+    requested_by_name = Column(String(100), nullable=True)
+    source_group_name = Column(String(255), nullable=True)
+    authorization_group_id = Column(String(32), nullable=True, index=True)
+    authorization_message_id = Column(String(32), nullable=True, index=True)
+    status = Column(String(20), nullable=False, default="pending", index=True)
+    reviewed_by = Column(String(32), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    reviewed_at = Column(DateTime, nullable=True)
+
+
+class AgeAssertionNonce(Base):
+    """Persisted replay guard for signed bot identity assertions."""
+    __tablename__ = 'age_assertion_nonces'
+
+    nonce = Column(String(64), primary_key=True)
+    used_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
 
 class Emoji(Base):

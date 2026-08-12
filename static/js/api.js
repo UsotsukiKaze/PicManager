@@ -103,6 +103,16 @@ class API {
         });
     }
 
+    async processAvatar(file) {
+        const formData = new FormData();
+        formData.append('file', file, 'avatar-crop.png');
+        return this.request('/avatars/process', {
+            method: 'POST',
+            headers: {},
+            body: formData,
+        });
+    }
+
     async getFeatureTags(options = {}) {
         const params = new URLSearchParams();
         params.set('limit', options.limit || 1000);
@@ -237,6 +247,7 @@ class API {
         formData.append('character_ids', JSON.stringify(metadata.character_ids));
         formData.append('group_ids', JSON.stringify(metadata.group_ids || []));
         formData.append('feature_tag_ids', JSON.stringify(metadata.feature_tag_ids || []));
+        formData.append('age_rating', metadata.age_rating || 'all');
         formData.append('emotion_ids', JSON.stringify(metadata.emotion_ids || []));
         
         if (metadata.group_id) formData.append('group_id', metadata.group_id);

@@ -81,7 +81,8 @@ async def upload_single_image(
     feature_tag_ids: Optional[str] = Form(None),
     emotion_ids: Optional[str] = Form(None),
     pid: Optional[str] = Form(None),
-    description: Optional[str] = Form(None)
+    description: Optional[str] = Form(None),
+    age_rating: str = Form("all")
 ):
     """单张图片上传"""
     # 解析角色ID列表
@@ -160,7 +161,8 @@ async def upload_single_image(
                     group_ids=group_id_list,
                     feature_tag_ids=feature_tag_id_list,
                     pid=pid,
-                    description=description
+                    description=description,
+                    age_rating=age_rating,
                 )
                 
                 image = ImageService.create_image(
@@ -180,7 +182,8 @@ async def upload_single_image(
                             "group_ids": group_id_list,
                             "feature_tag_ids": feature_tag_id_list,
                             "pid": pid,
-                            "description": description
+                            "description": description,
+                            "age_rating": age_rating,
                         }),
                         reviewed_at=datetime.utcnow(),
                         reviewed_by=user_id
@@ -270,7 +273,8 @@ async def upload_single_image(
                     "group_ids": group_id_list,
                     "feature_tag_ids": feature_tag_id_list,
                     "pid": pid,
-                    "description": description
+                    "description": description,
+                    "age_rating": age_rating,
                 }),
                 temp_file_path=pending_file_path,
                 original_filename=file.filename
@@ -363,7 +367,8 @@ def upload_temp_image(temp_upload: schemas.TempImageUpload, request: Request):
             group_ids=temp_upload.group_ids,
             feature_tag_ids=temp_upload.feature_tag_ids,
             pid=temp_upload.pid,
-            description=temp_upload.description
+            description=temp_upload.description,
+            age_rating=temp_upload.age_rating,
         )
         image = ImageService.create_image(db, image_create, str(image_path), temp_upload.filename, file_extension, settings.STORE_PATH)
 
@@ -379,7 +384,8 @@ def upload_temp_image(temp_upload: schemas.TempImageUpload, request: Request):
                     "group_ids": temp_upload.group_ids,
                     "feature_tag_ids": temp_upload.feature_tag_ids,
                     "pid": temp_upload.pid,
-                    "description": temp_upload.description
+                    "description": temp_upload.description,
+                    "age_rating": temp_upload.age_rating,
                 }),
                 reviewed_at=datetime.utcnow(),
                 reviewed_by=user_id

@@ -22,16 +22,19 @@ IMAGE_CHANGE_LABELS = {
     "character_ids": "角色",
     "group_ids": "分组",
     "feature_tag_ids": "特征标签",
+    "age_rating": "年龄分级",
 }
 GROUP_CHANGE_LABELS = {
     "name": "名称",
     "aliases": "别名",
+    "avatar_url": "头像",
     "description": "描述",
 }
 CHARACTER_CHANGE_LABELS = {
     "name": "名称",
     "group_id": "所属分组",
     "nicknames": "昵称",
+    "avatar_url": "头像",
     "description": "描述",
     "feature_tag_ids": "特征标签",
 }
@@ -142,6 +145,7 @@ async def get_pending_requests(request: Request):
                                 "id": group.id,
                                 "name": group.name,
                                 "aliases": [alias.alias for alias in group.aliases] if group.aliases else [],
+                                "avatar_url": group.avatar_url or "/favicon.ico",
                                 "description": group.description
                             }
                             item["target_info"] = {"type": "group", "id": group.id, "name": group.name}
@@ -178,10 +182,11 @@ async def get_pending_requests(request: Request):
                                 "group_name": character.group.name if character.group else "",
                                 "nicknames": [n.nickname for n in character.nicknames] if character.nicknames else [],
                                 "feature_tag_ids": [tag.id for tag in character.feature_tags] if character.feature_tags else [],
+                                "avatar_url": character.avatar_url or "/favicon.ico",
                                 "description": character.description
                             }
                             item["target_info"] = {"type": "character", "id": character.id, "name": character.name}
-                    if any(key in image_data for key in ["name", "group_id", "nicknames", "description", "character_id"]):
+                    if any(key in image_data for key in ["name", "group_id", "nicknames", "avatar_url", "description", "character_id"]):
                         group = None
                         if image_data.get("group_id"):
                             group = db.query(Group).filter(Group.id == image_data["group_id"]).first()
@@ -193,6 +198,7 @@ async def get_pending_requests(request: Request):
                             "group_id": image_data.get("group_id"),
                             "group_name": group.name if group else "",
                             "nicknames": image_data.get("nicknames") or [],
+                            "avatar_url": image_data.get("avatar_url") or "/favicon.ico",
                             "description": image_data.get("description")
                         }
                     if not item["character_info"] and item.get("original_character"):
@@ -202,6 +208,7 @@ async def get_pending_requests(request: Request):
                             "group_id": image_data.get("group_id"),
                             "group_name": item["original_character"].get("group_name"),
                             "nicknames": image_data.get("nicknames") or item["original_character"].get("nicknames") or [],
+                            "avatar_url": image_data.get("avatar_url") or item["original_character"].get("avatar_url") or "/favicon.ico",
                             "description": image_data.get("description") or item["original_character"].get("description")
                         }
                     if req.request_type == "character_edit" and item.get("original_character"):
@@ -250,6 +257,7 @@ async def get_pending_requests(request: Request):
                         "group_ids": original_group_ids,
                         "group_names": [group.name for group in original_img.groups] if original_img.groups else [],
                         "feature_tag_ids": original_feature_tag_ids,
+                        "age_rating": original_img.age_rating or "all",
                         "file_path": original_img.file_path,
                         "file_extension": original_img.file_extension,
                         **original_file_info,
@@ -267,6 +275,7 @@ async def get_pending_requests(request: Request):
                             "character_ids": original_character_ids,
                             "group_ids": original_group_ids,
                             "feature_tag_ids": original_feature_tag_ids,
+                            "age_rating": original_img.age_rating or "all",
                         }
                         item["changes"] = _decorate_change_values(
                             db,
@@ -314,7 +323,8 @@ async def handle_pending_request(
                         group_ids=image_data.get("group_ids") or ([image_data.get("group_id")] if image_data.get("group_id") else []),
                         feature_tag_ids=image_data.get("feature_tag_ids", []),
                         pid=image_data.get("pid"),
-                        description=image_data.get("description")
+                        description=image_data.get("description"),
+                        age_rating=image_data.get("age_rating", "all"),
                     )
                     
                     image = ImageService.create_image(
@@ -346,6 +356,7 @@ async def handle_pending_request(
                     "character_ids": [character.id for character in image.characters],
                     "group_ids": [group.id for group in image.groups],
                     "feature_tag_ids": [tag.id for tag in image.feature_tags],
+                    "age_rating": image.age_rating or "all",
                 }
                 update_data = changed_update_data(proposed, original)
                 if update_data:
@@ -361,6 +372,7 @@ async def handle_pending_request(
                 group_create = schemas.GroupCreate(
                     name=group_data.get("name"),
                     aliases=group_data.get("aliases") or [],
+                    avatar_url=group_data.get("avatar_url"),
                     description=group_data.get("description")
                 )
                 GroupService.create_group(db, group_create)
@@ -377,13 +389,14 @@ async def handle_pending_request(
                     ).first()
                     if exists:
                         raise HTTPException(status_code=400, detail="分组名称已存在")
-                update_data = {k: group_data[k] for k in ["name", "aliases", "description"] if k in group_data}
+                update_data = {k: group_data[k] for k in ["name", "aliases", "avatar_url", "description"] if k in group_data}
                 group = db.query(Group).filter(Group.id == group_id).first()
                 if not group:
                     raise HTTPException(status_code=404, detail="分组不存在")
                 original = {
                     "name": group.name,
                     "aliases": [alias.alias for alias in group.aliases] if group.aliases else [],
+                    "avatar_url": group.avatar_url,
                     "description": group.description,
                 }
                 update_data = changed_update_data(update_data, original)
@@ -414,7 +427,8 @@ async def handle_pending_request(
                     group_id=char_data.get("group_id"),
                     description=char_data.get("description"),
                     nicknames=char_data.get("nicknames"),
-                    feature_tag_ids=char_data.get("feature_tag_ids")
+                    feature_tag_ids=char_data.get("feature_tag_ids"),
+                    avatar_url=char_data.get("avatar_url")
                 )
                 CharacterService.create_character(db, char_create)
 
@@ -436,7 +450,7 @@ async def handle_pending_request(
                         ).first()
                         if exists:
                             raise HTTPException(status_code=400, detail="该分组下已存在同名角色")
-                update_data = {k: char_data[k] for k in ["name", "group_id", "description", "nicknames", "feature_tag_ids"] if k in char_data}
+                update_data = {k: char_data[k] for k in ["name", "group_id", "description", "nicknames", "feature_tag_ids", "avatar_url"] if k in char_data}
                 character = db.query(Character).filter(Character.id == char_id).first()
                 if not character:
                     raise HTTPException(status_code=404, detail="角色不存在")
@@ -446,6 +460,7 @@ async def handle_pending_request(
                     "description": character.description,
                     "nicknames": [nickname.nickname for nickname in character.nicknames] if character.nicknames else [],
                     "feature_tag_ids": [tag.id for tag in character.feature_tags] if character.feature_tags else [],
+                    "avatar_url": character.avatar_url,
                 }
                 update_data = changed_update_data(update_data, original)
                 if update_data:

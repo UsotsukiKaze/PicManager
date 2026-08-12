@@ -147,6 +147,14 @@ def start_daily_snapshot_scheduler() -> None:
 def apply_migrations():
     """对SQLite执行必要的结构迁移（增量）"""
     with engine.connect() as conn:
+        group_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(groups)"))]
+        if group_columns and "avatar_url" not in group_columns:
+            conn.execute(text("ALTER TABLE groups ADD COLUMN avatar_url VARCHAR(1000)"))
+
+        character_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(characters)"))]
+        if character_columns and "avatar_url" not in character_columns:
+            conn.execute(text("ALTER TABLE characters ADD COLUMN avatar_url VARCHAR(1000)"))
+
         # users.last_notice_at
         user_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(users)"))]
         if "last_notice_at" not in user_columns:
@@ -189,6 +197,8 @@ def apply_migrations():
 
         # images storage status columns
         image_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(images)"))]
+        if "age_rating" not in image_columns:
+            conn.execute(text("ALTER TABLE images ADD COLUMN age_rating VARCHAR(10) NOT NULL DEFAULT 'all'"))
         if "file_status" not in image_columns:
             conn.execute(text("ALTER TABLE images ADD COLUMN file_status VARCHAR(20) NOT NULL DEFAULT 'available'"))
         if "file_checked_at" not in image_columns:
@@ -196,8 +206,15 @@ def apply_migrations():
         if "thumb_status" not in image_columns:
             conn.execute(text("ALTER TABLE images ADD COLUMN thumb_status VARCHAR(20) NOT NULL DEFAULT 'pending'"))
 
+        auth_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(age_authorization_requests)"))]
+        if auth_columns and "authorization_group_id" not in auth_columns:
+            conn.execute(text("ALTER TABLE age_authorization_requests ADD COLUMN authorization_group_id VARCHAR(32)"))
+        if auth_columns and "authorization_message_id" not in auth_columns:
+            conn.execute(text("ALTER TABLE age_authorization_requests ADD COLUMN authorization_message_id VARCHAR(32)"))
+
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_file_status_created_id ON images (file_status, created_at, image_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_thumb_status ON images (thumb_status)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_age_rating ON images (age_rating)"))
 
         # guestbook_messages.parent_id
         guestbook_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(guestbook_messages)"))]

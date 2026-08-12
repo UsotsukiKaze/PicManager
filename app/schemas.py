@@ -249,6 +249,7 @@ class BatchUploadImageResponse(BaseModel):
 # 系统状态
 class SystemStatus(BaseModel):
     total_images: int
+    total_emojis: int = 0
     available_images: int = 0
     missing_images: int = 0
     archived_images: int = 0
@@ -287,6 +288,7 @@ class UserSession(BaseModel):
     user: Optional[UserInfo] = None
     is_guest: bool = False
     guest_ip: Optional[str] = None
+    guest_name: Optional[str] = None
 
 # 修改密码
 class ChangePassword(BaseModel):
@@ -317,6 +319,7 @@ class PendingRequestInfo(BaseModel):
     user_nickname: Optional[str] = None
     user_avatar: Optional[str] = None
     guest_ip: Optional[str] = None
+    guest_name: Optional[str] = None
     image_id: Optional[str] = None
     image_data: Optional[dict] = None
     temp_file_path: Optional[str] = None

@@ -7,9 +7,9 @@ import os
 from ... import schemas
 from ...config import settings
 from ...database import get_db_context
-from ...models import Character, FeatureTag, Group, Image, PendingRequest, RequestStatus, User, UserRole
+from ...models import Character, FeatureTag, Group, Image, PendingRequest, RequestStatus, User
 from ...review_changes import build_changes, changed_update_data
-from ...security.permissions import require_admin_user_id, require_root_user_id
+from ...security.permissions import require_admin_user_id
 from ...services import CharacterService, GroupService, ImageService
 from ...utils import get_image_info
 
@@ -85,6 +85,7 @@ async def get_pending_requests(request: Request):
                 "user_nickname": None,
                 "user_avatar": None,
                 "guest_ip": req.guest_ip,
+                "guest_name": req.guest_name,
                 "image_id": req.image_id,
                 "image_data": json.loads(req.image_data) if req.image_data else None,
                 "temp_file_path": req.temp_file_path,
@@ -224,6 +225,18 @@ async def get_pending_requests(request: Request):
                 original_img = db.query(Image).filter(Image.image_id == req.image_id).first()
                 if original_img:
                     # 获取原图的角色信息
+                    original_file_info = {
+                        "file_size": original_img.file_size,
+                        "width": original_img.width,
+                        "height": original_img.height,
+                    }
+                    if any(value is None for value in original_file_info.values()):
+                        original_path = ImageService.image_full_path(original_img)
+                        if os.path.isfile(original_path):
+                            detected_info = get_image_info(original_path)
+                            for key in original_file_info:
+                                if original_file_info[key] is None:
+                                    original_file_info[key] = detected_info.get(key)
                     original_characters = [ch.name for ch in original_img.characters] if original_img.characters else []
                     original_character_ids = [ch.id for ch in original_img.characters] if original_img.characters else []
                     original_group_ids = [group.id for group in original_img.groups] if original_img.groups else []
@@ -239,9 +252,7 @@ async def get_pending_requests(request: Request):
                         "feature_tag_ids": original_feature_tag_ids,
                         "file_path": original_img.file_path,
                         "file_extension": original_img.file_extension,
-                        "file_size": original_img.file_size,
-                        "width": original_img.width,
-                        "height": original_img.height,
+                        **original_file_info,
                     }
                     item["target_info"] = {"type": "image", "id": original_img.image_id, "name": original_img.original_filename}
                     if req.request_type == "edit" and item["image_data"]:
@@ -317,7 +328,7 @@ async def handle_pending_request(
                     # 删除临时文件
                     try:
                         os.unlink(pending_req.temp_file_path)
-                    except:
+                    except OSError:
                         pass
                 else:
                     raise HTTPException(status_code=400, detail="临时文件不存在")
@@ -469,7 +480,7 @@ async def handle_pending_request(
                 try:
                     if os.path.exists(pending_req.temp_file_path):
                         os.unlink(pending_req.temp_file_path)
-                except:
+                except OSError:
                     pass
         
         else:

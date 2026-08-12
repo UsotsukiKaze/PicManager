@@ -536,7 +536,7 @@
             background: var(--bg-secondary);
             border: 1px solid rgba(229, 229, 231, 0.95);
             border-radius: 20px;
-            padding: 20px;
+            padding: 18px;
             box-shadow: 0 10px 30px rgba(29, 29, 31, 0.06);
             transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
         }
@@ -550,8 +550,9 @@
         .request-header {
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 15px;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 14px;
         }
 
         .request-user {
@@ -561,17 +562,20 @@
         }
 
         .request-avatar {
-            width: 45px;
-            height: 45px;
-            border-radius: 50%;
-            object-fit: cover;
-            background: #f5f5f7;
+            width: 42px;
+            height: 42px;
+            padding: 5px;
+            border: 1px solid rgba(229, 229, 231, 0.95);
+            border-radius: 12px;
+            object-fit: contain;
+            background: #fff;
             box-shadow: 0 6px 18px rgba(29, 29, 31, 0.08);
         }
 
         .request-user-info {
             display: flex;
             flex-direction: column;
+            gap: 2px;
         }
 
         .request-user-name {
@@ -582,6 +586,20 @@
         .request-user-qq {
             font-size: 13px;
             color: var(--text-secondary);
+        }
+
+        .request-heading-meta {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .request-id-badge {
+            color: var(--text-tertiary);
+            font-size: 12px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         }
 
         .request-type {
@@ -608,22 +626,50 @@
 
         .request-content {
             background: #fbfcfe;
-            padding: 15px;
+            padding: 14px;
             border: 1px solid rgba(229, 229, 231, 0.95);
             border-radius: 16px;
-            margin-bottom: 15px;
+            margin-bottom: 14px;
+        }
+
+        .request-content.has-media {
+            display: grid;
+            grid-template-columns: minmax(220px, 0.82fr) minmax(300px, 1.35fr);
+            gap: 18px;
+            align-items: stretch;
+        }
+
+        .request-media {
+            min-width: 0;
+            min-height: 240px;
+            padding: 12px;
+            border-radius: 12px;
+            background: #f1f3f6;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .request-information {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
         }
 
         .request-image-preview {
-            max-width: 200px;
-            max-height: 150px;
-            border-radius: 14px;
-            box-shadow: 0 8px 22px rgba(29, 29, 31, 0.08);
+            width: 100%;
+            height: 230px;
+            max-height: 38vh;
+            border-radius: 10px;
+            object-fit: contain;
+            box-shadow: 0 8px 22px rgba(29, 29, 31, 0.06);
             display: block;
         }
 
         .request-image-button {
-            display: inline-block;
+            display: block;
+            width: 100%;
             padding: 0;
             margin: 0 0 8px;
             border: 0;
@@ -638,12 +684,19 @@
         }
 
         .request-image-meta {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px 12px;
-            margin-bottom: 12px;
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 6px;
+            margin: 0;
             color: var(--text-secondary);
             font-size: 12px;
+        }
+
+        .request-image-meta span {
+            padding: 7px 8px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.82);
+            overflow-wrap: anywhere;
         }
 
         .request-image-modal {
@@ -686,12 +739,15 @@
         }
 
         .review-target {
-            margin-bottom: 10px;
+            margin-bottom: 12px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(229, 229, 231, 0.95);
             color: var(--text-primary);
         }
 
         .review-change-list {
             display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
             gap: 8px;
             margin-top: 10px;
         }
@@ -727,6 +783,51 @@
             font-size: 14px;
             color: var(--text-secondary);
             line-height: 1.6;
+        }
+
+        .request-fact-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 8px;
+        }
+
+        .request-fact {
+            min-width: 0;
+            padding: 10px 12px;
+            border: 1px solid rgba(229, 229, 231, 0.95);
+            border-radius: 10px;
+            background: #fff;
+        }
+
+        .request-fact span {
+            display: block;
+            margin-bottom: 3px;
+            color: var(--text-tertiary);
+            font-size: 12px;
+        }
+
+        .request-fact strong {
+            display: block;
+            color: var(--text-primary);
+            font-size: 13px;
+            font-weight: 600;
+            overflow-wrap: anywhere;
+        }
+
+        .request-warning {
+            grid-column: 1 / -1;
+            padding: 9px 11px;
+            border-radius: 9px;
+            background: rgba(245, 158, 11, 0.1);
+            color: #a16207;
+            font-size: 13px;
+        }
+
+        .request-footer {
+            display: grid;
+            grid-template-columns: minmax(220px, 1fr) auto;
+            gap: 12px;
+            align-items: end;
         }
 
         .request-actions {
@@ -767,7 +868,8 @@
 
         .reject-reason {
             width: 100%;
-            margin-top: 10px;
+            min-height: 42px;
+            margin: 0;
             padding: 10px 12px;
             border-radius: 8px;
             border: 1px solid var(--border-color);
@@ -890,8 +992,18 @@
 
         .guest-icon {
             position: relative;
-            font-size: 64px;
             margin-bottom: 20px;
+        }
+
+        .guest-icon img {
+            width: 72px;
+            height: 72px;
+            padding: 10px;
+            border: 1px solid rgba(229, 229, 231, 0.95);
+            border-radius: 20px;
+            object-fit: contain;
+            background: #fff;
+            box-shadow: 0 10px 30px rgba(29, 29, 31, 0.1);
         }
 
         .guest-title {
@@ -1049,10 +1161,36 @@
                 align-items: stretch;
             }
 
+            .request-heading-meta {
+                justify-content: flex-start;
+            }
+
+            .request-content.has-media,
+            .request-footer {
+                grid-template-columns: 1fr;
+            }
+
+            .request-media {
+                min-height: 220px;
+            }
+
+            .request-image-preview {
+                height: min(52vh, 360px);
+            }
+
             .request-actions .btn,
             .add-admin-form .btn {
                 width: 100%;
                 justify-content: center;
+            }
+
+            .request-footer .request-actions {
+                flex-direction: row;
+            }
+
+            .request-footer .request-actions .btn {
+                width: auto;
+                flex: 1;
             }
         }
 
@@ -1074,6 +1212,15 @@
 
             .profile-header h1 {
                 font-size: 20px;
+            }
+
+            .review-change-values {
+                grid-template-columns: 1fr;
+            }
+
+            .review-change-arrow {
+                transform: rotate(90deg);
+                justify-self: start;
             }
         }
     </style>
@@ -1104,9 +1251,9 @@
             <div class="tab-panel active" id="personal-panel">
                 <!-- 游客视图 -->
                 <div class="guest-card" id="guest-view" style="display: none;">
-                    <div class="guest-icon">👻</div>
+                    <div class="guest-icon"><img src="/favicon.ico" alt="网站图标"></div>
                     <h2 class="guest-title">游客模式</h2>
-                    <p class="guest-ip">IP地址: <span id="guest-ip-display">--</span></p>
+                    <p class="guest-ip">游客身份: <strong id="guest-name-display">--</strong></p>
                     
                     <div class="guest-limit-info">
                         <div class="limit-progress">
@@ -1391,7 +1538,7 @@
                     document.getElementById('user-view').style.display = 'none';
                     document.getElementById('contribution-card').style.display = 'none';
                     document.getElementById('preference-card').style.display = 'none';
-                    document.getElementById('guest-ip-display').textContent = data.guest_ip || '--';
+                    document.getElementById('guest-name-display').textContent = data.guest_name || '游客';
                     document.getElementById('remaining-ops').textContent = data.remaining_operations;
                     
                     const percent = (data.remaining_operations / data.daily_limit) * 100;
@@ -1766,6 +1913,19 @@
             return escapeReviewHtml(value);
         }
 
+        function requestFact(label, value) {
+            return `
+                <div class="request-fact">
+                    <span>${escapeReviewHtml(label)}</span>
+                    <strong>${formatReviewValue(value)}</strong>
+                </div>
+            `;
+        }
+
+        function wrapRequestInformation(innerHtml) {
+            return `<div class="request-information">${innerHtml}</div>`;
+        }
+
         function renderReviewChanges(req) {
             const target = req.target_info || {};
             const targetLabels = { image: '图片', group: '分组', character: '角色' };
@@ -1816,7 +1976,7 @@
             const meta = info || {};
             const resolution = meta.width && meta.height ? `${meta.width} × ${meta.height}` : '--';
             return `
-                <button type="button" class="request-image-button" onclick="openRequestImagePreview('${src}', '${escapeReviewHtml(alt)}')" title="点击查看原图">
+                <button type="button" class="request-image-button" data-preview-src="${escapeReviewHtml(src)}" data-preview-alt="${escapeReviewHtml(alt)}" onclick="openRequestImagePreview(this.dataset.previewSrc, this.dataset.previewAlt)" title="点击查看原图">
                     <img src="${src}" class="request-image-preview" alt="${escapeReviewHtml(alt)}" onerror="this.closest('button').style.display='none'">
                 </button>
                 <div class="request-image-meta">
@@ -1904,73 +2064,62 @@
                     };
                     const typeInfo = typeMap[req.request_type] || { text: req.request_type, class: '' };
 
-                    const avatar = req.user_avatar || 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%23ccc"/></svg>';
-                    const userName = req.user_nickname || req.user_qq || `游客(${req.guest_ip})`;
-                    const userQQ = req.user_qq || req.guest_ip;
+                    const isGuest = !req.user_qq;
+                    const avatar = escapeReviewHtml(isGuest ? '/favicon.ico' : (req.user_avatar || '/favicon.ico'));
+                    const userName = escapeReviewHtml(isGuest ? (req.guest_name || '游客（旧记录）') : (req.user_nickname || req.user_qq));
+                    const userIdentity = isGuest ? '匿名访客' : `QQ ${escapeReviewHtml(req.user_qq)}`;
 
+                    let mediaHtml = '';
                     let contentHtml = '';
                     if (req.temp_file_path && req.request_type === 'add') {
                         const filename = req.temp_file_path.split(/[/\\]/).pop();
                         const pendingImageUrl = `/resource/pending/${encodeURIComponent(filename)}`;
+                        mediaHtml = renderRequestImage(pendingImageUrl, '待审核图片', req.pending_image);
                         contentHtml = `
-                            ${renderRequestImage(pendingImageUrl, '待审核图片', req.pending_image)}
                             <div class="request-detail">
-                                <strong>原始文件名:</strong> ${req.original_filename || '--'}<br>
-                                ${req.image_data ? `
-                                    <strong>分组:</strong> ${req.group_info ? req.group_info.name : '未选择'}<br>
-                                    <strong>角色:</strong> ${req.character_names && req.character_names.length > 0 ? req.character_names.join(', ') : '未选择'}<br>
-                                    <strong>PID:</strong> ${req.image_data.pid || '--'}<br>
-                                    <strong>描述:</strong> ${req.image_data.description || '--'}
-                                ` : '--'}
+                                <div class="request-fact-grid">
+                                    ${requestFact('原始文件名', req.original_filename || '--')}
+                                    ${requestFact('分组', req.group_info ? req.group_info.name : '未选择')}
+                                    ${requestFact('角色', req.character_names && req.character_names.length ? req.character_names : '未选择')}
+                                    ${requestFact('PID', req.image_data?.pid || '--')}
+                                    ${requestFact('描述', req.image_data?.description || '--')}
+                                </div>
                             </div>
                         `;
                     } else if (req.request_type === 'edit') {
-                        let originalImageHtml = '';
                         if (req.original_image) {
                             const originalImageUrl = `/resource/originals/${encodeURIComponent(req.original_image.image_id)}`;
-                            originalImageHtml = `
-                                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
-                                    <strong style="color: #666;">【原图信息】</strong><br>
-                                    <div style="margin-top: 10px;">
-                                        ${renderRequestImage(originalImageUrl, '被修改图片原图', req.original_image)}
-                                    </div>
-                                </div>
-                            `;
+                            mediaHtml = renderRequestImage(originalImageUrl, '被修改图片原图', req.original_image);
                         }
                         contentHtml = `
                             <div class="request-detail">
                                 ${renderReviewChanges(req)}
-                                ${originalImageHtml}
                             </div>
                         `;
                     } else if (req.request_type === 'delete') {
-                        let originalImageHtml = '';
                         if (req.original_image) {
                             const originalImageUrl = `/resource/originals/${encodeURIComponent(req.original_image.image_id)}`;
-                            originalImageHtml = `
-                                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
-                                    <strong style="color: #666;">【原图信息】</strong><br>
-                                    <strong>原PID:</strong> ${req.original_image.pid || '--'}<br>
-                                    <strong>原描述:</strong> ${req.original_image.description || '--'}<br>
-                                    <strong>原角色:</strong> ${req.original_image.character_names && req.original_image.character_names.length > 0 ? req.original_image.character_names.join(', ') : '--'}<br>
-                                    <div style="margin-top: 10px;">
-                                        ${renderRequestImage(originalImageUrl, '待删除图片原图', req.original_image)}
-                                    </div>
-                                </div>
-                            `;
+                            mediaHtml = renderRequestImage(originalImageUrl, '待删除图片原图', req.original_image);
                         }
                         contentHtml = `
                             <div class="request-detail">
-                                <strong>请求删除图片ID:</strong> ${req.image_id || '--'}<br>
-                                <em style="color: var(--warning-color);">* 批准后该图片将被删除</em>
-                                ${originalImageHtml}
+                                <div class="request-fact-grid">
+                                    ${requestFact('图片 ID', req.image_id || '--')}
+                                    ${requestFact('PID', req.original_image?.pid || '--')}
+                                    ${requestFact('角色', req.original_image?.character_names?.length ? req.original_image.character_names : '--')}
+                                    ${requestFact('描述', req.original_image?.description || '--')}
+                                    <div class="request-warning">批准后该图片将被删除</div>
+                                </div>
                             </div>
                         `;
                     } else if (req.request_type === 'group_add') {
                         contentHtml = `
                             <div class="request-detail">
-                                <strong>分组名称:</strong> ${req.group_info ? req.group_info.name : '--'}<br>
-                                <strong>描述:</strong> ${req.image_data ? req.image_data.description || '--' : '--'}
+                                <div class="request-fact-grid">
+                                    ${requestFact('分组名称', req.group_info ? req.group_info.name : '--')}
+                                    ${requestFact('别名', req.image_data?.aliases?.length ? req.image_data.aliases : '--')}
+                                    ${requestFact('描述', req.image_data?.description || '--')}
+                                </div>
                             </div>
                         `;
                     } else if (req.request_type === 'group_edit') {
@@ -1983,19 +2132,24 @@
                         const originalGroup = req.original_group || {};
                         contentHtml = `
                             <div class="request-detail">
-                                <strong>请求删除分组ID:</strong> ${req.image_data ? req.image_data.group_id || '--' : '--'}<br>
-                                <strong>分组名称:</strong> ${originalGroup.name || '--'}<br>
-                                <em style="color: var(--warning-color);">* 批准后该分组将被删除</em>
+                                <div class="request-fact-grid">
+                                    ${requestFact('分组 ID', req.image_data?.group_id || '--')}
+                                    ${requestFact('分组名称', originalGroup.name || '--')}
+                                    ${requestFact('描述', originalGroup.description || '--')}
+                                    <div class="request-warning">批准后该分组将被删除</div>
+                                </div>
                             </div>
                         `;
                     } else if (req.request_type === 'character_add') {
                         const charInfo = req.character_info || {};
                         contentHtml = `
                             <div class="request-detail">
-                                <strong>角色名称:</strong> ${charInfo.name || '--'}<br>
-                                <strong>所属分组:</strong> ${charInfo.group_name || '--'}<br>
-                                <strong>昵称:</strong> ${(charInfo.nicknames && charInfo.nicknames.length) ? charInfo.nicknames.join(', ') : '--'}<br>
-                                <strong>描述:</strong> ${charInfo.description || '--'}
+                                <div class="request-fact-grid">
+                                    ${requestFact('角色名称', charInfo.name || '--')}
+                                    ${requestFact('所属分组', charInfo.group_name || '--')}
+                                    ${requestFact('昵称', charInfo.nicknames?.length ? charInfo.nicknames : '--')}
+                                    ${requestFact('描述', charInfo.description || '--')}
+                                </div>
                             </div>
                         `;
                     } else if (req.request_type === 'character_edit') {
@@ -2008,10 +2162,13 @@
                         const originalChar = req.original_character || {};
                         contentHtml = `
                             <div class="request-detail">
-                                <strong>请求删除角色ID:</strong> ${req.image_data ? req.image_data.character_id || '--' : '--'}<br>
-                                <strong>角色名称:</strong> ${originalChar.name || '--'}<br>
-                                <strong>所属分组:</strong> ${originalChar.group_name || '--'}<br>
-                                <em style="color: var(--warning-color);">* 批准后该角色将被删除</em>
+                                <div class="request-fact-grid">
+                                    ${requestFact('角色 ID', req.image_data?.character_id || '--')}
+                                    ${requestFact('角色名称', originalChar.name || '--')}
+                                    ${requestFact('所属分组', originalChar.group_name || '--')}
+                                    ${requestFact('昵称', originalChar.nicknames?.length ? originalChar.nicknames : '--')}
+                                    <div class="request-warning">批准后该角色将被删除</div>
+                                </div>
                             </div>
                         `;
                     }
@@ -2027,26 +2184,33 @@
                     }
 
                     const approveLabel = req.has_changes === false ? '判定未修改' : '批准';
+                    const contentClass = mediaHtml ? 'request-content has-media' : 'request-content';
                     return `
                         <div class="request-card">
                             <div class="request-header">
                                 <div class="request-user">
-                                    <img src="${avatar}" class="request-avatar" alt="头像">
+                                    <img src="${avatar}" class="request-avatar" alt="${isGuest ? '网站图标' : '用户头像'}" onerror="this.onerror=null;this.src='/favicon.ico'">
                                     <div class="request-user-info">
                                         <span class="request-user-name">${userName}</span>
-                                        <span class="request-user-qq">${userQQ}</span>
+                                        <span class="request-user-qq">${userIdentity}</span>
                                     </div>
                                 </div>
-                                <span class="request-type ${typeInfo.class}">${typeInfo.text}</span>
+                                <div class="request-heading-meta">
+                                    <span class="request-id-badge">审核 #${req.id}</span>
+                                    <span class="request-type ${typeInfo.class}">${typeInfo.text}</span>
+                                </div>
                             </div>
-                            <div class="request-content">
-                                ${contentHtml}
+                            <div class="${contentClass}">
+                                ${mediaHtml ? `<div class="request-media">${mediaHtml}</div>` : ''}
+                                ${wrapRequestInformation(contentHtml)}
                             </div>
-                            <div class="request-actions">
-                                <button class="btn btn-danger btn-sm" onclick="handleRequest(${req.id}, 'reject')">拒绝</button>
-                                <button class="btn btn-success btn-sm" onclick="handleRequest(${req.id}, 'approve')">${approveLabel}</button>
+                            <div class="request-footer">
+                                <textarea class="reject-reason" id="reject-reason-${req.id}" placeholder="驳回理由（可选）"></textarea>
+                                <div class="request-actions">
+                                    <button class="btn btn-danger btn-sm" onclick="handleRequest(${req.id}, 'reject')">拒绝</button>
+                                    <button class="btn btn-success btn-sm" onclick="handleRequest(${req.id}, 'approve')">${approveLabel}</button>
+                                </div>
                             </div>
-                            <textarea class="reject-reason" id="reject-reason-${req.id}" placeholder="驳回理由（可选）"></textarea>
                         </div>
                     `;
                 }).join('');

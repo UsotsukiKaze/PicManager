@@ -159,7 +159,13 @@ def cleanup_expired_sessions(db: Session):
     return expired
 
 
-def create_session(db: Session, user: Optional[User], guest_ip: Optional[str] = None, timeout: int = USER_SESSION_TIMEOUT) -> str:
+def create_session(
+    db: Session,
+    user: Optional[User],
+    guest_ip: Optional[str] = None,
+    guest_name: Optional[str] = None,
+    timeout: int = USER_SESSION_TIMEOUT,
+) -> str:
     """在数据库中创建会话"""
     session_id = str(uuid.uuid4())
     expires_at = datetime.utcnow() + timedelta(seconds=timeout)
@@ -168,6 +174,7 @@ def create_session(db: Session, user: Optional[User], guest_ip: Optional[str] = 
         session_id=session_id,
         user_id=user.id if user else None,
         guest_ip=guest_ip,
+        guest_name=guest_name,
         is_guest="true" if user is None else "false",
         created_at=datetime.utcnow(),
         last_activity=datetime.utcnow(),
@@ -200,6 +207,7 @@ def get_session(db: Session, session_id: str) -> Optional[dict]:
         "user_id": session.user_id,
         "is_guest": session.is_guest == "true",
         "guest_ip": session.guest_ip,
+        "guest_name": session.guest_name,
         "created_at": session.created_at,
         "session_id": session.session_id
     }

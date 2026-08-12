@@ -19,6 +19,7 @@ resource/store/
 resource/temp/
 resource/pending/
 resource/thumbs/
+resource/emojis/
 
 logs/
 *.log

@@ -182,6 +182,18 @@ class API {
         });
     }
 
+    async updateEmoji(id, metadata) {
+        return this.request(`/emojis/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                group_ids: metadata.group_ids || [],
+                character_ids: metadata.character_ids || [],
+                emotion_ids: metadata.emotion_ids || [],
+                description: metadata.description || null,
+            }),
+        });
+    }
+
     async deleteEmoji(id) {
         return this.request(`/emojis/${id}`, {
             method: 'DELETE',

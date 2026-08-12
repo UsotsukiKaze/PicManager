@@ -132,10 +132,12 @@ async def upload_single_image(
         is_admin = False
         user_id = None
         guest_ip = None
+        guest_name = None
         
         if session:
             if session.get("is_guest"):
                 guest_ip = session.get("guest_ip")
+                guest_name = session.get("guest_name")
                 # 检查游客操作限制
                 if not check_guest_limit(db, guest_ip):
                     raise HTTPException(status_code=429, detail="今日操作次数已用完")
@@ -261,6 +263,7 @@ async def upload_single_image(
                 request_type="add",
                 user_id=user_id,
                 guest_ip=guest_ip,
+                guest_name=guest_name,
                 image_data=json.dumps({
                     "character_ids": character_id_list,
                     "group_id": group_id_list[0] if group_id_list else None,

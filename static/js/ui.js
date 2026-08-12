@@ -249,6 +249,7 @@ class UIManager {
             case 'home':
                 this.loadSystemStatus();
                 this.loadHomeGroupChips();
+                this.loadHomeRankings();
                 break;
             case 'management':
                 this.applyRolePreferences();
@@ -1003,6 +1004,82 @@ class UIManager {
         }).join('');
     }
 
+    async loadHomeRankings() {
+        const contributionContainer = document.getElementById('home-contribution-ranking');
+        const groupContainer = document.getElementById('home-recent-group-ranking');
+        if (!contributionContainer || !groupContainer) return;
+
+        try {
+            const data = await api.getRankings(5);
+            this.renderHomeContributionRanking(data.contribution || []);
+            this.renderHomeRecentGroupRanking(data.recent_groups || [], data.recent_days || 30);
+        } catch (error) {
+            contributionContainer.innerHTML = '<div class="home-ranking-empty">贡献排行暂时无法加载</div>';
+            groupContainer.innerHTML = '<div class="home-ranking-empty">分组排行暂时无法加载</div>';
+            console.error('加载首页排行失败:', error);
+        }
+    }
+
+    escapeHomeRankingText(value) {
+        return String(value ?? '').replace(/[&<>"']/g, character => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        })[character]);
+    }
+
+    getHomeRankingAvatar(item) {
+        const fallback = `https://q1.qlogo.cn/g?b=qq&nk=${encodeURIComponent(item.qq_number || '')}&s=100`;
+        if (!item.avatar_url) return fallback;
+        try {
+            const url = new URL(item.avatar_url, window.location.origin);
+            return ['http:', 'https:'].includes(url.protocol) ? this.escapeHomeRankingText(url.href) : fallback;
+        } catch (error) {
+            return fallback;
+        }
+    }
+
+    renderHomeContributionRanking(items) {
+        const container = document.getElementById('home-contribution-ranking');
+        if (!container) return;
+        if (!items.length) {
+            container.innerHTML = '<div class="home-ranking-empty">还没有贡献记录</div>';
+            return;
+        }
+
+        container.innerHTML = items.map((item, index) => {
+            const avatar = this.getHomeRankingAvatar(item);
+            return `
+                <div class="home-ranking-row">
+                    <span class="home-ranking-position">${index + 1}</span>
+                    <img class="home-ranking-avatar" src="${avatar}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">
+                    <span class="home-ranking-name">${this.escapeHomeRankingText(item.nickname)}</span>
+                    <strong>${item.score}<small>贡献</small></strong>
+                </div>
+            `;
+        }).join('');
+    }
+
+    renderHomeRecentGroupRanking(items, days) {
+        const container = document.getElementById('home-recent-group-ranking');
+        if (!container) return;
+        if (!items.length) {
+            container.innerHTML = `<div class="home-ranking-empty">近 ${days} 天还没有新上传图片</div>`;
+            return;
+        }
+
+        container.innerHTML = items.map((item, index) => `
+            <div class="home-ranking-row">
+                <span class="home-ranking-position">${index + 1}</span>
+                <span class="home-ranking-group-mark" aria-hidden="true"></span>
+                <span class="home-ranking-name">${this.escapeHomeRankingText(item.name)}</span>
+                <strong>${item.count}<small>张</small></strong>
+            </div>
+        `).join('');
+    }
+
     renderCharacterRankings(items) {
         const container = document.getElementById('leaderboard-characters-list');
         if (!container) return;
@@ -1252,15 +1329,13 @@ class UIManager {
             document.getElementById('total-images').textContent = status.total_images;
             document.getElementById('total-groups').textContent = status.total_groups;
             const homeImages = document.getElementById('home-total-images');
-            const homeAvailable = document.getElementById('home-available-images');
+            const homeEmojis = document.getElementById('home-total-emojis');
             const homeGroups = document.getElementById('home-total-groups');
             const homeCharacters = document.getElementById('home-total-characters');
-            const homeThumbMissing = document.getElementById('home-thumb-missing');
             if (homeImages) homeImages.textContent = status.total_images;
-            if (homeAvailable) homeAvailable.textContent = status.available_images || 0;
+            if (homeEmojis) homeEmojis.textContent = status.total_emojis || 0;
             if (homeGroups) homeGroups.textContent = status.total_groups;
             if (homeCharacters) homeCharacters.textContent = status.total_characters;
-            if (homeThumbMissing) homeThumbMissing.textContent = status.thumb_missing || 0;
             
             // 更新设置页面
             document.getElementById('store-path').textContent = status.store_path;
@@ -1310,23 +1385,26 @@ class UIManager {
     showModal(title, content, isNested = false) {
         const modalOverlay = document.getElementById('modal-overlay');
         const modalBody = document.getElementById('modal-body');
+        const nextLayer = document.createElement('div');
+        nextLayer.className = 'modal-layer modal-body';
+        nextLayer.innerHTML = content;
         
         if (isNested) {
-            // Keep the original nodes alive. Recreating a file input from
-            // innerHTML clears the browser-managed selected File.
-            const preservedContent = document.createDocumentFragment();
-            while (modalBody.firstChild) {
-                preservedContent.appendChild(modalBody.firstChild);
-            }
+            // Keep the original modal layer connected to the document. Both
+            // serializing and detaching a file input can clear its FileList.
+            const preservedContent = modalBody.lastElementChild;
+            if (preservedContent) preservedContent.classList.add('modal-layer-hidden');
             this.modalStack.push({
                 title: document.getElementById('modal-title').textContent,
                 content: preservedContent
             });
             this.isNestedModal = true;
+            modalBody.appendChild(nextLayer);
+        } else {
+            modalBody.replaceChildren(nextLayer);
         }
         
         document.getElementById('modal-title').textContent = title;
-        modalBody.innerHTML = content;
         modalOverlay.style.display = 'flex';
     }
 
@@ -1335,7 +1413,8 @@ class UIManager {
             // 恢复上一个模态框
             const previous = this.modalStack.pop();
             document.getElementById('modal-title').textContent = previous.title;
-            document.getElementById('modal-body').replaceChildren(previous.content);
+            document.getElementById('modal-body').lastElementChild?.remove();
+            if (previous.content) previous.content.classList.remove('modal-layer-hidden');
             this.isNestedModal = this.modalStack.length > 0;
             
             // 恢复后重新绑定表单和选择器事件
@@ -2430,7 +2509,10 @@ function refreshData() {
         ui.loadUploadData();
     } else if (ui.currentPage === 'settings' || ui.currentPage === 'home') {
         ui.loadSystemStatus();
-        if (ui.currentPage === 'home') ui.loadHomeGroupChips();
+        if (ui.currentPage === 'home') {
+            ui.loadHomeGroupChips();
+            ui.loadHomeRankings();
+        }
     }
     if (ui.currentPage !== 'settings' && ui.currentPage !== 'home') {
         ui.loadSystemStatus();

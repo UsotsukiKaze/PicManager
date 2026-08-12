@@ -110,6 +110,7 @@ class PendingRequest(Base):
     # 用户信息（可能是登录用户或游客）
     user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
     guest_ip = Column(String(50), nullable=True)
+    guest_name = Column(String(32), nullable=True)
     
     # 图片信息
     image_id = Column(String(10), nullable=True)  # 用于edit和delete
@@ -151,6 +152,7 @@ class UserSession(Base):
     session_id = Column(String(36), unique=True, nullable=False, index=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=True)  # None表示游客
     guest_ip = Column(String(50), nullable=True)  # 游客IP
+    guest_name = Column(String(32), nullable=True)  # 签名Cookie对应的游客显示名
     is_guest = Column(String(5), nullable=False, default="false")  # "true" 或 "false"
     created_at = Column(DateTime, default=datetime.utcnow)
     last_activity = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PicManager - 小爱图库</title>
     <link rel="icon" href="/static/icon/Pic.ico" type="image/x-icon">
-    <link rel="stylesheet" href="/static/css/style.css?v=20260812a">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260812b">
     <link rel="stylesheet" href="/static/css/icons.css?v=20260812a">
 </head>
 <body>
@@ -108,39 +108,55 @@
                             <span class="home-stat-hint">数据库总量</span>
                         </div>
                         <div class="home-stat-tile">
-                            <span class="home-stat-label">可用图片</span>
-                            <strong id="home-available-images">0</strong>
-                            <span class="home-stat-hint">已确认实体文件</span>
+                            <span class="home-stat-label">表情包库</span>
+                            <strong id="home-total-emojis">0</strong>
+                            <span class="home-stat-hint">独立收藏数量</span>
                         </div>
                         <div class="home-stat-tile">
                             <span class="home-stat-label">分组和角色</span>
                             <strong><span id="home-total-groups">0</span> / <span id="home-total-characters">0</span></strong>
                             <span class="home-stat-hint">检索维度</span>
                         </div>
-                        <div class="home-stat-tile">
-                            <span class="home-stat-label">待补缩略图</span>
-                            <strong id="home-thumb-missing">0</strong>
-                            <span class="home-stat-hint">建议批量补齐</span>
-                        </div>
                     </section>
 
-                    <section class="home-workbench">
-                        <button class="home-work-item" type="button" onclick="ui.switchPage('management')">
-                            <span class="work-icon icon-image"></span>
-                            <strong>看看图片</strong>
-                            <span>按分组、角色或 PID 找图，也能顺手修改信息。</span>
-                        </button>
-                        <button class="home-work-item" type="button" onclick="ui.switchPage('upload')">
-                            <span class="work-icon icon-upload"></span>
-                            <strong>添加图片</strong>
-                            <span>一张一张传，或一次选多张。</span>
-                        </button>
-                        <button class="home-work-item" type="button" onclick="ui.switchPage('settings')">
-                            <span class="work-icon icon-settings"></span>
-                            <strong>检查整理情况</strong>
-                            <span>看看哪些图片缺文件、哪些小图还没生成。</span>
-                        </button>
+                    <section class="home-rankings" aria-label="图库排行榜">
+                        <article class="home-ranking-card">
+                            <div class="home-ranking-head">
+                                <div>
+                                    <span>ALL TIME</span>
+                                    <h3>总贡献度排行</h3>
+                                </div>
+                                <span class="home-ranking-badge">TOP 5</span>
+                            </div>
+                            <div class="home-ranking-list" id="home-contribution-ranking">
+                                <div class="home-ranking-empty">正在载入贡献记录…</div>
+                            </div>
+                        </article>
+                        <article class="home-ranking-card">
+                            <div class="home-ranking-head">
+                                <div>
+                                    <span>LAST 30 DAYS</span>
+                                    <h3>近期上传分组排行</h3>
+                                </div>
+                                <span class="home-ranking-badge">新增图片</span>
+                            </div>
+                            <div class="home-ranking-list" id="home-recent-group-ranking">
+                                <div class="home-ranking-empty">正在统计近期上传…</div>
+                            </div>
+                        </article>
                     </section>
+
+                    <a class="home-personal-portal" href="https://usotsuki-kaze.com/" target="_blank" rel="noopener noreferrer">
+                        <span class="home-portal-mark" aria-hidden="true">
+                            <img src="/static/homepage/favicon.ico" alt="">
+                        </span>
+                        <span class="home-portal-copy">
+                            <small>PERSONAL SPACE · 时刻保持质疑</small>
+                            <strong>前往 UsotsukiKaze 的个人主页</strong>
+                            <span>拈风的个人中转站，集中放置正在维护的项目与公开资料。</span>
+                        </span>
+                        <span class="home-portal-arrow" aria-hidden="true">↗</span>
+                    </a>
                 </div>
 
                 <!-- 图片管理页面 -->
@@ -596,10 +612,10 @@
     <script src="/static/js/character-selector.js?v=20260812a"></script>
     <script src="/static/js/tag-selector.js?v=20260812a"></script>
     <script src="/static/js/api.js?v=20260812a"></script>
-    <script src="/static/js/ui.js?v=20260812a"></script>
+    <script src="/static/js/ui.js?v=20260812b"></script>
     <script src="/static/js/emoji-library.js?v=20260812a"></script>
     <script src="/static/js/upload.js?v=20260812a"></script>
-    <script src="/static/js/main.js?v=20260812a"></script>
+    <script src="/static/js/main.js?v=20260812b"></script>
     <script src="/static/js/auth.js?v=20260812a"></script>
 </body>
 </html>

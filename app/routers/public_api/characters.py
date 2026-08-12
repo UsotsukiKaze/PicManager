@@ -34,10 +34,12 @@ def create_character(character: schemas.CharacterCreate, request: Request):
         is_logged_in_user = False
         user_id = None
         guest_ip = None
+        guest_name = None
 
         if session:
             if session.get("is_guest"):
                 guest_ip = session.get("guest_ip")
+                guest_name = session.get("guest_name")
                 if not check_guest_limit(db, guest_ip):
                     raise HTTPException(status_code=429, detail="今日操作次数已用完")
             else:
@@ -67,6 +69,7 @@ def create_character(character: schemas.CharacterCreate, request: Request):
             request_type="character_add",
             user_id=user_id,
             guest_ip=guest_ip,
+            guest_name=guest_name,
             image_data=json.dumps({
                 "name": character.name,
                 "group_id": character.group_id,
@@ -103,10 +106,12 @@ def update_character(character_id: int, character_update: schemas.CharacterUpdat
         is_logged_in_user = False
         user_id = None
         guest_ip = None
+        guest_name = None
 
         if session:
             if session.get("is_guest"):
                 guest_ip = session.get("guest_ip")
+                guest_name = session.get("guest_name")
                 if not check_guest_limit(db, guest_ip):
                     raise HTTPException(status_code=429, detail="今日操作次数已用完")
             else:
@@ -156,6 +161,7 @@ def update_character(character_id: int, character_update: schemas.CharacterUpdat
             request_type="character_edit",
             user_id=user_id,
             guest_ip=guest_ip,
+            guest_name=guest_name,
             image_data=json.dumps(update_data)
         )
         db.add(pending_request)
@@ -171,10 +177,12 @@ def delete_character(character_id: int, request: Request):
         is_logged_in_user = False
         user_id = None
         guest_ip = None
+        guest_name = None
 
         if session:
             if session.get("is_guest"):
                 guest_ip = session.get("guest_ip")
+                guest_name = session.get("guest_name")
                 if not check_guest_limit(db, guest_ip):
                     raise HTTPException(status_code=429, detail="今日操作次数已用完")
             else:
@@ -199,6 +207,7 @@ def delete_character(character_id: int, request: Request):
             request_type="character_delete",
             user_id=user_id,
             guest_ip=guest_ip,
+            guest_name=guest_name,
             image_data=json.dumps({
                 "character_id": character_id
             })

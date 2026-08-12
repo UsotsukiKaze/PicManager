@@ -32,10 +32,12 @@ def create_group(group: schemas.GroupCreate, request: Request):
         is_logged_in_user = False
         user_id = None
         guest_ip = None
+        guest_name = None
 
         if session:
             if session.get("is_guest"):
                 guest_ip = session.get("guest_ip")
+                guest_name = session.get("guest_name")
                 if not check_guest_limit(db, guest_ip):
                     raise HTTPException(status_code=429, detail="今日操作次数已用完")
             else:
@@ -52,6 +54,7 @@ def create_group(group: schemas.GroupCreate, request: Request):
             request_type="group_add",
             user_id=user_id,
             guest_ip=guest_ip,
+            guest_name=guest_name,
             image_data=json.dumps({
                 "name": group.name,
                 "aliases": group.aliases or [],
@@ -116,10 +119,12 @@ def update_group(group_id: int, group_update: schemas.GroupUpdate, request: Requ
         is_logged_in_user = False
         user_id = None
         guest_ip = None
+        guest_name = None
 
         if session:
             if session.get("is_guest"):
                 guest_ip = session.get("guest_ip")
+                guest_name = session.get("guest_name")
                 if not check_guest_limit(db, guest_ip):
                     raise HTTPException(status_code=429, detail="今日操作次数已用完")
             else:
@@ -154,6 +159,7 @@ def update_group(group_id: int, group_update: schemas.GroupUpdate, request: Requ
             request_type="group_edit",
             user_id=user_id,
             guest_ip=guest_ip,
+            guest_name=guest_name,
             image_data=json.dumps(update_data)
         )
         db.add(pending_request)
@@ -169,10 +175,12 @@ def delete_group(group_id: int, request: Request):
         is_logged_in_user = False
         user_id = None
         guest_ip = None
+        guest_name = None
 
         if session:
             if session.get("is_guest"):
                 guest_ip = session.get("guest_ip")
+                guest_name = session.get("guest_name")
                 if not check_guest_limit(db, guest_ip):
                     raise HTTPException(status_code=429, detail="今日操作次数已用完")
             else:
@@ -197,6 +205,7 @@ def delete_group(group_id: int, request: Request):
             request_type="group_delete",
             user_id=user_id,
             guest_ip=guest_ip,
+            guest_name=guest_name,
             image_data=json.dumps({
                 "group_id": group_id
             })

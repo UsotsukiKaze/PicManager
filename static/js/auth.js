@@ -59,8 +59,11 @@ class AuthManager {
         const headerRole = document.getElementById('header-role');
 
         if (this.isGuest) {
-            headerAvatar.style.display = 'none';
-            headerUsername.textContent = `游客 (${this.guestInfo.guest_ip})`;
+            headerAvatar.src = '/favicon.ico';
+            headerAvatar.alt = '网站图标';
+            headerAvatar.style.display = 'block';
+            headerAvatar.onerror = () => { headerAvatar.style.display = 'none'; };
+            headerUsername.textContent = this.guestInfo.guest_name || '游客';
             headerRole.textContent = `今天还能提交: ${this.guestInfo.remaining_operations}`;
             headerRole.className = 'user-role-small role-guest';
         } else if (this.currentUser) {

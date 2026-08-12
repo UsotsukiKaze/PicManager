@@ -1413,6 +1413,7 @@ class SystemService:
         thumb_failed = db.query(func.count(models.Image.image_id)).filter(
             models.Image.thumb_status == ImageService.THUMB_FAILED
         ).scalar()
+        total_emojis = db.query(func.count(models.Emoji.emoji_id)).scalar()
         total_groups = db.query(func.count(models.Group.id)).scalar()
         total_characters = db.query(func.count(models.Character.id)).scalar()
         
@@ -1426,6 +1427,7 @@ class SystemService:
         
         return schemas.SystemStatus(
             total_images=total_images,
+            total_emojis=total_emojis,
             available_images=available_images,
             missing_images=missing_images,
             archived_images=archived_images,

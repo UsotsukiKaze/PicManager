@@ -3,8 +3,14 @@ from datetime import date
 
 from ... import schemas
 from ...database import get_db_context
-from ...models import User, UserRole, GuestLimit
+from ...models import GuestLimit, User, UserRole, UserSession
 from ...security.tickets import consume_login_ticket
+from ...security.guest_identity import (
+    GUEST_IDENTITY_COOKIE,
+    GUEST_IDENTITY_MAX_AGE,
+    create_guest_identity,
+    read_guest_identity,
+)
 from ...config import settings
 from ..auth import (
     GUEST_DAILY_LIMIT,
@@ -115,8 +121,28 @@ async def guest_login(request: Request, response: Response):
                 "user": schemas.UserInfo.model_validate(root_user),
             }
 
-        # 创建持久化游客会话
-        session_id = create_session(db, None, guest_ip=client_ip, timeout=GUEST_SESSION_TIMEOUT)
+        guest_cookie = request.cookies.get(GUEST_IDENTITY_COOKIE)
+        guest_name = read_guest_identity(guest_cookie)
+        if not guest_name:
+            guest_cookie, guest_name = create_guest_identity()
+            response.set_cookie(
+                key=GUEST_IDENTITY_COOKIE,
+                value=guest_cookie,
+                httponly=True,
+                max_age=GUEST_IDENTITY_MAX_AGE,
+                samesite="Lax",
+                secure=settings.SESSION_COOKIE_SECURE,
+                domain=settings.SESSION_COOKIE_DOMAIN or None,
+            )
+
+        # 创建持久化游客会话；显示身份来自已签名的长期Cookie。
+        session_id = create_session(
+            db,
+            None,
+            guest_ip=client_ip,
+            guest_name=guest_name,
+            timeout=GUEST_SESSION_TIMEOUT,
+        )
         response.set_cookie(
             key="session_id",
             value=session_id,
@@ -139,13 +165,13 @@ async def guest_login(request: Request, response: Response):
     return {
         "message": "游客登录成功",
         "is_guest": True,
-        "guest_ip": client_ip,
+        "guest_name": guest_name,
         "remaining_operations": max(0, remaining)
     }
 
 
 @router.get("/me")
-async def get_current_user(request: Request):
+async def get_current_user(request: Request, response: Response):
     """获取当前用户信息"""
     session_id = request.cookies.get("session_id")
     if not session_id:
@@ -158,6 +184,40 @@ async def get_current_user(request: Request):
         
         if session["is_guest"]:
             # 游客
+            guest_cookie = request.cookies.get(GUEST_IDENTITY_COOKIE)
+            cookie_guest_name = read_guest_identity(guest_cookie)
+            guest_name = session.get("guest_name")
+            if not guest_name:
+                if cookie_guest_name:
+                    guest_name = cookie_guest_name
+                else:
+                    guest_cookie, guest_name = create_guest_identity()
+                db_session = db.query(UserSession).filter(UserSession.session_id == session_id).first()
+                if db_session:
+                    db_session.guest_name = guest_name
+                    db.commit()
+
+            if cookie_guest_name != guest_name:
+                try:
+                    guest_number = int(guest_name.removeprefix("游客#"))
+                except (AttributeError, TypeError, ValueError):
+                    guest_cookie, guest_name = create_guest_identity()
+                else:
+                    guest_cookie, guest_name = create_guest_identity(guest_number)
+                db_session = db.query(UserSession).filter(UserSession.session_id == session_id).first()
+                if db_session and db_session.guest_name != guest_name:
+                    db_session.guest_name = guest_name
+                    db.commit()
+                response.set_cookie(
+                    key=GUEST_IDENTITY_COOKIE,
+                    value=guest_cookie,
+                    httponly=True,
+                    max_age=GUEST_IDENTITY_MAX_AGE,
+                    samesite="Lax",
+                    secure=settings.SESSION_COOKIE_SECURE,
+                    domain=settings.SESSION_COOKIE_DOMAIN or None,
+                )
+
             client_ip = session["guest_ip"]
             today = date.today()
             limit_record = db.query(GuestLimit).filter(
@@ -168,7 +228,7 @@ async def get_current_user(request: Request):
             
             return {
                 "is_guest": True,
-                "guest_ip": client_ip,
+                "guest_name": guest_name,
                 "remaining_operations": max(0, remaining),
                 "daily_limit": GUEST_DAILY_LIMIT
             }
@@ -231,6 +291,7 @@ async def get_guest_limit(request: Request):
     
     return {
         "is_guest": True,
+        "guest_name": session.get("guest_name") or "游客",
         "remaining_operations": max(0, remaining),
         "daily_limit": GUEST_DAILY_LIMIT
     }

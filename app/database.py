@@ -156,6 +156,12 @@ def apply_migrations():
         pending_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(pending_requests)"))]
         if "rejection_reason" not in pending_columns:
             conn.execute(text("ALTER TABLE pending_requests ADD COLUMN rejection_reason TEXT"))
+        if "guest_name" not in pending_columns:
+            conn.execute(text("ALTER TABLE pending_requests ADD COLUMN guest_name VARCHAR(32)"))
+
+        session_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(user_sessions)"))]
+        if session_columns and "guest_name" not in session_columns:
+            conn.execute(text("ALTER TABLE user_sessions ADD COLUMN guest_name VARCHAR(32)"))
 
         # image_view_counts table
         conn.execute(text(

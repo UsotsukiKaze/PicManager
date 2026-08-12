@@ -11,8 +11,7 @@ async function initializeApp() {
         // 首页只加载首屏需要的数据，其余内容等进入对应页面再加载
         await ui.loadSystemStatus();
         await ui.loadHomeGroupChips();
-
-        // 榜单功能暂时隐藏，后续再启用
+        await ui.loadHomeRankings();
         
         ui.applyRolePreferences();
         ui.updateSidebarIndicator();

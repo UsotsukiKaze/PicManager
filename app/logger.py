@@ -86,7 +86,7 @@ def _request_actor(request: Any) -> str:
             _actor_cache[session_id] = (now + _ACTOR_CACHE_TTL, actor)
             return actor
         if session.is_guest == "true":
-            actor = f"[guest:{session.guest_ip or 'unknown'}]"
+            actor = f"[{session.guest_name or 'guest'}]"
             _actor_cache[session_id] = (now + _ACTOR_CACHE_TTL, actor)
             return actor
 

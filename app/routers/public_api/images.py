@@ -138,10 +138,12 @@ def update_image(image_id: str, image_update: schemas.ImageUpdate, request: Requ
         is_admin = False
         user_id = None
         guest_ip = None
+        guest_name = None
         
         if session:
             if session.get("is_guest"):
                 guest_ip = session.get("guest_ip")
+                guest_name = session.get("guest_name")
                 if not check_guest_limit(db, guest_ip):
                     raise HTTPException(status_code=429, detail="今日操作次数已用完")
             else:
@@ -224,6 +226,7 @@ def update_image(image_id: str, image_update: schemas.ImageUpdate, request: Requ
             request_type="edit",
             user_id=user_id,
             guest_ip=guest_ip,
+            guest_name=guest_name,
             image_id=image_id,
             image_data=json.dumps(update_data)
         )
@@ -241,10 +244,12 @@ def delete_image(image_id: str, request: Request):
         is_admin = False
         user_id = None
         guest_ip = None
+        guest_name = None
         
         if session:
             if session.get("is_guest"):
                 guest_ip = session.get("guest_ip")
+                guest_name = session.get("guest_name")
                 if not check_guest_limit(db, guest_ip):
                     raise HTTPException(status_code=429, detail="今日操作次数已用完")
             else:
@@ -271,6 +276,7 @@ def delete_image(image_id: str, request: Request):
             request_type="delete",
             user_id=user_id,
             guest_ip=guest_ip,
+            guest_name=guest_name,
             image_id=image_id
         )
         db.add(pending_request)

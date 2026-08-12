@@ -306,7 +306,7 @@ class EmojiLibrary {
         grid.innerHTML = emojis.map(emoji => {
             const emotion = (emoji.emotions || [])[0]?.name || '未标情绪';
             return `
-                <div class="image-card emoji-card" data-emoji-id="${this.escape(emoji.emoji_id)}" onclick="emojiLibrary.previewEmoji('${this.escape(emoji.emoji_id)}')">
+                <div class="image-card emoji-card" data-emoji-id="${this.escape(emoji.emoji_id)}">
                     <div class="image-card-media">
                         <img class="image-card-img emoji-card-img"
                              src="/${this.escape(emoji.file_path)}"
@@ -319,7 +319,8 @@ class EmojiLibrary {
                         <div class="image-card-characters">${this.escape(this.formatEmojiTags(emoji))}</div>
                         <div class="image-card-pid">${this.escape(emotion)}</div>
                         <div class="emoji-card-actions">
-                            <button class="action-btn delete" onclick="event.stopPropagation(); emojiLibrary.deleteEmoji('${this.escape(emoji.emoji_id)}')">删除</button>
+                            <button class="action-btn edit" onclick="emojiLibrary.showEditEmojiModal('${this.escape(emoji.emoji_id)}')">修改信息</button>
+                            <button class="action-btn delete" onclick="emojiLibrary.deleteEmoji('${this.escape(emoji.emoji_id)}')">删除</button>
                         </div>
                     </div>
                 </div>
@@ -327,20 +328,59 @@ class EmojiLibrary {
         }).join('');
     }
 
-    async previewEmoji(id) {
+    async showEditEmojiModal(id) {
         const emoji = await api.getEmoji(id);
-        const resourceType = emoji.file_extension === 'gif' ? 'GIF 动图' : `${String(emoji.file_extension || '').toUpperCase()} 静态图`;
-        ui.showModal('表情包预览', `
-            <div class="emoji-detail-preview">
-                <img src="/${this.escape(emoji.file_path)}" alt="表情包 ${this.escape(emoji.emoji_id)}">
-                <div class="emoji-detail-meta">
-                    <strong>${this.escape(emoji.emoji_id)}</strong>
-                    <span>${this.escape(resourceType)}</span>
-                    <span>${this.escape(this.formatEmojiTags(emoji))}</span>
-                    ${emoji.description ? `<p>${this.escape(emoji.description)}</p>` : ''}
+        const group = (emoji.groups || [])[0];
+        const character = (emoji.characters || [])[0];
+        const emotion = (emoji.emotions || [])[0];
+        this.uploadTags = {
+            group_id: group?.id || character?.group_id || null,
+            character_id: character?.id || null,
+            emotion_id: emotion?.id || null,
+        };
+        ui.showModal('修改表情包信息', `
+            <div class="emoji-edit-dialog">
+                <div class="emoji-edit-summary">
+                    <img src="/${this.escape(emoji.file_path)}" alt="">
+                    <div>
+                        <strong>${this.escape(emoji.emoji_id)}</strong>
+                        <span>${this.escape(emoji.original_filename || '未记录原文件名')}</span>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div id="emoji-upload-tag-selector"></div>
+                </div>
+                <div class="form-group">
+                    <label for="emoji-edit-description">备注</label>
+                    <textarea id="emoji-edit-description" class="form-textarea" placeholder="可不填">${this.escape(emoji.description || '')}</textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="ui.closeModal()">取消</button>
+                    <button type="button" class="btn btn-primary" id="emoji-edit-submit" onclick="emojiLibrary.saveEmojiInfo('${this.escape(emoji.emoji_id)}')">保存修改</button>
                 </div>
             </div>
         `);
+        this.renderUploadTagControls();
+    }
+
+    async saveEmojiInfo(id) {
+        const submit = document.getElementById('emoji-edit-submit');
+        if (submit) submit.disabled = true;
+        try {
+            await api.updateEmoji(id, {
+                group_ids: this.uploadTags.group_id ? [this.uploadTags.group_id] : [],
+                character_ids: this.uploadTags.character_id ? [this.uploadTags.character_id] : [],
+                emotion_ids: this.uploadTags.emotion_id ? [this.uploadTags.emotion_id] : [],
+                description: document.getElementById('emoji-edit-description')?.value || '',
+            });
+            ui.closeModal();
+            ui.showToast('表情包信息已更新', 'success');
+            await this.load();
+        } catch (error) {
+            ui.showToast(`保存失败: ${error.message}`, 'error');
+        } finally {
+            if (submit && submit.isConnected) submit.disabled = false;
+        }
     }
 
     renderEmotions() {

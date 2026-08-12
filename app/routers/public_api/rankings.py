@@ -1,18 +1,13 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Request
-from typing import List, Optional, Union
-
-from ...database import get_db_context
-from ...services import GroupService, CharacterService, ImageService
-from ...models import User, UserRole, PendingRequest, ImageViewCount, CharacterQueryCount, RequestStatus, Group, Character
-from ... import models, schemas
-from ...config import settings
-from ...logger import log_error
-from ..auth import get_current_session, check_guest_limit
-import tempfile
-import os
-import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
+
+from fastapi import APIRouter
+from sqlalchemy import func
+
+from ... import models
+from ...database import get_db_context
+from ...models import Character, CharacterQueryCount, Group, ImageViewCount, PendingRequest, RequestStatus, User
+from ...services import ImageService
 
 router = APIRouter()
 
@@ -146,10 +141,41 @@ def get_rankings(limit: int = 10):
                 for image in latest_images
             ]
 
+        recent_since = datetime.utcnow() - timedelta(days=30)
+        recent_group_rows = db.query(
+            Group.id,
+            Group.name,
+            func.count(func.distinct(models.Image.image_id)).label("image_count"),
+        ).join(
+            models.image_group_association,
+            models.image_group_association.c.group_id == Group.id,
+        ).join(
+            models.Image,
+            models.Image.image_id == models.image_group_association.c.image_id,
+        ).filter(
+            models.Image.file_status == ImageService.AVAILABLE,
+            models.Image.created_at >= recent_since,
+        ).group_by(
+            Group.id,
+            Group.name,
+        ).order_by(
+            func.count(func.distinct(models.Image.image_id)).desc(),
+            Group.name.asc(),
+        ).limit(limit).all()
+
         data = {
             "contribution": contribution_list,
             "characters": character_rank,
-            "images": image_rank
+            "images": image_rank,
+            "recent_groups": [
+                {
+                    "group_id": row.id,
+                    "name": row.name,
+                    "count": row.image_count,
+                }
+                for row in recent_group_rows
+            ],
+            "recent_days": 30,
         }
         _RANKINGS_CACHE.update({
             "key": limit,

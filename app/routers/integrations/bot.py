@@ -380,6 +380,35 @@ def resolve_bot_age_authorization_relay(authorization_group_id: str, message_id:
         return {"request_id": record.request_id, "group_id": record.group_id, "status": record.status}
 
 
+@router.post("/age-authorizations/{request_id}/reject")
+def reject_bot_age_authorization(
+    request_id: str, decision: schemas.BotAgeAuthorizationDecision
+):
+    """Decline and discard a pending R18 request without persisting the rejection."""
+    if str(decision.reviewer_id) not in _age_superusers():
+        raise HTTPException(status_code=403, detail="Superuser permission required")
+    with get_db_context() as db:
+        _verify_age_assertion(
+            "reject_r18", str(decision.reviewer_id), "superuser", request_id,
+            decision.timestamp, decision.nonce, decision.signature, db,
+        )
+        record = db.query(AgeAuthorizationRequest).filter(
+            AgeAuthorizationRequest.request_id == request_id
+        ).first()
+        if not record:
+            raise HTTPException(status_code=404, detail="Authorization request not found")
+        if record.status != "pending":
+            raise HTTPException(status_code=409, detail="Authorization request is not pending")
+        group_id = record.group_id
+        db.delete(record)
+        db.flush()
+        return {
+            "request_id": request_id,
+            "group_id": group_id,
+            "status": "rejected",
+        }
+
+
 @router.post("/age-authorizations/{request_id}/approve")
 def approve_bot_age_authorization(
     request_id: str, decision: schemas.BotAgeAuthorizationDecision

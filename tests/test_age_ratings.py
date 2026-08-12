@@ -94,3 +94,54 @@ def test_age_assertion_cannot_be_replayed(monkeypatch):
             "approve_r18", "1", "superuser", "request", timestamp, nonce, signature, db
         )
     assert exc.value.status_code == 401
+
+
+def test_r18_rejection_discards_request_without_changing_group_rating(monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    GroupAgeSetting.__table__.create(engine)
+    AgeAuthorizationRequest.__table__.create(engine)
+    AgeAssertionNonce.__table__.create(engine)
+    sessions = sessionmaker(bind=engine)
+    request_id = "request-rejected"
+    secret = "dedicated-assertion-secret"
+    reviewer_id = "123456"
+
+    with sessions() as db:
+        db.add(GroupAgeSetting(group_id="98765", age_rating="r16"))
+        db.add(AgeAuthorizationRequest(
+            request_id=request_id,
+            group_id="98765",
+            requested_by="222",
+        ))
+        db.commit()
+
+    @contextmanager
+    def database_context():
+        db = sessions()
+        try:
+            yield db
+            db.commit()
+        finally:
+            db.close()
+
+    monkeypatch.setattr(bot_routes, "get_db_context", database_context)
+    monkeypatch.setattr(bot_routes.settings, "AGE_RATING_ASSERTION_SECRET", secret)
+    monkeypatch.setattr(bot_routes.settings, "AGE_RATING_SUPERUSERS", reviewer_id)
+    timestamp = int(time.time())
+    nonce = "c" * 32
+
+    result = bot_routes.reject_bot_age_authorization(
+        request_id,
+        schemas.BotAgeAuthorizationDecision(
+            reviewer_id=reviewer_id,
+            timestamp=timestamp,
+            nonce=nonce,
+            signature=_sign(secret, "reject_r18", reviewer_id, "superuser", request_id, timestamp, nonce),
+        ),
+    )
+
+    assert result["status"] == "rejected"
+    with sessions() as db:
+        setting = db.query(GroupAgeSetting).filter_by(group_id="98765").one()
+        assert setting.age_rating == "r16"
+        assert db.query(AgeAuthorizationRequest).filter_by(request_id=request_id).first() is None

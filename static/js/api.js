@@ -164,6 +164,10 @@ class API {
         return this.request(`/emojis/search?${queryString}`);
     }
 
+    async getEmoji(id) {
+        return this.request(`/emojis/${encodeURIComponent(id)}`);
+    }
+
     async uploadEmoji(file, metadata) {
         const formData = new FormData();
         formData.append('file', file);

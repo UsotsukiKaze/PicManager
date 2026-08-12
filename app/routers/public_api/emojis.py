@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
 import json
+import mimetypes
 import os
 import tempfile
 
@@ -30,18 +31,29 @@ def _parse_id_list(value: str | None, field_name: str) -> list[int]:
         raise HTTPException(status_code=400, detail=f"Invalid {field_name} format") from exc
 
 
-def _verify_gif_file(path: str) -> None:
+EMOJI_IMAGE_FORMATS = {
+    "jpg": "JPEG",
+    "jpeg": "JPEG",
+    "png": "PNG",
+    "webp": "WEBP",
+    "gif": "GIF",
+    "bmp": "BMP",
+}
+
+
+def _verify_emoji_file(path: str, file_extension: str) -> None:
+    expected_format = EMOJI_IMAGE_FORMATS.get(file_extension.lower().lstrip("."))
+    if not expected_format:
+        raise HTTPException(status_code=400, detail="Unsupported emoji image type")
     try:
         with Image.open(path) as image:
-            if (image.format or "").upper() != "GIF":
-                raise HTTPException(status_code=400, detail="Only GIF emoji resources are supported")
-            if not getattr(image, "is_animated", False):
-                raise HTTPException(status_code=400, detail="Static images are not supported in emoji library")
+            if (image.format or "").upper() != expected_format:
+                raise HTTPException(status_code=400, detail="File extension does not match image content")
             image.verify()
     except HTTPException:
         raise
     except (UnidentifiedImageError, OSError) as exc:
-        raise HTTPException(status_code=400, detail="Invalid GIF content") from exc
+        raise HTTPException(status_code=400, detail="Invalid emoji image content") from exc
 
 
 def _validate_emoji_tags(db, character_ids: list[int], group_ids: list[int], emotion_ids: list[int]) -> None:
@@ -154,8 +166,8 @@ async def upload_emoji(
 ):
     require_admin_user_id(request)
     file_extension = (file.filename or "").split(".")[-1].lower()
-    if file_extension != "gif":
-        raise HTTPException(status_code=400, detail="Only GIF emoji resources are supported")
+    if file_extension not in EMOJI_IMAGE_FORMATS:
+        raise HTTPException(status_code=400, detail="Unsupported emoji image type")
 
     character_id_list = _parse_id_list(character_ids, "character_ids")
     group_id_list = _parse_id_list(group_ids, "group_ids")
@@ -164,7 +176,7 @@ async def upload_emoji(
     os.makedirs(settings.TEMP_PATH, exist_ok=True)
     temp_path = ""
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".gif", dir=settings.TEMP_PATH) as temp_file:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_extension}", dir=settings.TEMP_PATH) as temp_file:
             temp_path = temp_file.name
             total = 0
             while True:
@@ -175,7 +187,7 @@ async def upload_emoji(
                 if total > settings.MAX_FILE_SIZE:
                     raise HTTPException(status_code=413, detail="File too large")
                 temp_file.write(chunk)
-        _verify_gif_file(temp_path)
+        _verify_emoji_file(temp_path, file_extension)
 
         with get_db_context() as db:
             _validate_emoji_tags(db, character_id_list, group_id_list, emotion_id_list)
@@ -188,8 +200,8 @@ async def upload_emoji(
                     description=description,
                 ),
                 temp_path,
-                file.filename or "emoji.gif",
-                "gif",
+                file.filename or f"emoji.{file_extension}",
+                file_extension,
             )
             return schemas.UploadImageResponse(image_id=emoji.emoji_id, message="Emoji uploaded successfully")
     finally:
@@ -237,9 +249,10 @@ def download_emoji(emoji_id: str):
             full_path.relative_to(emoji_root)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail="Emoji not found") from exc
-        safe_name = Path(db_emoji.original_filename or f"{db_emoji.emoji_id}.gif").name
+        safe_name = Path(db_emoji.original_filename or f"{db_emoji.emoji_id}.{db_emoji.file_extension}").name
         encoded_name = quote(safe_name)
-        response = FileResponse(full_path, media_type="image/gif", filename=safe_name)
+        media_type = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
+        response = FileResponse(full_path, media_type=media_type, filename=safe_name)
         response.headers["Content-Disposition"] = f"attachment; filename*=UTF-8''{encoded_name}"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Cache-Control"] = "private, max-age=3600"

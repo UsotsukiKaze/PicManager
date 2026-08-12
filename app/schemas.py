@@ -328,6 +328,10 @@ class PendingRequestInfo(BaseModel):
     original_image: Optional[dict] = None  # 原图信息: {image_id, pid, description, character_names, file_path}
     original_group: Optional[dict] = None  # 原分组信息: {id, name, description}
     original_character: Optional[dict] = None  # 原角色信息: {id, name, group_name, nicknames, description}
+    pending_image: Optional[dict] = None  # 待审核图片信息: {file_size, width, height, mime_type, format}
+    target_info: Optional[dict] = None  # 被操作条目: {type, id, name}
+    changes: Optional[List[dict]] = None  # 有效变更字段: [{field, label, before, after}]
+    has_changes: Optional[bool] = None
     created_at: datetime
     reviewed_at: Optional[datetime] = None
     rejection_reason: Optional[str] = None

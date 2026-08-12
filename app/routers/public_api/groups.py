@@ -8,6 +8,7 @@ from ...models import User, UserRole, PendingRequest, ImageViewCount, CharacterQ
 from ... import models, schemas
 from ...config import settings
 from ...logger import log_error
+from ...review_changes import changed_update_data
 from ..auth import get_current_session, check_guest_limit
 import tempfile
 import os
@@ -133,11 +134,21 @@ def update_group(group_id: int, group_update: schemas.GroupUpdate, request: Requ
         if not existing:
             raise HTTPException(status_code=404, detail="Group not found")
 
+        update_data = group_update.dict(exclude_unset=True)
+        original_data = {
+            "name": existing.name,
+            "aliases": [alias.alias for alias in existing.aliases] if existing.aliases else [],
+            "description": existing.description,
+        }
+        update_data = changed_update_data(update_data, original_data)
+        if not update_data:
+            return {"message": "内容未发生变化", "status": "unchanged"}
+
+        effective_update = schemas.GroupUpdate(**update_data)
         if is_admin:
-            group = GroupService.update_group(db, group_id, group_update)
+            group = GroupService.update_group(db, group_id, effective_update)
             return group
 
-        update_data = group_update.dict(exclude_unset=True)
         update_data["group_id"] = group_id
         pending_request = PendingRequest(
             request_type="group_edit",

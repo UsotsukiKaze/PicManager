@@ -7,6 +7,7 @@ from ...models import User, UserRole, PendingRequest, ImageViewCount, CharacterQ
 from ... import models, schemas
 from ...config import settings
 from ...logger import log_error
+from ...review_changes import changed_update_data
 from ..auth import get_current_session, check_guest_limit
 import tempfile
 import os
@@ -133,11 +134,23 @@ def update_character(character_id: int, character_update: schemas.CharacterUpdat
                 missing_ids = set(character_update.feature_tag_ids or []) - set(t.id for t in existing_tags)
                 raise HTTPException(status_code=400, detail=f"Selected feature tags do not exist: {missing_ids}")
 
+        update_data = character_update.dict(exclude_unset=True)
+        original_data = {
+            "name": existing.name,
+            "nicknames": [nickname.nickname for nickname in existing.nicknames] if existing.nicknames else [],
+            "group_id": existing.group_id,
+            "feature_tag_ids": [tag.id for tag in existing.feature_tags] if existing.feature_tags else [],
+            "description": existing.description,
+        }
+        update_data = changed_update_data(update_data, original_data)
+        if not update_data:
+            return {"message": "内容未发生变化", "status": "unchanged"}
+
+        effective_update = schemas.CharacterUpdate(**update_data)
         if is_admin:
-            character = CharacterService.update_character(db, character_id, character_update)
+            character = CharacterService.update_character(db, character_id, effective_update)
             return character
 
-        update_data = character_update.dict(exclude_unset=True)
         update_data["character_id"] = character_id
         pending_request = PendingRequest(
             request_type="character_edit",

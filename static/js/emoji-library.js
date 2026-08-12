@@ -6,6 +6,9 @@ class EmojiLibrary {
         this.initialized = false;
         this.uploadTags = { group_id: null, character_id: null, emotion_id: null };
         this.uploadPickerDraft = null;
+        this.uploadFile = null;
+        this.uploadPreviewUrl = null;
+        this.pagination = { currentPage: 1, totalPages: 1, limit: 20, total: 0 };
     }
 
     escape(value) {
@@ -31,6 +34,11 @@ class EmojiLibrary {
     }
 
     async loadOptions() {
+        const selectedFilters = {
+            group: document.getElementById('emoji-group-filter')?.value || '',
+            character: document.getElementById('emoji-character-filter')?.value || '',
+            emotion: document.getElementById('emoji-emotion-filter')?.value || '',
+        };
         const [groups, characters, emotions] = await Promise.all([
             api.getGroups(),
             api.getCharacters(),
@@ -46,6 +54,9 @@ class EmojiLibrary {
         if (groupFilter) groupFilter.innerHTML = this.optionHtml(this.groups, '全部分组');
         if (characterFilter) characterFilter.innerHTML = this.optionHtml(this.characters, '全部角色');
         if (emotionFilter) emotionFilter.innerHTML = this.optionHtml(this.emotions, '全部情绪');
+        if (groupFilter) groupFilter.value = selectedFilters.group;
+        if (characterFilter) characterFilter.value = selectedFilters.character;
+        if (emotionFilter) emotionFilter.value = selectedFilters.emotion;
 
         this.renderUploadTagControls();
     }
@@ -219,12 +230,64 @@ class EmojiLibrary {
             group_id: document.getElementById('emoji-group-filter')?.value || '',
             character_id: document.getElementById('emoji-character-filter')?.value || '',
             emotion_id: document.getElementById('emoji-emotion-filter')?.value || '',
-            limit: 100,
-            offset: 0,
+            limit: this.pagination.limit,
+            offset: (this.pagination.currentPage - 1) * this.pagination.limit,
         };
         const result = await api.searchEmojis(params);
+        const total = result.total || 0;
+        const totalPages = Math.max(1, Math.ceil(total / this.pagination.limit));
+        if (!(result.emojis || []).length && total > 0 && this.pagination.currentPage > totalPages) {
+            this.pagination.currentPage = totalPages;
+            return this.load();
+        }
+        this.pagination.total = total;
+        this.pagination.totalPages = totalPages;
         this.renderGrid(result.emojis || []);
+        this.renderPagination();
         this.renderEmotions();
+    }
+
+    applyFilters() {
+        this.pagination.currentPage = 1;
+        return this.load();
+    }
+
+    changePage(page) {
+        const nextPage = Number(page);
+        if (!Number.isInteger(nextPage) || nextPage < 1 || nextPage > this.pagination.totalPages) return;
+        this.pagination.currentPage = nextPage;
+        this.load();
+        document.getElementById('emoji-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    renderPagination() {
+        const container = document.getElementById('emoji-pagination');
+        if (!container) return;
+        const { currentPage, totalPages, total } = this.pagination;
+        if (totalPages <= 1) {
+            container.innerHTML = total ? `<span class="pagination-summary">共 ${total} 个 · 20/页</span>` : '';
+            return;
+        }
+
+        const pages = window.ui?.buildPageWindow
+            ? ui.buildPageWindow(totalPages, currentPage)
+            : Array.from({ length: totalPages }, (_, index) => index + 1);
+        let pageButtons = '';
+        pages.forEach(item => {
+            if (typeof item !== 'number') {
+                pageButtons += '<span class="pagination-ellipsis">...</span>';
+                return;
+            }
+            pageButtons += `<button class="pagination-btn ${item === currentPage ? 'active' : ''}" onclick="emojiLibrary.changePage(${item})">${item}</button>`;
+        });
+        container.innerHTML = `
+            <button class="pagination-btn pagination-edge" ${currentPage === 1 ? 'disabled' : ''} onclick="emojiLibrary.changePage(1)">首页</button>
+            <button class="pagination-btn" ${currentPage === 1 ? 'disabled' : ''} onclick="emojiLibrary.changePage(${currentPage - 1})">上一页</button>
+            ${pageButtons}
+            <button class="pagination-btn" ${currentPage === totalPages ? 'disabled' : ''} onclick="emojiLibrary.changePage(${currentPage + 1})">下一页</button>
+            <button class="pagination-btn pagination-edge" ${currentPage === totalPages ? 'disabled' : ''} onclick="emojiLibrary.changePage(${totalPages})">末页</button>
+            <span class="pagination-summary">${currentPage} / ${totalPages} · 共 ${total} 个 · 20/页</span>
+        `;
     }
 
     formatEmojiTags(emoji) {
@@ -243,7 +306,7 @@ class EmojiLibrary {
         grid.innerHTML = emojis.map(emoji => {
             const emotion = (emoji.emotions || [])[0]?.name || '未标情绪';
             return `
-                <div class="image-card emoji-card" data-emoji-id="${this.escape(emoji.emoji_id)}">
+                <div class="image-card emoji-card" data-emoji-id="${this.escape(emoji.emoji_id)}" onclick="emojiLibrary.previewEmoji('${this.escape(emoji.emoji_id)}')">
                     <div class="image-card-media">
                         <img class="image-card-img emoji-card-img"
                              src="/${this.escape(emoji.file_path)}"
@@ -262,6 +325,22 @@ class EmojiLibrary {
                 </div>
             `;
         }).join('');
+    }
+
+    async previewEmoji(id) {
+        const emoji = await api.getEmoji(id);
+        const resourceType = emoji.file_extension === 'gif' ? 'GIF 动图' : `${String(emoji.file_extension || '').toUpperCase()} 静态图`;
+        ui.showModal('表情包预览', `
+            <div class="emoji-detail-preview">
+                <img src="/${this.escape(emoji.file_path)}" alt="表情包 ${this.escape(emoji.emoji_id)}">
+                <div class="emoji-detail-meta">
+                    <strong>${this.escape(emoji.emoji_id)}</strong>
+                    <span>${this.escape(resourceType)}</span>
+                    <span>${this.escape(this.formatEmojiTags(emoji))}</span>
+                    ${emoji.description ? `<p>${this.escape(emoji.description)}</p>` : ''}
+                </div>
+            </div>
+        `);
     }
 
     renderEmotions() {
@@ -292,47 +371,143 @@ class EmojiLibrary {
         if (!this.groups.length && !this.initialized) {
             await this.loadOptions();
         }
+        this.clearUploadFile();
         this.uploadTags = { group_id: null, character_id: null, emotion_id: null };
-        ui.showModal('上传GIF表情', `
-            <div class="form-group">
-                <label>GIF文件</label>
-                <input type="file" id="emoji-file-input" class="form-input" accept="image/gif">
-            </div>
-            <div class="form-group">
-                <div id="emoji-upload-tag-selector"></div>
-            </div>
-            <div class="form-group">
-                <label>备注</label>
-                <textarea id="emoji-description" class="form-textarea" placeholder="可不填"></textarea>
-            </div>
-            <div class="form-actions">
-                <button class="btn btn-secondary" onclick="ui.closeModal()">取消</button>
-                <button class="btn btn-primary" onclick="emojiLibrary.upload()">上传</button>
+        ui.showModal('上传表情包', `
+            <div class="emoji-upload-dialog">
+                <div class="emoji-file-drop" id="emoji-file-drop" role="button" tabindex="0" aria-label="选择表情包文件">
+                    <input type="file" id="emoji-file-input" accept="image/gif,image/jpeg,image/png,image/webp,image/bmp" hidden>
+                    <div class="emoji-file-placeholder" id="emoji-file-placeholder">
+                        <span class="upload-drop-icon"></span>
+                        <strong>拖入文件，或点这里选择</strong>
+                        <span>支持 GIF 动图和 JPG、PNG、WEBP、BMP 静态图</span>
+                    </div>
+                    <div class="emoji-file-preview" id="emoji-file-preview" hidden>
+                        <img id="emoji-preview-image" alt="待上传表情包预览">
+                        <div class="emoji-file-preview-info">
+                            <strong id="emoji-preview-name"></strong>
+                            <span id="emoji-preview-meta"></span>
+                            <button type="button" class="btn-link emoji-file-remove" onclick="event.stopPropagation(); emojiLibrary.clearUploadFile()">重新选择</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div id="emoji-upload-tag-selector"></div>
+                </div>
+                <div class="form-group">
+                    <label>备注</label>
+                    <textarea id="emoji-description" class="form-textarea" placeholder="可不填"></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="emojiLibrary.cancelUpload()">取消</button>
+                    <button type="button" class="btn btn-primary" id="emoji-upload-submit" onclick="emojiLibrary.upload()">上传到表情包库</button>
+                </div>
             </div>
         `);
         this.renderUploadTagControls();
+        this.bindUploadFilePicker();
+    }
+
+    bindUploadFilePicker() {
+        const dropZone = document.getElementById('emoji-file-drop');
+        const input = document.getElementById('emoji-file-input');
+        if (!dropZone || !input) return;
+        dropZone.addEventListener('click', event => {
+            if (!event.target.closest('.emoji-file-remove')) input.click();
+        });
+        dropZone.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                input.click();
+            }
+        });
+        input.addEventListener('change', () => this.handleUploadFile(input.files?.[0]));
+        dropZone.addEventListener('dragover', event => {
+            event.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', event => {
+            event.preventDefault();
+            dropZone.classList.remove('dragover');
+            this.handleUploadFile(event.dataTransfer?.files?.[0]);
+        });
+    }
+
+    isSupportedUploadFile(file) {
+        if (!file) return false;
+        const extension = file.name.split('.').pop()?.toLowerCase();
+        return ['gif', 'jpg', 'jpeg', 'png', 'webp', 'bmp'].includes(extension);
+    }
+
+    handleUploadFile(file) {
+        if (!this.isSupportedUploadFile(file)) {
+            ui.showToast('请选择 GIF、JPG、PNG、WEBP 或 BMP 图片', 'warning');
+            return;
+        }
+        this.clearUploadFile(false);
+        this.uploadFile = file;
+        this.uploadPreviewUrl = URL.createObjectURL(file);
+        const placeholder = document.getElementById('emoji-file-placeholder');
+        const preview = document.getElementById('emoji-file-preview');
+        const image = document.getElementById('emoji-preview-image');
+        if (placeholder) placeholder.hidden = true;
+        if (preview) preview.hidden = false;
+        if (image) image.src = this.uploadPreviewUrl;
+        const name = document.getElementById('emoji-preview-name');
+        const meta = document.getElementById('emoji-preview-meta');
+        if (name) name.textContent = file.name;
+        if (meta) meta.textContent = `${file.name.toLowerCase().endsWith('.gif') ? 'GIF 动图' : '静态图片'} · ${(file.size / 1024 / 1024).toFixed(2)} MB`;
+    }
+
+    clearUploadFile(resetInput = true) {
+        if (this.uploadPreviewUrl) URL.revokeObjectURL(this.uploadPreviewUrl);
+        this.uploadPreviewUrl = null;
+        this.uploadFile = null;
+        const input = document.getElementById('emoji-file-input');
+        if (resetInput && input) input.value = '';
+        const placeholder = document.getElementById('emoji-file-placeholder');
+        const preview = document.getElementById('emoji-file-preview');
+        const image = document.getElementById('emoji-preview-image');
+        if (placeholder) placeholder.hidden = false;
+        if (preview) preview.hidden = true;
+        if (image) image.removeAttribute('src');
+    }
+
+    cancelUpload() {
+        this.clearUploadFile();
+        ui.closeModal();
     }
 
     async upload() {
-        const input = document.getElementById('emoji-file-input');
-        const file = input?.files?.[0];
+        const file = this.uploadFile || document.getElementById('emoji-file-input')?.files?.[0];
         if (!file) {
-            ui.showToast('请选择 GIF 文件', 'warning');
+            ui.showToast('请选择表情包文件', 'warning');
             return;
         }
-        if (!file.name.toLowerCase().endsWith('.gif')) {
-            ui.showToast('表情包库暂只支持 GIF 动图', 'warning');
+        if (!this.isSupportedUploadFile(file)) {
+            ui.showToast('不支持这个图片格式', 'warning');
             return;
         }
-        await api.uploadEmoji(file, {
-            group_ids: this.uploadTags.group_id ? [this.uploadTags.group_id] : [],
-            character_ids: this.uploadTags.character_id ? [this.uploadTags.character_id] : [],
-            emotion_ids: this.uploadTags.emotion_id ? [this.uploadTags.emotion_id] : [],
-            description: document.getElementById('emoji-description')?.value || '',
-        });
-        ui.closeModal();
-        ui.showToast('表情包已上传', 'success');
-        await this.load();
+        const submit = document.getElementById('emoji-upload-submit');
+        if (submit) submit.disabled = true;
+        try {
+            await api.uploadEmoji(file, {
+                group_ids: this.uploadTags.group_id ? [this.uploadTags.group_id] : [],
+                character_ids: this.uploadTags.character_id ? [this.uploadTags.character_id] : [],
+                emotion_ids: this.uploadTags.emotion_id ? [this.uploadTags.emotion_id] : [],
+                description: document.getElementById('emoji-description')?.value || '',
+            });
+            this.clearUploadFile();
+            ui.closeModal();
+            ui.showToast('表情包已上传', 'success');
+            this.pagination.currentPage = 1;
+            await this.load();
+        } catch (error) {
+            ui.showToast(`上传失败: ${error.message}`, 'error');
+        } finally {
+            if (submit && submit.isConnected) submit.disabled = false;
+        }
     }
 
     showCreateEmotionModal() {

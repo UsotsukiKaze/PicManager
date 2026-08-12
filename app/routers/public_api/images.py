@@ -10,6 +10,7 @@ from ...models import User, UserRole, PendingRequest, ImageViewCount, CharacterQ
 from ... import models, schemas
 from ...config import settings
 from ...logger import log_error
+from ...review_changes import changed_update_data
 from ..auth import get_current_session, check_guest_limit
 import tempfile
 import os
@@ -157,7 +158,7 @@ def update_image(image_id: str, image_update: schemas.ImageUpdate, request: Requ
         # 校验角色ID（如有）
         if image_update.character_ids is not None:
             try:
-                character_ids = [int(cid) for cid in image_update.character_ids]
+                character_ids = list(dict.fromkeys(int(cid) for cid in image_update.character_ids))
             except (TypeError, ValueError):
                 raise HTTPException(status_code=400, detail="Invalid character_ids format")
 
@@ -198,9 +199,22 @@ def update_image(image_id: str, image_update: schemas.ImageUpdate, request: Requ
                     raise HTTPException(status_code=400, detail=f"Selected feature tags do not exist: {missing_ids}")
             image_update.feature_tag_ids = feature_tag_ids
         
+        update_data = image_update.dict(exclude_unset=True)
+        original_data = {
+            "pid": db_image.pid,
+            "description": db_image.description,
+            "character_ids": [character.id for character in db_image.characters],
+            "group_ids": [group.id for group in db_image.groups],
+            "feature_tag_ids": [tag.id for tag in db_image.feature_tags],
+        }
+        update_data = changed_update_data(update_data, original_data)
+        if not update_data:
+            return {"message": "内容未发生变化", "status": "unchanged"}
+
+        effective_update = schemas.ImageUpdate(**update_data)
         if is_admin:
             # 管理员直接更新
-            image = ImageService.update_image(db, image_id, image_update)
+            image = ImageService.update_image(db, image_id, effective_update)
             if not image:
                 raise HTTPException(status_code=404, detail="Image not found")
             return {"message": "图片信息更新成功", "status": "success"}
@@ -211,13 +225,7 @@ def update_image(image_id: str, image_update: schemas.ImageUpdate, request: Requ
             user_id=user_id,
             guest_ip=guest_ip,
             image_id=image_id,
-            image_data=json.dumps({
-                "pid": image_update.pid,
-                "description": image_update.description,
-                "character_ids": image_update.character_ids,
-                "group_ids": image_update.group_ids,
-                "feature_tag_ids": image_update.feature_tag_ids
-            })
+            image_data=json.dumps(update_data)
         )
         db.add(pending_request)
         db.commit()

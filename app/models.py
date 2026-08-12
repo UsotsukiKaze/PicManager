@@ -24,6 +24,7 @@ class RequestStatus(enum.Enum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
+    UNCHANGED = "unchanged"
 
 # 图片与角色的多对多关联表
 image_character_association = Table(
@@ -323,7 +324,7 @@ class Image(Base):
 
 
 class Emoji(Base):
-    """GIF emoji package resources isolated from normal images."""
+    """Emoji image resources isolated from the normal image library."""
     __tablename__ = 'emojis'
 
     emoji_id = Column(String(10), primary_key=True)

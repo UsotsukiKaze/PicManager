@@ -618,8 +618,109 @@
             max-width: 200px;
             max-height: 150px;
             border-radius: 14px;
-            margin-bottom: 10px;
             box-shadow: 0 8px 22px rgba(29, 29, 31, 0.08);
+            display: block;
+        }
+
+        .request-image-button {
+            display: inline-block;
+            padding: 0;
+            margin: 0 0 8px;
+            border: 0;
+            border-radius: 14px;
+            background: transparent;
+            cursor: zoom-in;
+        }
+
+        .request-image-button:focus-visible {
+            outline: 3px solid rgba(0, 122, 255, 0.35);
+            outline-offset: 3px;
+        }
+
+        .request-image-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px 12px;
+            margin-bottom: 12px;
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+
+        .request-image-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 3000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 56px 24px 24px;
+            background: rgba(10, 12, 18, 0.88);
+            backdrop-filter: blur(10px);
+        }
+
+        .request-image-modal.is-open {
+            display: flex;
+        }
+
+        .request-image-modal img {
+            max-width: min(94vw, 1600px);
+            max-height: 86vh;
+            object-fit: contain;
+            border-radius: 12px;
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+        }
+
+        .request-image-modal-close {
+            position: absolute;
+            top: 14px;
+            right: 18px;
+            width: 42px;
+            height: 42px;
+            border: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.16);
+            color: #fff;
+            font-size: 30px;
+            line-height: 1;
+            cursor: pointer;
+        }
+
+        .review-target {
+            margin-bottom: 10px;
+            color: var(--text-primary);
+        }
+
+        .review-change-list {
+            display: grid;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .review-change-item {
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: rgba(59, 130, 246, 0.07);
+        }
+
+        .review-change-values {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+            gap: 8px;
+            align-items: center;
+            margin-top: 4px;
+            word-break: break-word;
+        }
+
+        .review-change-arrow {
+            color: var(--primary-color);
+            font-weight: 700;
+        }
+
+        .review-no-changes {
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: rgba(245, 158, 11, 0.12);
+            color: #b45309;
         }
 
         .request-detail {
@@ -657,6 +758,11 @@
         .status-rejected {
             background: rgba(239, 68, 68, 0.15);
             color: #ef4444;
+        }
+
+        .status-unchanged {
+            background: rgba(100, 116, 139, 0.15);
+            color: #475569;
         }
 
         .reject-reason {
@@ -1390,7 +1496,8 @@
                 const statusMap = {
                     pending: { text: '待审核', class: 'status-pending' },
                     approved: { text: '已通过', class: 'status-approved' },
-                    rejected: { text: '已驳回', class: 'status-rejected' }
+                    rejected: { text: '已驳回', class: 'status-rejected' },
+                    unchanged: { text: '未修改', class: 'status-unchanged' }
                 };
 
                 container.innerHTML = requests.map(req => {
@@ -1637,6 +1744,127 @@
             }
         }
 
+        function escapeReviewHtml(value) {
+            return String(value ?? '')
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#039;');
+        }
+
+        function formatReviewValue(value) {
+            if (value === null || value === undefined || value === '') return '（空）';
+            if (Array.isArray(value)) {
+                return value.length ? value.map(formatReviewValue).join('、') : '（空）';
+            }
+            if (typeof value === 'object') {
+                const name = value.name ? escapeReviewHtml(value.name) : '';
+                const id = value.id !== null && value.id !== undefined ? `#${escapeReviewHtml(value.id)}` : '';
+                return [name, id].filter(Boolean).join(' ') || '（空）';
+            }
+            return escapeReviewHtml(value);
+        }
+
+        function renderReviewChanges(req) {
+            const target = req.target_info || {};
+            const targetLabels = { image: '图片', group: '分组', character: '角色' };
+            const targetLabel = targetLabels[target.type] || '条目';
+            const targetName = target.name ? escapeReviewHtml(target.name) : '名称不可用';
+            const targetId = target.id !== null && target.id !== undefined ? escapeReviewHtml(target.id) : '--';
+            const targetHtml = `
+                <div class="review-target">
+                    <strong>被修改的${targetLabel}：</strong>${targetName} <span>（ID: ${targetId}）</span>
+                </div>
+            `;
+
+            if (req.has_changes === false) {
+                return `${targetHtml}<div class="review-no-changes">修改内容与当前条目相同；该请求需要判定为“未修改”。</div>`;
+            }
+
+            const changes = Array.isArray(req.changes) ? req.changes : [];
+            if (!changes.length) return targetHtml;
+            return `${targetHtml}
+                <div class="review-change-list">
+                    ${changes.map(change => `
+                        <div class="review-change-item">
+                            <strong>${escapeReviewHtml(change.label || change.field)}</strong>
+                            <div class="review-change-values">
+                                <span>${formatReviewValue(change.before)}</span>
+                                <span class="review-change-arrow">→</span>
+                                <span>${formatReviewValue(change.after)}</span>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function formatRequestFileSize(size) {
+            if (!Number.isFinite(Number(size))) return '--';
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let value = Number(size);
+            let unitIndex = 0;
+            while (value >= 1024 && unitIndex < units.length - 1) {
+                value /= 1024;
+                unitIndex += 1;
+            }
+            return `${value.toFixed(unitIndex === 0 ? 0 : 2)} ${units[unitIndex]}`;
+        }
+
+        function renderRequestImage(src, alt, info) {
+            const meta = info || {};
+            const resolution = meta.width && meta.height ? `${meta.width} × ${meta.height}` : '--';
+            return `
+                <button type="button" class="request-image-button" onclick="openRequestImagePreview('${src}', '${escapeReviewHtml(alt)}')" title="点击查看原图">
+                    <img src="${src}" class="request-image-preview" alt="${escapeReviewHtml(alt)}" onerror="this.closest('button').style.display='none'">
+                </button>
+                <div class="request-image-meta">
+                    <span>分辨率：${resolution}</span>
+                    <span>文件大小：${formatRequestFileSize(meta.file_size)}</span>
+                </div>
+            `;
+        }
+
+        function openRequestImagePreview(src, alt) {
+            let modal = document.getElementById('request-image-modal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = 'request-image-modal';
+                modal.className = 'request-image-modal';
+                modal.setAttribute('role', 'dialog');
+                modal.setAttribute('aria-modal', 'true');
+                modal.innerHTML = `
+                    <button type="button" class="request-image-modal-close" aria-label="关闭">×</button>
+                    <img alt="">
+                `;
+                modal.addEventListener('click', event => {
+                    if (event.target === modal || event.target.closest('.request-image-modal-close')) {
+                        closeRequestImagePreview();
+                    }
+                });
+                document.body.appendChild(modal);
+            }
+            const image = modal.querySelector('img');
+            image.src = src;
+            image.alt = alt || '审核图片原图';
+            modal.classList.add('is-open');
+            document.body.style.overflow = 'hidden';
+            modal.querySelector('.request-image-modal-close').focus();
+        }
+
+        function closeRequestImagePreview() {
+            const modal = document.getElementById('request-image-modal');
+            if (!modal) return;
+            modal.classList.remove('is-open');
+            modal.querySelector('img').removeAttribute('src');
+            document.body.style.overflow = '';
+        }
+
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape') closeRequestImagePreview();
+        });
+
         // 加载待审核请求
         async function loadPendingRequests(force = false) {
             if (lazyLoaded.pendingRequests && !force) return;
@@ -1683,8 +1911,9 @@
                     let contentHtml = '';
                     if (req.temp_file_path && req.request_type === 'add') {
                         const filename = req.temp_file_path.split(/[/\\]/).pop();
+                        const pendingImageUrl = `/resource/pending/${encodeURIComponent(filename)}`;
                         contentHtml = `
-                            <img src="/resource/pending/${filename}" class="request-image-preview" alt="预览图" onerror="this.style.display='none'">
+                            ${renderRequestImage(pendingImageUrl, '待审核图片', req.pending_image)}
                             <div class="request-detail">
                                 <strong>原始文件名:</strong> ${req.original_filename || '--'}<br>
                                 ${req.image_data ? `
@@ -1698,34 +1927,26 @@
                     } else if (req.request_type === 'edit') {
                         let originalImageHtml = '';
                         if (req.original_image) {
+                            const originalImageUrl = `/resource/originals/${encodeURIComponent(req.original_image.image_id)}`;
                             originalImageHtml = `
                                 <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
                                     <strong style="color: #666;">【原图信息】</strong><br>
-                                    <strong>原PID:</strong> ${req.original_image.pid || '--'}<br>
-                                    <strong>原描述:</strong> ${req.original_image.description || '--'}<br>
-                                    <strong>原角色:</strong> ${req.original_image.character_names && req.original_image.character_names.length > 0 ? req.original_image.character_names.join(', ') : '--'}<br>
                                     <div style="margin-top: 10px;">
-                                        <img src="/resource/store/${req.original_image.image_id}.${req.original_image.file_extension}" 
-                                             class="request-image-preview" alt="原图" onerror="this.style.display='none'">
+                                        ${renderRequestImage(originalImageUrl, '被修改图片原图', req.original_image)}
                                     </div>
                                 </div>
                             `;
                         }
                         contentHtml = `
                             <div class="request-detail">
-                                <strong>图片ID:</strong> ${req.image_id || '--'}<br>
-                                ${req.image_data ? `
-                                    <strong>新分组:</strong> ${req.group_info ? req.group_info.name : '(不变)'}<br>
-                                    <strong>新角色:</strong> ${req.character_names && req.character_names.length > 0 ? req.character_names.join(', ') : '(不变)'}<br>
-                                    <strong>新PID:</strong> ${req.image_data.pid || '(不变)'}<br>
-                                    <strong>新描述:</strong> ${req.image_data.description || '(不变)'}
-                                ` : '--'}
+                                ${renderReviewChanges(req)}
                                 ${originalImageHtml}
                             </div>
                         `;
                     } else if (req.request_type === 'delete') {
                         let originalImageHtml = '';
                         if (req.original_image) {
+                            const originalImageUrl = `/resource/originals/${encodeURIComponent(req.original_image.image_id)}`;
                             originalImageHtml = `
                                 <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
                                     <strong style="color: #666;">【原图信息】</strong><br>
@@ -1733,8 +1954,7 @@
                                     <strong>原描述:</strong> ${req.original_image.description || '--'}<br>
                                     <strong>原角色:</strong> ${req.original_image.character_names && req.original_image.character_names.length > 0 ? req.original_image.character_names.join(', ') : '--'}<br>
                                     <div style="margin-top: 10px;">
-                                        <img src="/resource/store/${req.original_image.image_id}.${req.original_image.file_extension}" 
-                                             class="request-image-preview" alt="原图" onerror="this.style.display='none'">
+                                        ${renderRequestImage(originalImageUrl, '待删除图片原图', req.original_image)}
                                     </div>
                                 </div>
                             `;
@@ -1754,16 +1974,9 @@
                             </div>
                         `;
                     } else if (req.request_type === 'group_edit') {
-                        const originalGroup = req.original_group || {};
                         contentHtml = `
                             <div class="request-detail">
-                                <strong>分组ID:</strong> ${req.image_data ? req.image_data.group_id || '--' : '--'}<br>
-                                <strong>新名称:</strong> ${req.image_data ? req.image_data.name || '(不变)' : '--'}<br>
-                                <strong>新描述:</strong> ${req.image_data ? req.image_data.description || '(不变)' : '--'}<br>
-                                <div style="margin-top: 10px; color: #666;">
-                                    <strong>原分组:</strong> ${originalGroup.name || '--'}<br>
-                                    <strong>原描述:</strong> ${originalGroup.description || '--'}
-                                </div>
+                                ${renderReviewChanges(req)}
                             </div>
                         `;
                     } else if (req.request_type === 'group_delete') {
@@ -1786,21 +1999,9 @@
                             </div>
                         `;
                     } else if (req.request_type === 'character_edit') {
-                        const charInfo = req.character_info || {};
-                        const originalChar = req.original_character || {};
                         contentHtml = `
                             <div class="request-detail">
-                                <strong>角色ID:</strong> ${req.image_data ? req.image_data.character_id || '--' : '--'}<br>
-                                <strong>新名称:</strong> ${charInfo.name || '(不变)'}<br>
-                                <strong>新分组:</strong> ${charInfo.group_name || '(不变)'}<br>
-                                <strong>新昵称:</strong> ${(charInfo.nicknames && charInfo.nicknames.length) ? charInfo.nicknames.join(', ') : '(不变)'}<br>
-                                <strong>新描述:</strong> ${charInfo.description || '(不变)'}
-                                <div style="margin-top: 10px; color: #666;">
-                                    <strong>原角色:</strong> ${originalChar.name || '--'}<br>
-                                    <strong>原分组:</strong> ${originalChar.group_name || '--'}<br>
-                                    <strong>原昵称:</strong> ${(originalChar.nicknames && originalChar.nicknames.length) ? originalChar.nicknames.join(', ') : '--'}<br>
-                                    <strong>原描述:</strong> ${originalChar.description || '--'}
-                                </div>
+                                ${renderReviewChanges(req)}
                             </div>
                         `;
                     } else if (req.request_type === 'character_delete') {
@@ -1825,6 +2026,7 @@
                         `;
                     }
 
+                    const approveLabel = req.has_changes === false ? '判定未修改' : '批准';
                     return `
                         <div class="request-card">
                             <div class="request-header">
@@ -1842,7 +2044,7 @@
                             </div>
                             <div class="request-actions">
                                 <button class="btn btn-danger btn-sm" onclick="handleRequest(${req.id}, 'reject')">拒绝</button>
-                                <button class="btn btn-success btn-sm" onclick="handleRequest(${req.id}, 'approve')">批准</button>
+                                <button class="btn btn-success btn-sm" onclick="handleRequest(${req.id}, 'approve')">${approveLabel}</button>
                             </div>
                             <textarea class="reject-reason" id="reject-reason-${req.id}" placeholder="驳回理由（可选）"></textarea>
                         </div>

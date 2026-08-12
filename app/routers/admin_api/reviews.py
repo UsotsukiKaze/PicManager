@@ -7,11 +7,62 @@ import os
 from ... import schemas
 from ...config import settings
 from ...database import get_db_context
-from ...models import Character, Group, Image, PendingRequest, RequestStatus, User, UserRole
+from ...models import Character, FeatureTag, Group, Image, PendingRequest, RequestStatus, User, UserRole
+from ...review_changes import build_changes, changed_update_data
 from ...security.permissions import require_admin_user_id, require_root_user_id
 from ...services import CharacterService, GroupService, ImageService
+from ...utils import get_image_info
 
 router = APIRouter()
+
+
+IMAGE_CHANGE_LABELS = {
+    "pid": "PID",
+    "description": "描述",
+    "character_ids": "角色",
+    "group_ids": "分组",
+    "feature_tag_ids": "特征标签",
+}
+GROUP_CHANGE_LABELS = {
+    "name": "名称",
+    "aliases": "别名",
+    "description": "描述",
+}
+CHARACTER_CHANGE_LABELS = {
+    "name": "名称",
+    "group_id": "所属分组",
+    "nicknames": "昵称",
+    "description": "描述",
+    "feature_tag_ids": "特征标签",
+}
+
+
+def _named_items(db, model, ids):
+    ids = list(ids or [])
+    if not ids:
+        return []
+    rows = db.query(model).filter(model.id.in_(ids)).all()
+    row_map = {row.id: row.name for row in rows}
+    return [{"id": item_id, "name": row_map.get(item_id, f"ID {item_id}")} for item_id in ids]
+
+
+def _decorate_change_values(db, changes):
+    model_by_field = {
+        "character_ids": Character,
+        "group_ids": Group,
+        "feature_tag_ids": FeatureTag,
+    }
+    for change in changes:
+        field = change["field"]
+        if field in model_by_field:
+            change["before"] = _named_items(db, model_by_field[field], change["before"])
+            change["after"] = _named_items(db, model_by_field[field], change["after"])
+        elif field == "group_id":
+            before = _named_items(db, Group, [change["before"]] if change["before"] else [])
+            after = _named_items(db, Group, [change["after"]] if change["after"] else [])
+            change["before"] = before[0] if before else None
+            change["after"] = after[0] if after else None
+    return changes
 
 
 @router.get("/pending", response_model=List[schemas.PendingRequestInfo])
@@ -45,9 +96,16 @@ async def get_pending_requests(request: Request):
                 "original_image": None,
                 "original_group": None,
                 "original_character": None,
+                "pending_image": None,
+                "target_info": None,
+                "changes": None,
+                "has_changes": None,
                 "created_at": req.created_at,
                 "reviewed_at": req.reviewed_at
             }
+
+            if req.request_type == "add" and req.temp_file_path and os.path.isfile(req.temp_file_path):
+                item["pending_image"] = get_image_info(req.temp_file_path)
             
             if req.user_id:
                 user = db.query(User).filter(User.id == req.user_id).first()
@@ -85,6 +143,7 @@ async def get_pending_requests(request: Request):
                                 "aliases": [alias.alias for alias in group.aliases] if group.aliases else [],
                                 "description": group.description
                             }
+                            item["target_info"] = {"type": "group", "id": group.id, "name": group.name}
                     if image_data.get("name"):
                         item["group_info"] = {
                             "id": image_data.get("group_id"),
@@ -95,6 +154,18 @@ async def get_pending_requests(request: Request):
                             "id": item["original_group"]["id"],
                             "name": item["original_group"]["name"]
                         }
+                    if req.request_type == "group_edit" and item.get("original_group"):
+                        proposed = {
+                            key: image_data[key]
+                            for key in GROUP_CHANGE_LABELS
+                            if key in image_data
+                        }
+                        original = {
+                            key: item["original_group"].get(key)
+                            for key in GROUP_CHANGE_LABELS
+                        }
+                        item["changes"] = build_changes(proposed, original, GROUP_CHANGE_LABELS)
+                        item["has_changes"] = bool(item["changes"])
                 elif req.request_type.startswith("character_"):
                     if image_data.get("character_id"):
                         character = db.query(Character).filter(Character.id == image_data["character_id"]).first()
@@ -102,10 +173,13 @@ async def get_pending_requests(request: Request):
                             item["original_character"] = {
                                 "id": character.id,
                                 "name": character.name,
+                                "group_id": character.group_id,
                                 "group_name": character.group.name if character.group else "",
                                 "nicknames": [n.nickname for n in character.nicknames] if character.nicknames else [],
+                                "feature_tag_ids": [tag.id for tag in character.feature_tags] if character.feature_tags else [],
                                 "description": character.description
                             }
+                            item["target_info"] = {"type": "character", "id": character.id, "name": character.name}
                     if any(key in image_data for key in ["name", "group_id", "nicknames", "description", "character_id"]):
                         group = None
                         if image_data.get("group_id"):
@@ -129,6 +203,21 @@ async def get_pending_requests(request: Request):
                             "nicknames": image_data.get("nicknames") or item["original_character"].get("nicknames") or [],
                             "description": image_data.get("description") or item["original_character"].get("description")
                         }
+                    if req.request_type == "character_edit" and item.get("original_character"):
+                        proposed = {
+                            key: image_data[key]
+                            for key in CHARACTER_CHANGE_LABELS
+                            if key in image_data
+                        }
+                        original = {
+                            key: item["original_character"].get(key)
+                            for key in CHARACTER_CHANGE_LABELS
+                        }
+                        item["changes"] = _decorate_change_values(
+                            db,
+                            build_changes(proposed, original, CHARACTER_CHANGE_LABELS),
+                        )
+                        item["has_changes"] = bool(item["changes"])
             
             # 对于 edit 和 delete 请求，获取原图信息
             if req.request_type in ["edit", "delete"] and req.image_id:
@@ -136,14 +225,43 @@ async def get_pending_requests(request: Request):
                 if original_img:
                     # 获取原图的角色信息
                     original_characters = [ch.name for ch in original_img.characters] if original_img.characters else []
+                    original_character_ids = [ch.id for ch in original_img.characters] if original_img.characters else []
+                    original_group_ids = [group.id for group in original_img.groups] if original_img.groups else []
+                    original_feature_tag_ids = [tag.id for tag in original_img.feature_tags] if original_img.feature_tags else []
                     item["original_image"] = {
                         "image_id": original_img.image_id,
                         "pid": original_img.pid,
                         "description": original_img.description,
+                        "character_ids": original_character_ids,
                         "character_names": original_characters,
+                        "group_ids": original_group_ids,
+                        "group_names": [group.name for group in original_img.groups] if original_img.groups else [],
+                        "feature_tag_ids": original_feature_tag_ids,
                         "file_path": original_img.file_path,
-                        "file_extension": original_img.file_extension
+                        "file_extension": original_img.file_extension,
+                        "file_size": original_img.file_size,
+                        "width": original_img.width,
+                        "height": original_img.height,
                     }
+                    item["target_info"] = {"type": "image", "id": original_img.image_id, "name": original_img.original_filename}
+                    if req.request_type == "edit" and item["image_data"]:
+                        proposed = {
+                            key: item["image_data"][key]
+                            for key in IMAGE_CHANGE_LABELS
+                            if key in item["image_data"]
+                        }
+                        original = {
+                            "pid": original_img.pid,
+                            "description": original_img.description,
+                            "character_ids": original_character_ids,
+                            "group_ids": original_group_ids,
+                            "feature_tag_ids": original_feature_tag_ids,
+                        }
+                        item["changes"] = _decorate_change_values(
+                            db,
+                            build_changes(proposed, original, IMAGE_CHANGE_LABELS),
+                        )
+                        item["has_changes"] = bool(item["changes"])
             
             result.append(schemas.PendingRequestInfo(**item))
         
@@ -170,6 +288,7 @@ async def handle_pending_request(
         if action.action == "approve":
             # 批准请求
             pending_req.rejection_reason = None
+            unchanged = False
             if pending_req.request_type == "add":
                 # 处理添加图片请求
                 image_data = json.loads(pending_req.image_data) if pending_req.image_data else {}
@@ -206,18 +325,22 @@ async def handle_pending_request(
             elif pending_req.request_type == "edit":
                 # 处理编辑图片请求
                 image_data = json.loads(pending_req.image_data) if pending_req.image_data else {}
-                
-                image_update = schemas.ImageUpdate(
-                    pid=image_data.get("pid"),
-                    description=image_data.get("description"),
-                    character_ids=image_data.get("character_ids"),
-                    group_ids=image_data.get("group_ids"),
-                    feature_tag_ids=image_data.get("feature_tag_ids")
-                )
-                
-                image = ImageService.update_image(db, pending_req.image_id, image_update)
+                image = db.query(Image).filter(Image.image_id == pending_req.image_id).first()
                 if not image:
                     raise HTTPException(status_code=404, detail="图片不存在")
+                proposed = {key: image_data[key] for key in IMAGE_CHANGE_LABELS if key in image_data}
+                original = {
+                    "pid": image.pid,
+                    "description": image.description,
+                    "character_ids": [character.id for character in image.characters],
+                    "group_ids": [group.id for group in image.groups],
+                    "feature_tag_ids": [tag.id for tag in image.feature_tags],
+                }
+                update_data = changed_update_data(proposed, original)
+                if update_data:
+                    ImageService.update_image(db, pending_req.image_id, schemas.ImageUpdate(**update_data))
+                else:
+                    unchanged = True
             
             elif pending_req.request_type == "group_add":
                 group_data = json.loads(pending_req.image_data) if pending_req.image_data else {}
@@ -244,10 +367,19 @@ async def handle_pending_request(
                     if exists:
                         raise HTTPException(status_code=400, detail="分组名称已存在")
                 update_data = {k: group_data[k] for k in ["name", "aliases", "description"] if k in group_data}
-                group_update = schemas.GroupUpdate(**update_data)
-                updated = GroupService.update_group(db, group_id, group_update)
-                if not updated:
+                group = db.query(Group).filter(Group.id == group_id).first()
+                if not group:
                     raise HTTPException(status_code=404, detail="分组不存在")
+                original = {
+                    "name": group.name,
+                    "aliases": [alias.alias for alias in group.aliases] if group.aliases else [],
+                    "description": group.description,
+                }
+                update_data = changed_update_data(update_data, original)
+                if update_data:
+                    GroupService.update_group(db, group_id, schemas.GroupUpdate(**update_data))
+                else:
+                    unchanged = True
 
             elif pending_req.request_type == "group_delete":
                 group_data = json.loads(pending_req.image_data) if pending_req.image_data else {}
@@ -294,10 +426,21 @@ async def handle_pending_request(
                         if exists:
                             raise HTTPException(status_code=400, detail="该分组下已存在同名角色")
                 update_data = {k: char_data[k] for k in ["name", "group_id", "description", "nicknames", "feature_tag_ids"] if k in char_data}
-                char_update = schemas.CharacterUpdate(**update_data)
-                updated = CharacterService.update_character(db, char_id, char_update)
-                if not updated:
+                character = db.query(Character).filter(Character.id == char_id).first()
+                if not character:
                     raise HTTPException(status_code=404, detail="角色不存在")
+                original = {
+                    "name": character.name,
+                    "group_id": character.group_id,
+                    "description": character.description,
+                    "nicknames": [nickname.nickname for nickname in character.nicknames] if character.nicknames else [],
+                    "feature_tag_ids": [tag.id for tag in character.feature_tags] if character.feature_tags else [],
+                }
+                update_data = changed_update_data(update_data, original)
+                if update_data:
+                    CharacterService.update_character(db, char_id, schemas.CharacterUpdate(**update_data))
+                else:
+                    unchanged = True
 
             elif pending_req.request_type == "character_delete":
                 char_data = json.loads(pending_req.image_data) if pending_req.image_data else {}
@@ -310,7 +453,11 @@ async def handle_pending_request(
 
             # delete类型不需要在批准时处理，管理员手动删除
             
-            pending_req.status = RequestStatus.APPROVED.value
+            pending_req.status = (
+                RequestStatus.UNCHANGED.value
+                if unchanged
+                else RequestStatus.APPROVED.value
+            )
         
         elif action.action == "reject":
             # 拒绝请求
@@ -332,4 +479,6 @@ async def handle_pending_request(
         pending_req.reviewed_by = admin_user_id
         db.commit()
         
+        if pending_req.status == RequestStatus.UNCHANGED.value:
+            return {"message": "请求内容与当前条目相同，已判定为未修改"}
         return {"message": f"请求已{('批准' if action.action == 'approve' else '拒绝')}"}

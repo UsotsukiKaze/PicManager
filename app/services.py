@@ -438,7 +438,7 @@ class EmotionTagService:
 
 
 class EmojiService:
-    """GIF emoji package service."""
+    """Emoji package service for animated and static image resources."""
 
     AVAILABLE = "available"
     MISSING = "missing"

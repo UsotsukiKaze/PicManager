@@ -31,6 +31,8 @@ class UIManager {
         this.loadingStates = {}; // 防止重复加载
         this.thumbnailMaintenanceQueued = false;
         this.lastThumbnailMaintenanceAt = 0;
+        this.thumbnailObserver = null;
+        this.imageLoadRequestId = 0;
         
         this.initializeEventListeners();
     }
@@ -625,6 +627,7 @@ class UIManager {
     }
 
     async loadImages(params = undefined) {
+        const requestId = ++this.imageLoadRequestId;
         try {
             this.applyRolePreferences();
             if (params !== undefined && params !== null) {
@@ -638,6 +641,7 @@ class UIManager {
             };
 
             const result = await api.searchImages(searchParams);
+            if (requestId !== this.imageLoadRequestId) return;
             const totalPages = Math.max(1, Math.ceil((result.total || 0) / this.pagination.limit));
             if ((result.images || []).length === 0 && (result.total || 0) > 0 && this.pagination.currentPage > totalPages) {
                 this.pagination.currentPage = totalPages;
@@ -647,7 +651,9 @@ class UIManager {
             this.renderImageGrid(result.images || []);
             this.updatePagination(result);
         } catch (error) {
-            this.showToast('加载图片失败', 'error');
+            if (requestId === this.imageLoadRequestId) {
+                this.showToast('加载图片失败', 'error');
+            }
         }
     }
 
@@ -671,16 +677,8 @@ class UIManager {
         }
     }
 
-    getImageFilename(image) {
-        return `${image.image_id}.${image.file_extension}`;
-    }
-
-    getImagePath(image) {
-        return (image.file_path || `resource/store/${this.getImageFilename(image)}`).replace(/^\/+/, '');
-    }
-
     getImageUrl(image) {
-        return `/${this.getImagePath(image)}`;
+        return `/resource/originals/${encodeURIComponent(image.image_id)}`;
     }
 
     getThumbnailUrl(image) {
@@ -698,14 +696,53 @@ class UIManager {
     }
 
     handleImageFallback(img) {
-        const fallback = img.dataset.fullSrc;
-        if (fallback && img.src !== new URL(fallback, window.location.origin).href) {
-            img.src = fallback;
-            img.dataset.fullSrc = '';
-            return;
-        }
         img.onerror = null;
         img.src = '/static/images/placeholder.png';
+    }
+
+    observeThumbnails(container) {
+        if (this.thumbnailObserver) {
+            this.thumbnailObserver.disconnect();
+            this.thumbnailObserver = null;
+        }
+
+        const thumbnails = Array.from(container.querySelectorAll('img[data-thumbnail-src]'));
+        const loadThumbnail = (img) => {
+            const src = img.dataset.thumbnailSrc;
+            if (!src) return;
+            img.src = src;
+            delete img.dataset.thumbnailSrc;
+        };
+
+        if (!('IntersectionObserver' in window)) {
+            thumbnails.forEach(loadThumbnail);
+            return;
+        }
+
+        this.thumbnailObserver = new IntersectionObserver((entries, observer) => {
+            entries.forEach((entry) => {
+                if (!entry.isIntersecting) return;
+                loadThumbnail(entry.target);
+                observer.unobserve(entry.target);
+            });
+        }, {
+            rootMargin: '600px 0px',
+            threshold: 0.01
+        });
+        thumbnails.forEach((img) => this.thumbnailObserver.observe(img));
+    }
+
+    handleOriginalLoad(img) {
+        img.closest('.image-detail-media')?.classList.add('is-original-loaded');
+    }
+
+    handleOriginalError(img) {
+        img.onerror = null;
+        const media = img.closest('.image-detail-media');
+        if (!media) return;
+        media.classList.add('is-original-error');
+        const status = media.querySelector('.image-detail-loading');
+        if (status) status.textContent = '原图加载失败，当前显示缩略图';
     }
 
     renderImageGrid(images) {
@@ -713,6 +750,10 @@ class UIManager {
         if (!grid) return;
         
         if (images.length === 0) {
+            if (this.thumbnailObserver) {
+                this.thumbnailObserver.disconnect();
+                this.thumbnailObserver = null;
+            }
             grid.innerHTML = '<div class="empty-state">未找到图片</div>';
             return;
         }
@@ -720,9 +761,10 @@ class UIManager {
         grid.innerHTML = images.map(image => `
             <div class="image-card" data-image-id="${image.image_id}">
                 <div class="image-card-media">
-                    <img class="image-card-img" src="${this.getThumbnailUrl(image)}"
-                         data-full-src="${this.getImageUrl(image)}"
+                    <img class="image-card-img" src="/static/images/placeholder.png"
+                         data-thumbnail-src="${this.getThumbnailUrl(image)}"
                          alt="Image ${image.image_id}" loading="lazy" decoding="async"
+                         fetchpriority="low"
                          onerror="ui.handleImageFallback(this)">
                 </div>
                 <div class="image-card-info">
@@ -741,6 +783,7 @@ class UIManager {
                 this.showImageDetail(imageId);
             });
         });
+        this.observeThumbnails(grid);
     }
 
     formatImageTags(image) {
@@ -993,7 +1036,7 @@ class UIManager {
         container.innerHTML = items.map((item, index) => `
             <div class="leaderboard-item">
                 <div class="leaderboard-rank">${index + 1}</div>
-                <img class="leaderboard-thumb" src="${this.getThumbnailUrl(item)}" data-full-src="${this.getImageUrl(item)}" alt="图片" onerror="ui.handleImageFallback(this)">
+                <img class="leaderboard-thumb" src="${this.getThumbnailUrl(item)}" alt="图片" loading="lazy" decoding="async" fetchpriority="low" onerror="ui.handleImageFallback(this)">
                 <div class="leaderboard-info">
                     <div class="leaderboard-name">图片 ${item.image_id}</div>
                     <div class="leaderboard-sub">浏览次数</div>
@@ -1266,18 +1309,24 @@ class UIManager {
 
     showModal(title, content, isNested = false) {
         const modalOverlay = document.getElementById('modal-overlay');
+        const modalBody = document.getElementById('modal-body');
         
         if (isNested) {
-            // 保存当前模态框内容
+            // Keep the original nodes alive. Recreating a file input from
+            // innerHTML clears the browser-managed selected File.
+            const preservedContent = document.createDocumentFragment();
+            while (modalBody.firstChild) {
+                preservedContent.appendChild(modalBody.firstChild);
+            }
             this.modalStack.push({
                 title: document.getElementById('modal-title').textContent,
-                content: document.getElementById('modal-body').innerHTML
+                content: preservedContent
             });
             this.isNestedModal = true;
         }
         
         document.getElementById('modal-title').textContent = title;
-        document.getElementById('modal-body').innerHTML = content;
+        modalBody.innerHTML = content;
         modalOverlay.style.display = 'flex';
     }
 
@@ -1286,7 +1335,7 @@ class UIManager {
             // 恢复上一个模态框
             const previous = this.modalStack.pop();
             document.getElementById('modal-title').textContent = previous.title;
-            document.getElementById('modal-body').innerHTML = previous.content;
+            document.getElementById('modal-body').replaceChildren(previous.content);
             this.isNestedModal = this.modalStack.length > 0;
             
             // 恢复后重新绑定表单和选择器事件
@@ -2239,7 +2288,9 @@ class UIManager {
             const content = `
                 <div class="image-detail-card">
                     <div class="image-detail-media">
-                        <img src="${this.getThumbnailUrl(image)}" data-full-src="${this.getImageUrl(image)}" loading="eager" decoding="async" alt="Image ${image.image_id}" onerror="ui.handleImageFallback(this)">
+                        <img class="image-detail-preview" src="${this.getThumbnailUrl(image)}" alt="" aria-hidden="true" onerror="ui.handleImageFallback(this)">
+                        <img class="image-detail-original" src="${this.getImageUrl(image)}" loading="eager" decoding="async" fetchpriority="high" alt="Image ${image.image_id}" onload="ui.handleOriginalLoad(this)" onerror="ui.handleOriginalError(this)">
+                        <span class="image-detail-loading" role="status">正在加载原图…</span>
                     </div>
                     <div class="image-detail-panel">
                         <div class="image-detail-head">

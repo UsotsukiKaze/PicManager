@@ -3,7 +3,7 @@ from typing import List, Optional, Union
 from pathlib import Path
 
 from ...database import get_db_context
-from ...services import GroupService, CharacterService, EmojiService, ImageService
+from ...services import GroupService, CharacterService, ImageService
 from ...models import User, UserRole, PendingRequest, ImageViewCount, CharacterQueryCount, RequestStatus, Group, Character
 from ... import models, schemas
 from ...config import settings
@@ -148,54 +148,6 @@ async def upload_single_image(
         # Stream the upload to disk so large images do not sit in memory.
         temp_file_path = await _save_limited_upload(file, suffix=f'.{file_extension}')
         _verify_image_file(temp_file_path)
-
-        if file_extension == "gif":
-            if not is_admin:
-                try:
-                    os.unlink(temp_file_path)
-                except OSError:
-                    pass
-                raise HTTPException(status_code=403, detail="Emoji upload requires admin permission")
-            try:
-                with Image.open(temp_file_path) as gif_image:
-                    if not getattr(gif_image, "is_animated", False):
-                        raise HTTPException(status_code=400, detail="Static GIF images are not supported in emoji library")
-                if character_id_list:
-                    existing_characters = db.query(models.Character).filter(models.Character.id.in_(character_id_list)).all()
-                    if len(existing_characters) != len(character_id_list):
-                        missing_ids = set(character_id_list) - set(c.id for c in existing_characters)
-                        raise HTTPException(status_code=400, detail=f"Selected characters do not exist: {missing_ids}")
-                if group_id_list:
-                    existing_groups = db.query(models.Group).filter(models.Group.id.in_(group_id_list)).all()
-                    if len(existing_groups) != len(group_id_list):
-                        missing_ids = set(group_id_list) - set(g.id for g in existing_groups)
-                        raise HTTPException(status_code=400, detail=f"Selected groups do not exist: {missing_ids}")
-                if emotion_id_list:
-                    existing_emotions = db.query(models.EmotionTag).filter(models.EmotionTag.id.in_(emotion_id_list)).all()
-                    if len(existing_emotions) != len(emotion_id_list):
-                        missing_ids = set(emotion_id_list) - set(e.id for e in existing_emotions)
-                        raise HTTPException(status_code=400, detail=f"Selected emotions do not exist: {missing_ids}")
-                emoji = EmojiService.create_emoji(
-                    db,
-                    schemas.EmojiCreate(
-                        character_ids=character_id_list,
-                        group_ids=group_id_list,
-                        emotion_ids=emotion_id_list,
-                        description=description,
-                    ),
-                    temp_file_path,
-                    file.filename or "emoji.gif",
-                    "gif",
-                )
-                return schemas.UploadImageResponse(
-                    image_id=emoji.emoji_id,
-                    message="表情包上传成功",
-                )
-            finally:
-                try:
-                    os.unlink(temp_file_path)
-                except OSError:
-                    pass
 
         if is_admin:
             # 管理员直接上传
@@ -402,25 +354,6 @@ def upload_temp_image(temp_upload: schemas.TempImageUpload, request: Request):
             if len(existing_tags) != len(temp_upload.feature_tag_ids):
                 missing_ids = set(temp_upload.feature_tag_ids) - set(t.id for t in existing_tags)
                 raise HTTPException(status_code=400, detail=f"Selected feature tags do not exist: {missing_ids}")
-
-        if file_extension == "gif":
-            emoji = EmojiService.create_emoji(
-                db,
-                schemas.EmojiCreate(
-                    character_ids=temp_upload.character_ids,
-                    group_ids=temp_upload.group_ids,
-                    emotion_ids=[],
-                    description=temp_upload.description,
-                ),
-                str(image_path),
-                temp_upload.filename,
-                "gif",
-            )
-            try:
-                image_path.unlink()
-            except Exception as e:
-                log_error(f"Failed to delete temp file: {e}")
-            return schemas.UploadImageResponse(image_id=emoji.emoji_id, message="Imported temp GIF emoji successfully")
 
         image_create = schemas.ImageCreate(
             character_ids=temp_upload.character_ids,

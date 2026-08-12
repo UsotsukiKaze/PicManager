@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PicManager - 小爱图库</title>
     <link rel="icon" href="/static/icon/Pic.ico" type="image/x-icon">
-    <link rel="stylesheet" href="/static/css/style.css?v=20260622a">
-    <link rel="stylesheet" href="/static/css/icons.css?v=20260622a">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260812a">
+    <link rel="stylesheet" href="/static/css/icons.css?v=20260812a">
 </head>
 <body>
     <div class="app-container">
@@ -314,8 +314,9 @@
                 <!-- 上传标签页 -->
                 <div class="tab-container upload-tab-container">
                     <div class="tab-header upload-tab-header">
-                        <button class="tab-btn active" data-tab="single-upload">传一张</button>
-                        <button class="tab-btn" data-tab="batch-upload">传多张</button>
+                        <button class="tab-btn active" data-tab="single-upload">单张图片</button>
+                        <button class="tab-btn" data-tab="batch-upload">批量图片</button>
+                        <button class="tab-btn" data-tab="emoji-upload">表情包</button>
                         <button class="tab-btn" data-tab="temp-upload">
                             待处理图片
                             <span class="temp-count-badge" id="temp-count-badge" style="display: none;"></span>
@@ -386,6 +387,27 @@
                         </div>
                     </div>
 
+                    <!-- 表情包上传入口 -->
+                    <div class="tab-content" id="tab-emoji-upload" style="display: none;">
+                        <div class="emoji-upload-entry">
+                            <div class="emoji-upload-entry-copy">
+                                <span class="resource-type-badge">表情包资源</span>
+                                <h3>上传 GIF 或静态表情图片</h3>
+                                <p>表情包会存入独立的表情包库，不会混入普通图片库。上传前可以预览，并添加分组、角色和情绪标签。</p>
+                                <div class="emoji-upload-formats" aria-label="支持格式">
+                                    <span>GIF 动图</span>
+                                    <span>JPG</span>
+                                    <span>PNG</span>
+                                    <span>WEBP</span>
+                                    <span>BMP</span>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-primary emoji-upload-entry-button" onclick="emojiLibrary.showUploadModal()">
+                                选择表情包文件
+                            </button>
+                        </div>
+                    </div>
+
                     <!-- Temp目录上传 -->
                     <div class="tab-content" id="tab-temp-upload" style="display: none;">
                         <div class="temp-upload-section">
@@ -406,14 +428,14 @@
                 <div class="page-header">
                     <h2>表情包库</h2>
                     <div class="header-actions">
-                        <button class="btn btn-primary" onclick="emojiLibrary.showUploadModal()">上传GIF</button>
+                        <button class="btn btn-primary" onclick="emojiLibrary.showUploadModal()">上传表情包</button>
                         <button class="btn btn-secondary" onclick="emojiLibrary.load()">刷新</button>
                     </div>
                 </div>
 
                 <div class="tab-container">
                     <div class="tab-header">
-                        <button class="tab-btn active" data-tab="emoji-list">GIF表情</button>
+                        <button class="tab-btn active" data-tab="emoji-list">全部表情</button>
                         <button class="tab-btn" data-tab="emotion-management">情绪</button>
                     </div>
 
@@ -430,12 +452,13 @@
                                     <select id="emoji-emotion-filter" class="form-input"></select>
                                 </div>
                                 <div class="form-group">
-                                    <button class="btn btn-primary" onclick="emojiLibrary.load()">筛选</button>
+                                    <button class="btn btn-primary" onclick="emojiLibrary.applyFilters()">筛选</button>
                                 </div>
                             </div>
                         </div>
 
                         <div class="image-grid" id="emoji-grid"></div>
+                        <div class="pagination" id="emoji-pagination"></div>
                     </div>
 
                     <div class="tab-content" id="tab-emotion-management" style="display: none;">
@@ -569,14 +592,14 @@
     <div class="toast-container" id="toast-container"></div>
 
     <!-- JavaScript -->
-    <script src="/static/js/pinyin-search.js?v=20260622a"></script>
-    <script src="/static/js/character-selector.js?v=20260622a"></script>
-    <script src="/static/js/tag-selector.js?v=20260622a"></script>
-    <script src="/static/js/api.js?v=20260622a"></script>
-    <script src="/static/js/ui.js?v=20260622a"></script>
-    <script src="/static/js/emoji-library.js?v=20260622a"></script>
-    <script src="/static/js/upload.js?v=20260622a"></script>
-    <script src="/static/js/main.js?v=20260622a"></script>
-    <script src="/static/js/auth.js?v=20260622a"></script>
+    <script src="/static/js/pinyin-search.js?v=20260812a"></script>
+    <script src="/static/js/character-selector.js?v=20260812a"></script>
+    <script src="/static/js/tag-selector.js?v=20260812a"></script>
+    <script src="/static/js/api.js?v=20260812a"></script>
+    <script src="/static/js/ui.js?v=20260812a"></script>
+    <script src="/static/js/emoji-library.js?v=20260812a"></script>
+    <script src="/static/js/upload.js?v=20260812a"></script>
+    <script src="/static/js/main.js?v=20260812a"></script>
+    <script src="/static/js/auth.js?v=20260812a"></script>
 </body>
 </html>

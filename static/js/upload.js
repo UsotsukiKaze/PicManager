@@ -231,7 +231,7 @@ class UploadManager {
     async uploadSingleImage() {
         try {
             const fileInput = document.getElementById('single-file-input');
-            const file = fileInput.files[0];
+            const file = this.singleFile || fileInput?.files?.[0];
             
             if (!file) {
                 ui.showToast('请选择图片文件', 'error');

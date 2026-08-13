@@ -436,20 +436,20 @@ class UIManager {
 
     async loadUploadData() {
         // 并行加载数据
-        await Promise.all([
-            this.loadGroupsData(),
-            this.loadCharactersData(),
-            this.loadFeatureTagsData()
+        const [groups, characters, featureTags] = await Promise.all([
+            this.loadGroupsData(false, true),
+            this.loadCharactersData(false, true),
+            this.loadFeatureTagsData(false, true)
         ]);
-        
-        await this.updateUploadOptions();
+
+        await this.updateUploadOptions({ groups, characters, featureTags }, false);
         await this.updateTempCount();
     }
     
     /**
      * 加载分组数据（带缓存）
      */
-    async loadGroupsData(forceRefresh = false) {
+    async loadGroupsData(forceRefresh = false, throwOnError = false) {
         if (!forceRefresh && this.isCacheValid('groups')) {
             this.allGroups = this.dataCache.groups.data;
             return this.allGroups;
@@ -467,6 +467,7 @@ class UIManager {
             
             return groups;
         } catch (error) {
+            if (throwOnError) throw error;
             this.showToast('加载分组失败', 'error');
             return this.allGroups || [];
         }
@@ -475,7 +476,7 @@ class UIManager {
     /**
      * 加载角色数据（带缓存）
      */
-    async loadCharactersData(forceRefresh = false) {
+    async loadCharactersData(forceRefresh = false, throwOnError = false) {
         if (!forceRefresh && this.isCacheValid('characters')) {
             this.allCharacters = this.dataCache.characters.data;
             return this.allCharacters;
@@ -493,6 +494,7 @@ class UIManager {
             
             return characters;
         } catch (error) {
+            if (throwOnError) throw error;
             this.showToast('加载角色失败', 'error');
             return this.allCharacters || [];
         }
@@ -668,11 +670,16 @@ class UIManager {
         this.renderCharacterDropdown();
     }
 
-    async updateUploadOptions() {
+    async updateUploadOptions(data = null, reportError = true) {
         try {
-            const groups = await api.getGroups();
-            const characters = await api.getCharacters();
-            const featureTags = await api.getFeatureTags();
+            const { groups, characters, featureTags } = data || await (async () => {
+                const [groups, characters, featureTags] = await Promise.all([
+                    api.getGroups(),
+                    api.getCharacters(),
+                    api.getFeatureTags()
+                ]);
+                return { groups, characters, featureTags };
+            })();
             this.allGroups = groups;
             this.allCharacters = characters;
             this.allFeatureTags = featureTags;
@@ -705,7 +712,11 @@ class UIManager {
                 }
             };
         } catch (error) {
-            this.showToast('加载上传选项失败', 'error');
+            if (reportError) {
+                this.showToast('加载上传选项失败', 'error');
+                return false;
+            }
+            throw error;
         }
     }
 
@@ -755,7 +766,7 @@ class UIManager {
         }
     }
 
-    async loadFeatureTagsData(forceRefresh = false) {
+    async loadFeatureTagsData(forceRefresh = false, throwOnError = false) {
         if (!forceRefresh && this.isCacheValid('featureTags')) {
             this.allFeatureTags = this.dataCache.featureTags.data;
             return this.allFeatureTags;
@@ -770,6 +781,7 @@ class UIManager {
             }
             return tags;
         } catch (error) {
+            if (throwOnError) throw error;
             this.showToast('加载特征标签失败', 'error');
             return this.allFeatureTags || [];
         }

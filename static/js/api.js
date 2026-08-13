@@ -25,7 +25,9 @@ class API {
                 } catch {
                     // 无法解析JSON，使用默认错误消息
                 }
-                throw new Error(errorMessage);
+                const requestError = new Error(errorMessage);
+                requestError.status = response.status;
+                throw requestError;
             }
 
             return await response.json();
@@ -41,8 +43,56 @@ class API {
     }
 
     // 分组相关API
-    async getGroups() {
-        return this.request('/groups/');
+    hasExplicitPage(options = {}) {
+        return Object.prototype.hasOwnProperty.call(options, 'limit')
+            || Object.prototype.hasOwnProperty.call(options, 'skip');
+    }
+
+    async requestAllPages(endpoint, baseParams = {}, options = {}) {
+        const items = [];
+        let skip = 0;
+        let pageSize = options.pageSize ?? 100;
+        const maxItems = options.maxItems ?? 10000;
+
+        while (items.length < maxItems) {
+            const params = new URLSearchParams(baseParams);
+            params.set('limit', pageSize);
+            params.set('skip', skip);
+
+            let page;
+            try {
+                page = await this.request(`${endpoint}?${params.toString()}`);
+            } catch (error) {
+                if (error.status === 422 && items.length === 0 && pageSize > 1) {
+                    pageSize = Math.max(1, Math.floor(pageSize / 2));
+                    continue;
+                }
+                throw error;
+            }
+
+            if (!Array.isArray(page)) {
+                throw new Error(`Invalid list response from ${endpoint}`);
+            }
+            items.push(...page);
+            if (page.length < pageSize) break;
+            skip += page.length;
+        }
+
+        if (items.length >= maxItems) {
+            throw new Error(`List response from ${endpoint} exceeded ${maxItems} items`);
+        }
+        return items;
+    }
+
+    async getGroups(options = {}) {
+        if (this.hasExplicitPage(options)) {
+            const params = new URLSearchParams({
+                limit: options.limit ?? 100,
+                skip: options.skip ?? 0,
+            });
+            return this.request(`/groups/?${params.toString()}`);
+        }
+        return this.requestAllPages('/groups/');
     }
 
     async getPopularGroups(limit = 5) {
@@ -72,15 +122,15 @@ class API {
     // 角色相关API
     async getCharacters(groupId = null, options = {}) {
         const params = new URLSearchParams();
-        const limit = options.limit ?? 200;
-        const skip = options.skip ?? 0;
-        params.set('limit', limit);
-        params.set('skip', skip);
         if (groupId) {
             params.set('group_id', groupId);
         }
-        const queryString = params.toString();
-        return this.request(queryString ? `/characters/?${queryString}` : '/characters/');
+        if (!this.hasExplicitPage(options)) {
+            return this.requestAllPages('/characters/', params);
+        }
+        params.set('limit', options.limit ?? 100);
+        params.set('skip', options.skip ?? 0);
+        return this.request(`/characters/?${params.toString()}`);
     }
 
     async createCharacter(data) {
@@ -130,8 +180,11 @@ class API {
     }
 
     async getFeatureTags(options = {}) {
+        if (!this.hasExplicitPage(options)) {
+            return this.requestAllPages('/feature-tags/');
+        }
         const params = new URLSearchParams();
-        params.set('limit', options.limit ?? 200);
+        params.set('limit', options.limit ?? 100);
         params.set('skip', options.skip ?? 0);
         return this.request(`/feature-tags/?${params.toString()}`);
     }
@@ -157,8 +210,11 @@ class API {
     }
 
     async getEmotionTags(options = {}) {
+        if (!this.hasExplicitPage(options)) {
+            return this.requestAllPages('/emotion-tags/');
+        }
         const params = new URLSearchParams();
-        params.set('limit', options.limit ?? 200);
+        params.set('limit', options.limit ?? 100);
         params.set('skip', options.skip ?? 0);
         return this.request(`/emotion-tags/?${params.toString()}`);
     }

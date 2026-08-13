@@ -234,6 +234,11 @@ body {
     mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='4' width='18' height='16' rx='2'/><circle cx='8.5' cy='9' r='1.5'/><path d='M21 16l-5-5-4 4-3-3-4 4'/></svg>");
 }
 
+.menu-item[data-page="home"] .menu-icon {
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 11l9-8 9 8'/><path d='M5 10v10h14V10'/><path d='M9 20v-6h6v6'/></svg>");
+    mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 11l9-8 9 8'/><path d='M5 10v10h14V10'/><path d='M9 20v-6h6v6'/></svg>");
+}
+
 .menu-item[data-page="emoji-library"] .menu-icon {
     -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><path d='M8 14s1.5 2 4 2 4-2 4-2'/><path d='M9 9h.01'/><path d='M15 9h.01'/></svg>");
     mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><path d='M8 14s1.5 2 4 2 4-2 4-2'/><path d='M9 9h.01'/><path d='M15 9h.01'/></svg>");
@@ -962,6 +967,10 @@ body {
     transition: var(--transition);
     cursor: pointer;
     margin-bottom: 24px;
+    width: 100%;
+    background: var(--surface);
+    color: inherit;
+    font: inherit;
 }
 
 .upload-area:hover {
@@ -1587,6 +1596,12 @@ body {
     flex-shrink: 0;
 }
 
+.batch-header-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
 .batch-items {
     display: flex;
     flex-direction: column;
@@ -1604,10 +1619,32 @@ body {
     align-items: stretch;
 }
 
+.batch-item[data-status="uploading"] {
+    border-color: color-mix(in srgb, var(--primary-color) 55%, var(--border));
+}
+
+.batch-item[data-status="success"],
+.batch-item[data-status="pending-review"] {
+    border-color: rgba(52, 168, 83, 0.52);
+    background: rgba(52, 168, 83, 0.035);
+}
+
+.batch-item[data-status="failed"] {
+    border-color: rgba(216, 55, 64, 0.62);
+    background: rgba(216, 55, 64, 0.035);
+}
+
 .batch-preview {
     flex-shrink: 0;
     display: flex;
     align-items: center;
+}
+
+.batch-preview img {
+    width: 120px;
+    height: 120px;
+    border-radius: 8px;
+    object-fit: cover;
 }
 
 .batch-info {
@@ -1624,6 +1661,45 @@ body {
     color: var(--text-secondary);
     word-break: break-all;
     line-height: 1.4;
+}
+
+.batch-item-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 24px;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.batch-status-badge {
+    flex: 0 0 auto;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--surface-secondary);
+    color: var(--text-secondary);
+    font-weight: 650;
+}
+
+[data-status="success"] .batch-status-badge,
+[data-status="pending-review"] .batch-status-badge {
+    background: rgba(52, 168, 83, 0.13);
+    color: #237a3b;
+}
+
+[data-status="failed"] .batch-status-badge {
+    background: rgba(216, 55, 64, 0.13);
+    color: #b4232e;
+}
+
+.batch-progress {
+    width: min(180px, 40vw);
+    height: 7px;
+}
+
+.batch-status-message {
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 #single-filename-info {
@@ -1671,6 +1747,7 @@ body {
     display: flex;
     gap: 6px;
     flex-shrink: 0;
+    align-items: flex-start;
 }
 
 /* Temp导入样式 */
@@ -1771,7 +1848,7 @@ body {
 
     .main-wrapper {
         flex-direction: column;
-        padding-bottom: 64px;
+        padding-bottom: calc(78px + env(safe-area-inset-bottom));
     }
 
     .sidebar {
@@ -1785,6 +1862,7 @@ body {
         border-right: none;
         border-top: 1px solid var(--border);
         box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.08);
+        padding-bottom: env(safe-area-inset-bottom);
     }
 
     .sidebar-header,
@@ -2024,6 +2102,25 @@ body {
     gap: 18px;
 }
 
+.image-grid-state {
+    grid-column: 1 / -1;
+    min-height: 180px;
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: 12px;
+    padding: 28px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+.image-grid-state p {
+    margin: 0;
+}
+
 .image-card {
     overflow: hidden;
     border: 1px solid rgba(229, 229, 231, 0.95);
@@ -2031,6 +2128,19 @@ body {
     box-shadow: 0 4px 18px rgba(29, 29, 31, 0.06);
     transform: translateY(0);
     animation: cardFadeIn 220ms ease-out both;
+    position: relative;
+}
+
+.image-card-open {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
 }
 
 .image-card:hover {
@@ -2044,6 +2154,7 @@ body {
     aspect-ratio: 1 / 1;
     overflow: hidden;
     background: linear-gradient(135deg, #f2f4f7, #eef6f3);
+    position: relative;
 }
 
 .image-card-img {
@@ -2057,6 +2168,78 @@ body {
 .image-card:hover .image-card-img {
     transform: scale(1.035);
     filter: saturate(1.04);
+}
+
+.age-rating-badge {
+    position: absolute;
+    z-index: 4;
+    top: 10px;
+    left: 10px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: rgba(25, 25, 28, 0.86);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 750;
+    letter-spacing: 0.04em;
+}
+
+.is-r18 .age-rating-badge {
+    background: rgba(177, 22, 45, 0.94);
+}
+
+.image-card.is-age-restricted:not(.age-revealed) .image-card-img,
+.image-detail-media.is-age-restricted-detail:not(.age-revealed) img {
+    filter: blur(24px) saturate(0.35) !important;
+    transform: scale(1.12);
+}
+
+.image-card.is-r18:not(.age-revealed) .image-card-img,
+.image-detail-media.is-r18:not(.age-revealed) img {
+    filter: blur(36px) brightness(0.42) saturate(0.1) !important;
+}
+
+.age-content-curtain {
+    position: absolute;
+    z-index: 3;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(20, 20, 23, 0.34);
+    color: #fff;
+    font-weight: 650;
+    text-align: center;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.image-card.age-revealed .age-content-curtain {
+    display: none;
+}
+
+.image-card-reveal {
+    position: absolute;
+    z-index: 5;
+    top: 10px;
+    right: 10px;
+    min-height: 32px;
+    padding: 5px 9px;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: 999px;
+    background: rgba(25, 25, 28, 0.84);
+    color: #fff;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.image-card-open:focus-visible,
+.image-card-reveal:focus-visible,
+.upload-area:focus-visible,
+.modal-close:focus-visible,
+.detail-age-reveal:focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--primary-color) 72%, white);
+    outline-offset: 3px;
 }
 
 .emoji-card .image-card-media {
@@ -3368,6 +3551,37 @@ body {
 
 .image-detail-media.is-original-loaded .image-detail-loading {
     display: none;
+}
+
+.image-detail-media.is-age-restricted-detail:not(.age-revealed) .image-detail-loading {
+    display: none;
+}
+
+.age-rating-badge-detail {
+    z-index: 4;
+}
+
+.detail-age-reveal {
+    position: absolute;
+    z-index: 5;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    min-height: 44px;
+    padding: 10px 16px;
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    border-radius: 999px;
+    background: rgba(25, 25, 28, 0.9);
+    color: #fff;
+    font: inherit;
+    font-weight: 650;
+    cursor: pointer;
+}
+
+.image-detail-media.age-revealed .detail-age-reveal {
+    top: auto;
+    bottom: 14px;
+    transform: translateX(-50%);
 }
 
 .image-detail-panel {

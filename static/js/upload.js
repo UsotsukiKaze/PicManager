@@ -8,6 +8,11 @@ class UploadManager {
         this.singleTagSelector = null;
         this.tempLoadTimer = null;
         this.singlePreviewUrl = null;
+        this.singleSubmitting = false;
+        this.batchSubmitting = false;
+        this.batchWorkerCount = 3;
+        this.nextBatchItemId = 1;
+        this.batchOptions = null;
     }
 
     initializeEventListeners() {
@@ -129,107 +134,234 @@ class UploadManager {
 
     handleBatchFiles(files) {
         const validFiles = files.filter(file => this.isValidImageFile(file));
-        
+
         if (validFiles.length === 0) {
             ui.showToast('请选择有效的图片文件', 'error');
             return;
         }
 
-        this.batchFiles = validFiles;
+        const newItems = validFiles.map(file => ({
+            id: this.nextBatchItemId++,
+            file,
+            previewUrl: URL.createObjectURL(file),
+            status: 'ready',
+            progress: 0,
+            message: '',
+            tags: { group_ids: [], character_ids: [], feature_tag_ids: [] },
+            pid: '',
+            ageRating: 'all',
+            description: ''
+        }));
+        this.batchFiles.push(...newItems);
         document.getElementById('tab-batch-upload')?.classList.add('has-batch-files');
-        this.renderBatchList();
+
+        if (!document.querySelector('#batch-upload-list .batch-items')) {
+            this.renderBatchList();
+        } else {
+            newItems.forEach(item => this.appendBatchItem(item));
+            this.initializeBatchForms(newItems);
+            this.updateBatchControls();
+        }
+        const input = document.getElementById('batch-file-input');
+        if (input) input.value = '';
     }
 
     renderBatchList() {
         const container = document.getElementById('batch-upload-list');
-        
         container.innerHTML = `
             <div class="batch-header">
-                <p>已选择 ${this.batchFiles.length} 张图片</p>
-                <button type="button" class="btn btn-primary btn-sm" onclick="upload.processBatchUpload()">开始提交</button>
+                <p id="batch-upload-summary" aria-live="polite"></p>
+                <div class="batch-header-actions">
+                    <button type="button" id="batch-clear-success" class="btn btn-secondary btn-sm" onclick="upload.clearSuccessfulBatchItems()" hidden>清理已完成</button>
+                    <button type="button" id="batch-submit" class="btn btn-primary btn-sm" onclick="upload.processBatchUpload()">开始提交</button>
+                </div>
             </div>
-            <div class="batch-items">
-                ${this.batchFiles.map((file, index) => `
-                    <div class="batch-item" data-index="${index}">
-                        <div class="batch-preview">
-                            <img id="batch-preview-${index}" style="width: 120px; height: 120px; object-fit: cover; border-radius: 8px;">
-                        </div>
-                        <div class="batch-info">
-                            <div class="batch-filename">(${(file.size / 1024 / 1024).toFixed(2)} MB) ${file.name}</div>
-                            <div class="batch-form">
-                                <div class="batch-form-group">
-                                    <label class="batch-label">标签</label>
-                                    <div class="batch-tag-selector" id="batch-tag-selector-${index}"></div>
-                                </div>
-                                <div class="batch-form-group">
-                                    <label class="batch-label">PID</label>
-                                    <input type="text" class="batch-pid form-input" placeholder="可选">
-                                </div>
-                                <div class="batch-form-group">
-                                    <label class="batch-label">年龄分级</label>
-                                    <select class="batch-age-rating form-select">
-                                        <option value="all" selected>全年龄</option>
-                                        <option value="r12">R12</option>
-                                        <option value="r16">R16</option>
-                                        <option value="r18">R18</option>
-                                    </select>
-                                </div>
-                                <div class="batch-form-group">
-                                    <label class="batch-label">备注</label>
-                                    <input type="text" class="batch-description form-input" placeholder="可不填">
-                                </div>
-                            </div>
-                        </div>
-                        <div class="batch-actions">
-                            <button class="btn btn-danger btn-sm" onclick="upload.removeBatchItem(${index})">删除</button>
-                        </div>
-                    </div>
-                `).join('')}
-            </div>
+            <div class="batch-items"></div>
         `;
-
-        // 加载预览图
-        this.batchFiles.forEach((file, index) => {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                document.getElementById(`batch-preview-${index}`).src = e.target.result;
-            };
-            reader.readAsDataURL(file);
-        });
-
-        // 初始化批量表单
-        this.initializeBatchForms();
+        this.batchFiles.forEach(item => this.appendBatchItem(item));
+        this.initializeBatchForms(this.batchFiles);
+        this.updateBatchControls();
     }
 
-    async initializeBatchForms() {
+    appendBatchItem(item) {
+        const container = document.querySelector('#batch-upload-list .batch-items');
+        if (!container) return;
+        const safeName = this.escapeHtml(item.file.name);
+        const selectorId = `batch-tag-selector-${item.id}`;
+        container.insertAdjacentHTML('beforeend', `
+            <article class="batch-item" data-batch-id="${item.id}" data-status="${item.status}">
+                <div class="batch-preview">
+                    <img src="${item.previewUrl}" alt="${safeName} 的预览图" width="120" height="120">
+                </div>
+                <div class="batch-info">
+                    <div class="batch-filename">(${(item.file.size / 1024 / 1024).toFixed(2)} MB) ${safeName}</div>
+                    <div class="batch-item-status" role="status" aria-live="polite">
+                        <span class="batch-status-badge">待提交</span>
+                        <progress class="batch-progress" max="100" value="0" aria-label="上传进度" hidden></progress>
+                        <span class="batch-status-message"></span>
+                    </div>
+                    <div class="batch-form">
+                        <div class="batch-form-group">
+                            <label class="batch-label" id="batch-tags-label-${item.id}">标签</label>
+                            <div class="batch-tag-selector" id="${selectorId}" aria-labelledby="batch-tags-label-${item.id}"></div>
+                        </div>
+                        <div class="batch-form-group">
+                            <label class="batch-label" for="batch-pid-${item.id}">PID</label>
+                            <input id="batch-pid-${item.id}" type="text" class="batch-pid form-input" placeholder="可选" value="${this.escapeHtml(item.pid)}">
+                        </div>
+                        <div class="batch-form-group">
+                            <label class="batch-label" for="batch-age-${item.id}">年龄分级</label>
+                            <select id="batch-age-${item.id}" class="batch-age-rating form-select">
+                                <option value="all">全年龄</option>
+                                <option value="r12">R12</option>
+                                <option value="r16">R16</option>
+                                <option value="r18">R18</option>
+                            </select>
+                        </div>
+                        <div class="batch-form-group">
+                            <label class="batch-label" for="batch-description-${item.id}">备注</label>
+                            <input id="batch-description-${item.id}" type="text" class="batch-description form-input" placeholder="可不填" value="${this.escapeHtml(item.description)}">
+                        </div>
+                    </div>
+                </div>
+                <div class="batch-actions">
+                    <button type="button" class="btn btn-primary btn-sm batch-retry" onclick="upload.retryBatchItem(${item.id})" hidden>重试</button>
+                    <button type="button" class="btn btn-danger btn-sm batch-remove" onclick="upload.removeBatchItem(${item.id})">删除</button>
+                </div>
+            </article>
+        `);
+        const element = this.getBatchElement(item.id);
+        element.querySelector('.batch-age-rating').value = item.ageRating;
+        element.querySelector('.batch-pid').addEventListener('input', event => { item.pid = event.target.value; });
+        element.querySelector('.batch-age-rating').addEventListener('change', event => { item.ageRating = event.target.value; });
+        element.querySelector('.batch-description').addEventListener('input', event => { item.description = event.target.value; });
+    }
+
+    async initializeBatchForms(items = this.batchFiles) {
         try {
-            const [groups, characters, featureTags] = await Promise.all([
-                api.getGroups(),
-                api.getCharacters(),
-                api.getFeatureTags()
-            ]);
-            document.querySelectorAll('.batch-tag-selector').forEach((container, itemIndex) => {
-                const selectorId = `batch-tag-selector-${itemIndex}`;
+            if (!this.batchOptions) {
+                const [groups, characters, featureTags] = await Promise.all([
+                    api.getGroups(),
+                    api.getCharacters(),
+                    api.getFeatureTags()
+                ]);
+                this.batchOptions = { groups, characters, featureTags };
+            }
+            items.forEach((item, itemIndex) => {
+                if (!this.getBatchElement(item.id)) return;
+                const selectorId = `batch-tag-selector-${item.id}`;
                 let selector = window.imageTagSelectors[selectorId];
                 if (!selector) {
-                    selector = new ImageTagSelector(selectorId, { title: `添加第 ${itemIndex + 1} 张图片的标签` });
+                    selector = new ImageTagSelector(selectorId, {
+                        title: `添加第 ${itemIndex + 1} 张图片的标签`,
+                        onChange: value => { item.tags = value; }
+                    });
                     window.imageTagSelectors[selectorId] = selector;
                 }
-                selector.setData({ groups, characters, featureTags });
+                selector.setData(this.batchOptions);
+                selector.setSelected(item.tags);
             });
         } catch (error) {
             ui.showToast('加载分组信息失败', 'error');
         }
     }
 
-    removeBatchItem(index) {
-        this.batchFiles.splice(index, 1);
-        if (this.batchFiles.length > 0) {
-            this.renderBatchList();
-        } else {
+    getBatchElement(itemId) {
+        return document.querySelector(`.batch-item[data-batch-id="${itemId}"]`);
+    }
+
+    removeBatchItem(itemId) {
+        if (this.batchSubmitting) return;
+        const index = this.batchFiles.findIndex(item => item.id === Number(itemId));
+        if (index < 0) return;
+        const [item] = this.batchFiles.splice(index, 1);
+        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+        delete window.imageTagSelectors[`batch-tag-selector-${item.id}`];
+        this.getBatchElement(item.id)?.remove();
+        this.updateBatchControls();
+        if (this.batchFiles.length === 0) {
             document.getElementById('batch-upload-list').innerHTML = '';
             document.getElementById('tab-batch-upload')?.classList.remove('has-batch-files');
         }
+    }
+
+    retryBatchItem(itemId) {
+        if (this.batchSubmitting) return;
+        const item = this.batchFiles.find(candidate => candidate.id === Number(itemId));
+        if (!item || item.status !== 'failed') return;
+        item.status = 'ready';
+        item.message = '';
+        item.progress = 0;
+        this.updateBatchItemStatus(item);
+        this.processBatchUpload([item.id]);
+    }
+
+    clearSuccessfulBatchItems() {
+        if (this.batchSubmitting) return;
+        this.batchFiles
+            .filter(item => item.status === 'success' || item.status === 'pending-review')
+            .map(item => item.id)
+            .forEach(itemId => this.removeBatchItem(itemId));
+    }
+
+    syncBatchItemFromDom(item) {
+        const element = this.getBatchElement(item.id);
+        if (!element) return;
+        const selector = window.imageTagSelectors[`batch-tag-selector-${item.id}`];
+        item.tags = selector ? selector.getValue() : item.tags;
+        item.pid = element.querySelector('.batch-pid')?.value || '';
+        item.ageRating = element.querySelector('.batch-age-rating')?.value || 'all';
+        item.description = element.querySelector('.batch-description')?.value || '';
+    }
+
+    updateBatchItemStatus(item) {
+        const element = this.getBatchElement(item.id);
+        if (!element) return;
+        const labels = {
+            ready: '待提交',
+            uploading: '上传中',
+            success: '已完成',
+            'pending-review': '待审核',
+            failed: '失败'
+        };
+        element.dataset.status = item.status;
+        element.querySelector('.batch-status-badge').textContent = labels[item.status] || item.status;
+        element.querySelector('.batch-status-message').textContent = item.message || '';
+        const progress = element.querySelector('.batch-progress');
+        progress.value = item.progress || 0;
+        progress.hidden = item.status !== 'uploading';
+        element.querySelector('.batch-retry').hidden = item.status !== 'failed';
+    }
+
+    updateBatchControls() {
+        const counts = this.batchFiles.reduce((result, item) => {
+            result[item.status] = (result[item.status] || 0) + 1;
+            return result;
+        }, {});
+        const summary = document.getElementById('batch-upload-summary');
+        if (summary) {
+            summary.textContent = `共 ${this.batchFiles.length} 张 · 待提交 ${(counts.ready || 0) + (counts.failed || 0)} · 已完成 ${(counts.success || 0) + (counts['pending-review'] || 0)}`;
+        }
+        const submit = document.getElementById('batch-submit');
+        if (submit) {
+            submit.disabled = this.batchSubmitting || !this.batchFiles.some(item => item.status === 'ready' || item.status === 'failed');
+            submit.textContent = this.batchSubmitting ? '正在提交…' : '提交待处理项';
+        }
+        const clear = document.getElementById('batch-clear-success');
+        if (clear) {
+            clear.hidden = !this.batchFiles.some(item => item.status === 'success' || item.status === 'pending-review');
+            clear.disabled = this.batchSubmitting;
+        }
+        document.querySelectorAll('#batch-upload-list button, #batch-upload-list input, #batch-upload-list select')
+            .forEach(control => {
+                if (!control.matches('#batch-submit, #batch-clear-success')) control.disabled = this.batchSubmitting;
+            });
+    }
+
+    escapeHtml(value) {
+        const element = document.createElement('span');
+        element.textContent = String(value || '');
+        return element.innerHTML;
     }
 
     isValidImageFile(file) {
@@ -238,6 +370,7 @@ class UploadManager {
     }
 
     async uploadSingleImage() {
+        if (this.singleSubmitting) return;
         try {
             const fileInput = document.getElementById('single-file-input');
             const file = this.singleFile || fileInput?.files?.[0];
@@ -269,6 +402,12 @@ class UploadManager {
                 description: document.getElementById('single-description').value || null
             };
 
+            this.singleSubmitting = true;
+            const submitButton = document.getElementById('single-upload-submit');
+            if (submitButton) {
+                submitButton.disabled = true;
+                submitButton.textContent = '正在提交…';
+            }
             ui.showToast('正在上传图片...', 'info');
             
             const result = await api.uploadSingleImage(file, metadata, (progress) => {
@@ -285,75 +424,113 @@ class UploadManager {
             
         } catch (error) {
             ui.showToast(`上传失败: ${error.message}`, 'error');
+        } finally {
+            this.singleSubmitting = false;
+            const submitButton = document.getElementById('single-upload-submit');
+            if (submitButton) {
+                submitButton.disabled = false;
+                submitButton.textContent = '提交图片';
+            }
         }
     }
 
-    async processBatchUpload() {
-        const batchItems = document.querySelectorAll('.batch-item');
+    async processBatchUpload(itemIds = null) {
+        if (this.batchSubmitting) return;
+        const requestedIds = itemIds ? new Set(itemIds.map(Number)) : null;
+        const pendingItems = this.batchFiles.filter(item =>
+            (!requestedIds || requestedIds.has(item.id)) &&
+            (item.status === 'ready' || item.status === 'failed')
+        );
+        if (pendingItems.length === 0) {
+            ui.showToast('没有待提交或可重试的图片', 'info');
+            return;
+        }
+
+        this.batchSubmitting = true;
+        this.updateBatchControls();
         let successCount = 0;
         let pendingCount = 0;
         let failedCount = 0;
 
-        for (let i = 0; i < batchItems.length; i++) {
-            const item = batchItems[i];
-            const file = this.batchFiles[i];
-            
+        const processItem = async (item) => {
+            this.syncBatchItemFromDom(item);
             try {
-                const tagSelector = window.imageTagSelectors[`batch-tag-selector-${i}`];
-                const selectedTags = tagSelector ? tagSelector.getValue() : { group_ids: [], character_ids: [], feature_tag_ids: [] };
+                const selectedTags = item.tags || { group_ids: [], character_ids: [], feature_tag_ids: [] };
                 const selectedCharacters = selectedTags.character_ids || [];
-                
+
                 if (selectedCharacters.length === 0) {
-                    ui.showToast(`第 ${i + 1} 张图片还没选角色，已跳过`, 'warning');
+                    item.status = 'failed';
+                    item.message = '请至少选择一个角色';
                     failedCount++;
-                    continue;
+                    this.updateBatchItemStatus(item);
+                    return;
                 }
                 if ((selectedTags.group_ids || []).length === 0) {
-                    ui.showToast(`第 ${i + 1} 张图片还没有分组标签，已跳过`, 'warning');
+                    item.status = 'failed';
+                    item.message = '请至少添加一个分组标签';
                     failedCount++;
-                    continue;
+                    this.updateBatchItemStatus(item);
+                    return;
                 }
 
                 const metadata = {
                     character_ids: selectedCharacters,
                     group_ids: selectedTags.group_ids || [],
                     feature_tag_ids: selectedTags.feature_tag_ids || [],
-                    age_rating: item.querySelector('.batch-age-rating')?.value || 'all',
-                    pid: item.querySelector('.batch-pid').value || null,
-                    description: item.querySelector('.batch-description').value || null
+                    age_rating: item.ageRating || 'all',
+                    pid: item.pid || null,
+                    description: item.description || null
                 };
 
-                const result = await api.uploadSingleImage(file, metadata, (progress) => {
-                    ui.showToast(`第 ${i + 1} 张上传中... ${progress}%`, 'info');
+                item.status = 'uploading';
+                item.progress = 0;
+                item.message = '';
+                this.updateBatchItemStatus(item);
+                const result = await api.uploadSingleImage(item.file, metadata, (progress) => {
+                    item.progress = progress;
+                    this.updateBatchItemStatus(item);
                 });
                 const message = result && result.message ? result.message : '上传成功';
                 const isPending = message.includes('审核');
+                item.status = isPending ? 'pending-review' : 'success';
+                item.progress = 100;
+                item.message = message;
+                this.updateBatchItemStatus(item);
                 if (isPending) {
                     pendingCount++;
                 } else {
                     successCount++;
                 }
-
-                ui.showToast(message, isPending ? 'info' : 'success');
-                ui.showToast(`已处理 ${successCount + pendingCount} / ${this.batchFiles.length} 张图片`, 'info');
-                
             } catch (error) {
-                console.error(`上传第 ${i + 1} 张图片失败:`, error);
+                console.error(`上传 ${item.file.name} 失败:`, error);
+                item.status = 'failed';
+                item.message = error.message || '上传失败，请重试';
                 failedCount++;
+                this.updateBatchItemStatus(item);
             }
-        }
+        };
 
-        ui.showToast(`批量处理完成! 成功: ${successCount}, 待审核: ${pendingCount}, 失败: ${failedCount}`, 'success');
-        
-        // 清空批量上传列表
-        this.batchFiles = [];
-        document.getElementById('batch-upload-list').innerHTML = '';
-        document.getElementById('batch-file-input').value = '';
-        document.getElementById('tab-batch-upload')?.classList.remove('has-batch-files');
-        
-        // 刷新数据
-        ui.loadImages(null);
-        ui.loadSystemStatus();
+        // 固定大小的 worker 池避免逐项串行，同时限制并发以保护服务端和带宽。
+        let nextItemIndex = 0;
+        const worker = async () => {
+            while (nextItemIndex < pendingItems.length) {
+                const itemIndex = nextItemIndex++;
+                await processItem(pendingItems[itemIndex]);
+            }
+        };
+        const activeWorkerCount = Math.min(this.batchWorkerCount, pendingItems.length);
+        await Promise.all(Array.from({ length: activeWorkerCount }, () => worker()));
+
+        this.batchSubmitting = false;
+        this.updateBatchControls();
+        ui.showToast(
+            `批量处理完成：成功 ${successCount}，待审核 ${pendingCount}，失败 ${failedCount}`,
+            failedCount ? 'warning' : 'success'
+        );
+        if (successCount + pendingCount > 0) {
+            ui.loadImages(null);
+            ui.loadSystemStatus();
+        }
     }
 
     clearSingleUpload() {

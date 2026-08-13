@@ -72,8 +72,8 @@ class API {
     // 角色相关API
     async getCharacters(groupId = null, options = {}) {
         const params = new URLSearchParams();
-        const limit = options.limit || 1000;
-        const skip = options.skip || 0;
+        const limit = options.limit ?? 200;
+        const skip = options.skip ?? 0;
         params.set('limit', limit);
         params.set('skip', skip);
         if (groupId) {
@@ -103,20 +103,36 @@ class API {
         });
     }
 
-    async processAvatar(file) {
+    async processAvatar(file, options = {}) {
         const formData = new FormData();
         formData.append('file', file, 'avatar-crop.png');
-        return this.request('/avatars/process', {
-            method: 'POST',
-            headers: {},
-            body: formData,
-        });
+        const controller = new AbortController();
+        const timeoutMs = options.timeoutMs ?? 30000;
+        const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+        const abortFromCaller = () => controller.abort();
+        options.signal?.addEventListener('abort', abortFromCaller, { once: true });
+        try {
+            return await this.request('/avatars/process', {
+                method: 'POST',
+                headers: {},
+                body: formData,
+                signal: controller.signal,
+            });
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                throw new Error(options.signal?.aborted ? '头像上传已取消' : '头像上传超时，请检查网络后重试');
+            }
+            throw error;
+        } finally {
+            window.clearTimeout(timeout);
+            options.signal?.removeEventListener('abort', abortFromCaller);
+        }
     }
 
     async getFeatureTags(options = {}) {
         const params = new URLSearchParams();
-        params.set('limit', options.limit || 1000);
-        params.set('skip', options.skip || 0);
+        params.set('limit', options.limit ?? 200);
+        params.set('skip', options.skip ?? 0);
         return this.request(`/feature-tags/?${params.toString()}`);
     }
 
@@ -142,8 +158,8 @@ class API {
 
     async getEmotionTags(options = {}) {
         const params = new URLSearchParams();
-        params.set('limit', options.limit || 1000);
-        params.set('skip', options.skip || 0);
+        params.set('limit', options.limit ?? 200);
+        params.set('skip', options.skip ?? 0);
         return this.request(`/emotion-tags/?${params.toString()}`);
     }
 
@@ -316,6 +332,10 @@ class API {
     // 系统相关API
     async getSystemStatus() {
         return this.request('/system/status');
+    }
+
+    async getSystemDiagnostics() {
+        return this.request('/system/diagnostics');
     }
 
     async cleanupPreview() {

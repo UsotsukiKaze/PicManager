@@ -8,11 +8,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function initializeApp() {
     try {
-        // 首页只加载首屏需要的数据，其余内容等进入对应页面再加载
-        await ui.loadSystemStatus();
-        await ui.loadHomeGroupChips();
-        await ui.loadHomeRankings();
-        
+        // 页面外壳已可用，首页模块并行加载且各自独立降级。
+        const homeModules = [
+            ['system status', () => ui.loadSystemStatus()],
+            ['popular groups', () => ui.loadHomeGroupChips()],
+            ['rankings', () => ui.loadHomeRankings()],
+        ];
+        Promise.allSettled(homeModules.map(([, load]) => load())).then(results => {
+            results.forEach((result, index) => {
+                if (result.status === 'rejected') {
+                    console.error(`Failed to load ${homeModules[index][0]}:`, result.reason);
+                }
+            });
+        });
+
         ui.applyRolePreferences();
         ui.updateSidebarIndicator();
         

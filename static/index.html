@@ -1,19 +1,35 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="app-booting">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PicManager - 小爱图库</title>
-    <link rel="icon" href="/static/icon/Pic.ico" type="image/x-icon">
-    <link rel="stylesheet" href="/static/css/style.css?v=20260812b">
-    <link rel="stylesheet" href="/static/css/icons.css?v=20260812a">
+    <link rel="icon" data-auth-href="/static/icon/Pic.ico" type="image/x-icon">
+    <style>
+        html.app-booting body { margin: 0; background: #f5f5f7; }
+        html.app-booting .app-container,
+        html.app-booting .modal-overlay,
+        html.app-booting .toast-container { display: none !important; }
+        .app-bootstrap-status {
+            position: fixed;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            color: #6e6e73;
+            font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+        }
+        html:not(.app-booting) .app-bootstrap-status { display: none; }
+    </style>
+    <noscript><meta http-equiv="refresh" content="0; url=/login"></noscript>
+    <script src="/static/js/auth.js?v=20260813a"></script>
 </head>
 <body>
+    <div class="app-bootstrap-status" role="status">正在验证登录状态…</div>
     <div class="app-container">
         <!-- 顶部用户信息栏 -->
         <div class="top-user-bar" id="top-user-bar">
             <div class="user-info-compact">
-                <img class="user-avatar-small" id="header-avatar" src="" alt="" style="display: none;">
+                <img class="user-avatar-small" id="header-avatar" alt="" style="display: none;">
                 <span class="user-name-small" id="header-username">--</span>
                 <span class="user-role-small" id="header-role"></span>
             </div>
@@ -36,13 +52,17 @@
                 <div class="sidebar-header">
                     <button class="logo logo-button" type="button" onclick="ui.switchPage('home')" aria-label="返回主页">
                         <span class="logo-icon"></span>
-                        <img class="logo-image" src="/static/icon/Pic.ico" alt="PicManager">
+                        <img class="logo-image" data-auth-src="/static/icon/Pic.ico" alt="PicManager">
                         <h1 class="logo-text">PicManager</h1>
                     </button>
                 </div>
                 
                 <div class="sidebar-menu">
                     <span class="menu-indicator" id="menu-indicator"></span>
+                    <a href="#" class="menu-item menu-item-home active" data-page="home">
+                        <span class="menu-icon"></span>
+                        <span class="menu-text">首页</span>
+                    </a>
                     <a href="#" class="menu-item" data-page="management">
                         <span class="menu-icon"></span>
                         <span class="menu-text">图片管理</span>
@@ -95,7 +115,7 @@
                         </div>
                         <div class="home-orbit" id="home-group-orbit" aria-hidden="true">
                             <div class="home-orbit-core">
-                                <img src="/static/icon/Pic.ico" alt="">
+                                <img data-auth-src="/static/icon/Pic.ico" alt="">
                             </div>
                             <span class="orbit-chip chip-one">加载分组...</span>
                         </div>
@@ -148,7 +168,7 @@
 
                     <a class="home-personal-portal" href="https://usotsuki-kaze.com/" target="_blank" rel="noopener noreferrer">
                         <span class="home-portal-mark" aria-hidden="true">
-                            <img src="/static/homepage/favicon.ico" alt="">
+                            <img data-auth-src="/static/homepage/favicon.ico" alt="">
                         </span>
                         <span class="home-portal-copy">
                             <small>PERSONAL SPACE · 时刻保持质疑</small>
@@ -342,12 +362,11 @@
                     <!-- 单张上传 -->
                     <div class="tab-content" id="tab-single-upload">
                         <div class="upload-section upload-workspace">
-                            <div class="upload-area" id="single-upload-area">
+                            <button type="button" class="upload-area" id="single-upload-area" aria-label="选择单张图片" aria-describedby="single-upload-formats">
                                 <div class="upload-placeholder">
                                     <span class="upload-drop-icon"></span>
                                     <p>把图片拖到这里，或点这里选择</p>
-                                    <span>支持 jpg、png、webp、gif、bmp</span>
-                                    <input type="file" id="single-file-input" accept="image/*" style="display: none;">
+                                    <span id="single-upload-formats">支持 jpg、png、webp、gif、bmp</span>
                                 </div>
                                 <div class="upload-preview" id="single-preview" style="display: none;">
                                     <img id="single-preview-img" alt="预览图">
@@ -355,7 +374,8 @@
                                         <p id="single-filename"></p>
                                     </div>
                                 </div>
-                            </div>
+                            </button>
+                            <input type="file" id="single-file-input" accept="image/jpeg,image/png,image/webp,image/gif,image/bmp" hidden>
 
                             <div class="upload-form" id="single-upload-form" style="display: none;">
                                 <div class="single-filename-info" id="single-filename-info"></div>
@@ -389,7 +409,7 @@
 
                                 <div class="form-actions">
                                     <button type="button" class="btn btn-secondary" onclick="clearSingleUpload()">清空</button>
-                                    <button type="button" class="btn btn-primary" onclick="uploadSingleImage()">提交</button>
+                                    <button type="button" class="btn btn-primary" id="single-upload-submit" onclick="uploadSingleImage()">提交</button>
                                 </div>
                             </div>
                         </div>
@@ -398,14 +418,14 @@
                     <!-- 批量上传 -->
                     <div class="tab-content" id="tab-batch-upload" style="display: none;">
                         <div class="upload-section upload-workspace">
-                            <div class="upload-area" id="batch-upload-area">
+                            <button type="button" class="upload-area" id="batch-upload-area" aria-label="选择多张图片" aria-describedby="batch-upload-hint">
                                 <div class="upload-placeholder">
                                     <span class="upload-drop-icon"></span>
                                     <p>一次选择多张图片</p>
-                                    <span>选好后可以逐张补信息</span>
-                                    <input type="file" id="batch-file-input" accept="image/*" multiple style="display: none;">
+                                    <span id="batch-upload-hint">选好后可以逐张补信息</span>
                                 </div>
-                            </div>
+                            </button>
+                            <input type="file" id="batch-file-input" accept="image/jpeg,image/png,image/webp,image/gif,image/bmp" multiple hidden>
 
                             <div class="batch-upload-list" id="batch-upload-list">
                                 <!-- 批量上传列表将通过JavaScript动态生成 -->
@@ -602,11 +622,11 @@
     </div>
 
     <!-- 模态框 -->
-    <div class="modal-overlay" id="modal-overlay" style="display: none;">
-        <div class="modal" id="modal">
+    <div class="modal-overlay" id="modal-overlay" style="display: none;" aria-hidden="true">
+        <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabindex="-1">
             <div class="modal-header">
                 <h3 id="modal-title">标题</h3>
-                <button class="modal-close" onclick="closeModal()">&times;</button>
+                <button type="button" class="modal-close" onclick="closeModal()" aria-label="关闭弹窗">&times;</button>
             </div>
             <div class="modal-body" id="modal-body">
                 <!-- 模态框内容将通过JavaScript动态生成 -->
@@ -617,15 +637,5 @@
     <!-- Toast 通知 -->
     <div class="toast-container" id="toast-container"></div>
 
-    <!-- JavaScript -->
-    <script src="/static/js/pinyin-search.js?v=20260812a"></script>
-    <script src="/static/js/character-selector.js?v=20260812a"></script>
-    <script src="/static/js/tag-selector.js?v=20260812a"></script>
-    <script src="/static/js/api.js?v=20260812a"></script>
-    <script src="/static/js/ui.js?v=20260812b"></script>
-    <script src="/static/js/emoji-library.js?v=20260812a"></script>
-    <script src="/static/js/upload.js?v=20260812a"></script>
-    <script src="/static/js/main.js?v=20260812b"></script>
-    <script src="/static/js/auth.js?v=20260812a"></script>
 </body>
 </html>

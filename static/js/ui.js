@@ -19,6 +19,7 @@ class UIManager {
         // 模态框状态管理
         this.modalStack = [];
         this.isNestedModal = false;
+        this.modalPreviousFocus = null;
         
         // 数据缓存和加载状态
         this.dataCache = {
@@ -34,6 +35,7 @@ class UIManager {
         this.thumbnailObserver = null;
         this.imageLoadRequestId = 0;
         this.avatarCropState = null;
+        this.featureActivationPromises = {};
         
         this.initializeEventListeners();
     }
@@ -106,9 +108,12 @@ class UIManager {
 
         // ESC 键关闭模态框
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && !this.isNestedModal) {
+            const modalOverlay = document.getElementById('modal-overlay');
+            const modalVisible = modalOverlay?.style.display !== 'none';
+            if (e.key === 'Escape' && modalVisible) {
                 this.closeModal();
             }
+            if (e.key === 'Tab' && modalVisible) this.trapModalFocus(e);
         });
         
         // 分组搜索监听
@@ -151,7 +156,9 @@ class UIManager {
 
     switchPage(page) {
         // 如果切换的是当前页面则不操作
-        if (this.currentPage === page && !this._forceSwitch) return;
+        const currentPageElement = document.getElementById(`page-${page}`);
+        const retryFailedFeature = Boolean(currentPageElement?.dataset.featureLoadError);
+        if (this.currentPage === page && !this._forceSwitch && !retryFailedFeature) return;
         
         // 更新导航菜单
         document.querySelectorAll('.menu-item').forEach(item => {
@@ -241,6 +248,77 @@ class UIManager {
         // 触发标签页内容加载
         this.handleTabSwitch(firstTabName);
     }
+
+    setPageFeatureState(page, state, featureKey = '') {
+        const pageElement = document.getElementById(`page-${page}`);
+        if (!pageElement) return;
+
+        if (state === 'ready') {
+            pageElement.inert = false;
+            pageElement.removeAttribute('aria-busy');
+            delete pageElement.dataset.featureLoadError;
+            return;
+        }
+
+        // Inline onclick handlers are registered by the lazy script. Keep the
+        // page non-interactive until those globals exist, including on failure.
+        pageElement.inert = true;
+        if (state === 'loading') {
+            pageElement.setAttribute('aria-busy', 'true');
+            delete pageElement.dataset.featureLoadError;
+        } else {
+            pageElement.removeAttribute('aria-busy');
+            pageElement.dataset.featureLoadError = featureKey;
+        }
+    }
+
+    activateFeature(key, page, activation, errorMessage) {
+        if (this.featureActivationPromises[key]) {
+            return this.featureActivationPromises[key];
+        }
+
+        this.setPageFeatureState(page, 'loading');
+        const activationPromise = Promise.resolve()
+            .then(activation)
+            .then(result => {
+                this.setPageFeatureState(page, 'ready');
+                return result;
+            })
+            .catch(error => {
+                console.error(`Failed to activate feature ${key}:`, error);
+                this.setPageFeatureState(page, 'error', key);
+                this.showToast(errorMessage, 'error');
+                return null;
+            })
+            .finally(() => {
+                delete this.featureActivationPromises[key];
+            });
+
+        this.featureActivationPromises[key] = activationPromise;
+        return activationPromise;
+    }
+
+    activateUploadPage() {
+        return this.activateFeature('upload-page', 'upload', async () => {
+            await window.auth.loadFeature('upload');
+            await this.loadUploadData();
+        }, '上传功能加载失败，请重试');
+    }
+
+    activateEmojiLibraryPage() {
+        return this.activateFeature('emoji-library-page', 'emoji-library', async () => {
+            const emojiLibrary = await window.auth.loadFeature('emoji');
+            if (!emojiLibrary.initialized) {
+                await emojiLibrary.init();
+            }
+        }, '表情包功能加载失败，请重试');
+    }
+
+    activateEmojiUploadTab() {
+        return this.activateFeature('emoji-upload-tab', 'upload', async () => {
+            await window.auth.loadFeature('emoji');
+        }, '表情包上传功能加载失败，请重试');
+    }
     
     /**
      * 页面切换后的数据加载处理
@@ -256,10 +334,10 @@ class UIManager {
                 this.applyRolePreferences();
                 break;
             case 'upload':
-                this.loadUploadData();
+                this.activateUploadPage();
                 break;
             case 'emoji-library':
-                if (window.emojiLibrary) window.emojiLibrary.init();
+                this.activateEmojiLibraryPage();
                 break;
             case 'settings':
                 this.loadSystemStatus();
@@ -330,6 +408,9 @@ class UIManager {
                 if (window.upload) {
                     upload.loadTempImages();
                 }
+                break;
+            case 'emoji-upload':
+                this.activateEmojiUploadTab();
                 break;
         }
     }
@@ -630,6 +711,11 @@ class UIManager {
 
     async loadImages(params = undefined) {
         const requestId = ++this.imageLoadRequestId;
+        const grid = document.getElementById('image-grid');
+        if (grid) {
+            grid.setAttribute('aria-busy', 'true');
+            grid.innerHTML = '<div class="image-grid-state image-grid-loading" role="status">正在加载图片…</div>';
+        }
         try {
             this.applyRolePreferences();
             if (params !== undefined && params !== null) {
@@ -652,8 +738,18 @@ class UIManager {
 
             this.renderImageGrid(result.images || []);
             this.updatePagination(result);
+            grid?.setAttribute('aria-busy', 'false');
         } catch (error) {
             if (requestId === this.imageLoadRequestId) {
+                if (grid) {
+                    grid.setAttribute('aria-busy', 'false');
+                    grid.innerHTML = `
+                        <div class="image-grid-state image-grid-error" role="alert">
+                            <p>图片加载失败，请检查网络后重试。</p>
+                            <button type="button" class="btn btn-primary" onclick="ui.loadImages(null)">重新加载</button>
+                        </div>
+                    `;
+                }
                 this.showToast('加载图片失败', 'error');
             }
         }
@@ -756,36 +852,75 @@ class UIManager {
                 this.thumbnailObserver.disconnect();
                 this.thumbnailObserver = null;
             }
-            grid.innerHTML = '<div class="empty-state">未找到图片</div>';
+            grid.setAttribute('aria-busy', 'false');
+            grid.innerHTML = '<div class="empty-state" role="status">未找到图片</div>';
             return;
         }
 
-        grid.innerHTML = images.map(image => `
-            <div class="image-card" data-image-id="${image.image_id}">
-                <div class="image-card-media">
-                    <img class="image-card-img" src="/static/images/placeholder.png"
-                         data-thumbnail-src="${this.getThumbnailUrl(image)}"
-                         alt="Image ${image.image_id}" loading="lazy" decoding="async"
-                         fetchpriority="low"
-                         onerror="ui.handleImageFallback(this)">
-                </div>
-                <div class="image-card-info">
-                    <div class="image-card-id">${image.image_id}</div>
-                    <div class="image-card-characters">
-                        ${this.formatImageTags(image)}
+        grid.innerHTML = images.map(image => {
+            const rating = this.normalizeAgeRating(image.age_rating);
+            const restricted = rating === 'r16' || rating === 'r18';
+            const ratingLabel = rating.toUpperCase();
+            const cardLabel = this.escapeHomeRankingText(`${this.formatImageTags(image)}，图片 ${image.image_id}${restricted ? `，${ratingLabel} 内容，尚未揭示` : ''}`);
+            return `
+            <article class="image-card ${restricted ? `is-age-restricted is-${rating}` : ''}" data-image-id="${image.image_id}" data-age-revealed="false">
+                <button type="button" class="image-card-open" aria-label="${cardLabel}">
+                    <div class="image-card-media" id="image-card-media-${image.image_id}">
+                        <img class="image-card-img" src="/static/images/placeholder.png"
+                             data-thumbnail-src="${this.getThumbnailUrl(image)}"
+                             alt="${cardLabel}" loading="lazy" decoding="async"
+                             fetchpriority="low"
+                             onerror="ui.handleImageFallback(this)">
+                        ${restricted ? `
+                            <span class="age-rating-badge">${ratingLabel}</span>
+                            <span class="age-content-curtain" aria-hidden="true">受限内容已隐藏</span>
+                        ` : ''}
                     </div>
-                    ${image.pid ? `<div class="image-card-pid">PID: ${image.pid}</div>` : ''}
-                </div>
-            </div>
-        `).join('');
+                    <div class="image-card-info">
+                        <div class="image-card-id">${image.image_id}</div>
+                        <div class="image-card-characters">
+                            ${this.formatImageTags(image)}
+                        </div>
+                        ${image.pid ? `<div class="image-card-pid">PID: ${image.pid}</div>` : ''}
+                    </div>
+                </button>
+                ${restricted ? `<button type="button" class="image-card-reveal" aria-expanded="false" aria-controls="image-card-media-${image.image_id}">揭示 ${ratingLabel}</button>` : ''}
+            </article>
+        `;
+        }).join('');
 
         grid.querySelectorAll('.image-card').forEach(card => {
-            card.addEventListener('click', () => {
+            card.querySelector('.image-card-open').addEventListener('click', () => {
+                if (card.classList.contains('is-age-restricted') && !card.classList.contains('age-revealed')) {
+                    this.toggleAgeReveal(card, true);
+                    return;
+                }
                 const imageId = card.getAttribute('data-image-id');
                 this.showImageDetail(imageId);
             });
+            card.querySelector('.image-card-reveal')?.addEventListener('click', () => this.toggleAgeReveal(card));
         });
         this.observeThumbnails(grid);
+    }
+
+    normalizeAgeRating(value) {
+        return String(value || 'all').trim().toLowerCase();
+    }
+
+    toggleAgeReveal(card, forceReveal = null) {
+        const reveal = forceReveal === null ? !card.classList.contains('age-revealed') : Boolean(forceReveal);
+        card.classList.toggle('age-revealed', reveal);
+        card.dataset.ageRevealed = String(reveal);
+        const button = card.querySelector('.image-card-reveal');
+        const rating = card.classList.contains('is-r18') ? 'R18' : 'R16';
+        if (button) {
+            button.setAttribute('aria-expanded', String(reveal));
+            button.textContent = reveal ? `隐藏 ${rating}` : `揭示 ${rating}`;
+        }
+        const openButton = card.querySelector('.image-card-open');
+        if (openButton) {
+            openButton.setAttribute('aria-label', openButton.getAttribute('aria-label').replace('，尚未揭示', reveal ? '，已揭示' : '，尚未揭示').replace('，已揭示', reveal ? '，已揭示' : '，尚未揭示'));
+        }
     }
 
     formatImageTags(image) {
@@ -1140,6 +1275,11 @@ class UIManager {
             initializeImage();
         } else {
             image.addEventListener('load', initializeImage, { once: true });
+            image.addEventListener('error', () => {
+                this.showToast('头像图片解码失败，请换用 JPEG、PNG 或 WebP 图片', 'error');
+                this.releaseAvatarCropState();
+                this.closeModal();
+            }, { once: true });
         }
         zoom.addEventListener('input', () => {
             state.zoom = Number(zoom.value);
@@ -1186,7 +1326,14 @@ class UIManager {
         const state = this.avatarCropState;
         const viewport = document.getElementById('avatar-crop-viewport');
         const button = document.getElementById('avatar-crop-confirm');
-        if (!state?.baseScale || !viewport || !button) return;
+        if (!state || !viewport || !button) {
+            this.showToast('头像裁剪器尚未准备好，请重新选择图片', 'error');
+            return;
+        }
+        if (!state.baseScale) {
+            this.showToast('头像仍在解码，请稍候再试', 'error');
+            return;
+        }
 
         button.disabled = true;
         button.textContent = '处理中…';
@@ -1198,20 +1345,32 @@ class UIManager {
             const sourceX = Math.max(0, Math.min(state.naturalWidth - sourceSide, centerX - sourceSide / 2));
             const sourceY = Math.max(0, Math.min(state.naturalHeight - sourceSide, centerY - sourceSide / 2));
             const canvas = document.createElement('canvas');
-            canvas.width = 1024;
-            canvas.height = 1024;
+            canvas.width = 512;
+            canvas.height = 512;
             const context = canvas.getContext('2d');
+            if (!context) throw new Error('当前浏览器不支持头像裁剪');
             context.imageSmoothingEnabled = true;
             context.imageSmoothingQuality = 'high';
             const source = document.getElementById('avatar-crop-image');
-            const imageSource = await createImageBitmap(state.file, {
-                imageOrientation: 'from-image',
-            });
-            context.drawImage(imageSource, sourceX, sourceY, sourceSide, sourceSide, 0, 0, canvas.width, canvas.height);
-            imageSource.close();
-            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+            let imageSource;
+            try {
+                imageSource = await createImageBitmap(state.file, { imageOrientation: 'from-image' });
+            } catch {
+                throw new Error('头像图片解码失败，请换用 JPEG、PNG 或 WebP 图片');
+            }
+            try {
+                context.drawImage(imageSource, sourceX, sourceY, sourceSide, sourceSide, 0, 0, canvas.width, canvas.height);
+            } finally {
+                imageSource.close();
+            }
+            let blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', 0.88));
+            if (!blob || blob.type !== 'image/webp') {
+                blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+            }
             if (!blob) throw new Error('生成裁剪图片失败');
-            const result = await api.processAvatar(blob);
+            state.abortController = new AbortController();
+            const result = await api.processAvatar(blob, { signal: state.abortController.signal });
+            state.abortController = null;
             const hidden = document.getElementById(`${state.prefix}-avatar-url`);
             const preview = document.getElementById(`${state.prefix}-avatar-preview`);
             if (hidden) hidden.value = result.avatar_url;
@@ -1220,6 +1379,8 @@ class UIManager {
             this.closeModal();
             this.showToast(`头像已处理（${Math.ceil(result.file_size / 1024)} KiB）`, 'success');
         } catch (error) {
+            state.abortController = null;
+            if (error.message === '头像上传已取消') return;
             this.showToast(`头像处理失败: ${error.message}`, 'error');
             button.disabled = false;
             button.textContent = '裁剪并上传';
@@ -1232,6 +1393,7 @@ class UIManager {
     }
 
     releaseAvatarCropState() {
+        this.avatarCropState?.abortController?.abort();
         if (this.avatarCropState?.objectUrl) URL.revokeObjectURL(this.avatarCropState.objectUrl);
         this.avatarCropState = null;
     }
@@ -1555,7 +1717,24 @@ class UIManager {
             if (homeGroups) homeGroups.textContent = status.total_groups;
             if (homeCharacters) homeCharacters.textContent = status.total_characters;
             
-            // 更新设置页面
+            const statImages = document.getElementById('stat-images');
+            const statGroups = document.getElementById('stat-groups');
+            const statCharacters = document.getElementById('stat-characters');
+            if (statImages) statImages.textContent = status.total_images;
+            if (statGroups) statGroups.textContent = status.total_groups;
+            if (statCharacters) statCharacters.textContent = status.total_characters;
+
+            if (this.currentPage === 'settings' && this.isAdminView()) {
+                await this.loadSystemDiagnostics();
+            }
+        } catch (error) {
+            this.showToast('加载页面数据失败', 'error');
+        }
+    }
+
+    async loadSystemDiagnostics() {
+        try {
+            const status = await api.getSystemDiagnostics();
             document.getElementById('store-path').textContent = status.store_path;
             document.getElementById('temp-path').textContent = status.temp_path;
             document.getElementById('stat-images').textContent = status.total_images;
@@ -1570,7 +1749,7 @@ class UIManager {
             document.getElementById('stat-temp').textContent = status.temp_images_count;
             this.scheduleThumbnailMaintenance(status);
         } catch (error) {
-            this.showToast('加载页面数据失败', 'error');
+            console.error('加载系统诊断失败:', error);
         }
     }
 
@@ -1603,9 +1782,14 @@ class UIManager {
     showModal(title, content, isNested = false) {
         const modalOverlay = document.getElementById('modal-overlay');
         const modalBody = document.getElementById('modal-body');
+        const modalDialog = modalOverlay.querySelector('.modal');
         const nextLayer = document.createElement('div');
         nextLayer.className = 'modal-layer modal-body';
         nextLayer.innerHTML = content;
+
+        if (!isNested && modalOverlay.style.display !== 'flex') {
+            this.modalPreviousFocus = document.activeElement;
+        }
         
         if (isNested) {
             // Keep the original modal layer connected to the document. Both
@@ -1614,7 +1798,8 @@ class UIManager {
             if (preservedContent) preservedContent.classList.add('modal-layer-hidden');
             this.modalStack.push({
                 title: document.getElementById('modal-title').textContent,
-                content: preservedContent
+                content: preservedContent,
+                focus: document.activeElement
             });
             this.isNestedModal = true;
             modalBody.appendChild(nextLayer);
@@ -1624,6 +1809,12 @@ class UIManager {
         
         document.getElementById('modal-title').textContent = title;
         modalOverlay.style.display = 'flex';
+        modalOverlay.setAttribute('aria-hidden', 'false');
+        document.querySelector('.app-container')?.setAttribute('inert', '');
+        window.requestAnimationFrame(() => {
+            const autofocusTarget = nextLayer.querySelector('[autofocus]');
+            (autofocusTarget || modalDialog).focus({ preventScroll: true });
+        });
     }
 
     closeModal() {
@@ -1640,9 +1831,43 @@ class UIManager {
             
             // 恢复后重新绑定表单和选择器事件
             this.rebindModalEvents();
+            window.requestAnimationFrame(() => {
+                if (previous.focus?.isConnected) previous.focus.focus({ preventScroll: true });
+            });
         } else {
-            document.getElementById('modal-overlay').style.display = 'none';
+            const modalOverlay = document.getElementById('modal-overlay');
+            modalOverlay.style.display = 'none';
+            modalOverlay.setAttribute('aria-hidden', 'true');
+            document.querySelector('.app-container')?.removeAttribute('inert');
             this.isNestedModal = false;
+            const restoreTarget = this.modalPreviousFocus;
+            this.modalPreviousFocus = null;
+            if (restoreTarget?.isConnected) restoreTarget.focus({ preventScroll: true });
+        }
+    }
+
+    trapModalFocus(event) {
+        const modal = document.getElementById('modal');
+        const activeLayer = document.getElementById('modal-body')?.lastElementChild;
+        if (!modal || !activeLayer) return;
+        const selector = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+        const closeButton = modal.querySelector('.modal-close');
+        const focusable = [closeButton, ...activeLayer.querySelectorAll(selector)]
+            .filter((element, index, list) => element && !element.hidden && list.indexOf(element) === index);
+        if (focusable.length === 0) {
+            event.preventDefault();
+            modal.focus({ preventScroll: true });
+            return;
+        }
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const current = document.activeElement;
+        if (event.shiftKey && (current === first || !focusable.includes(current))) {
+            event.preventDefault();
+            last.focus({ preventScroll: true });
+        } else if (!event.shiftKey && (current === last || !focusable.includes(current))) {
+            event.preventDefault();
+            first.focus({ preventScroll: true });
         }
     }
     
@@ -2617,12 +2842,19 @@ class UIManager {
     async showImageDetail(imageId) {
         try {
             const image = await api.getImage(imageId);
+            const rating = this.normalizeAgeRating(image.age_rating);
+            const restricted = rating === 'r16' || rating === 'r18';
+            const ratingLabel = rating.toUpperCase();
             const content = `
                 <div class="image-detail-card">
-                    <div class="image-detail-media">
+                    <div class="image-detail-media ${restricted ? `is-age-restricted-detail is-${rating}` : ''}" data-age-revealed="false">
                         <img class="image-detail-preview" src="${this.getThumbnailUrl(image)}" alt="" aria-hidden="true" onerror="ui.handleImageFallback(this)">
-                        <img class="image-detail-original" src="${this.getImageUrl(image)}" loading="eager" decoding="async" fetchpriority="high" alt="Image ${image.image_id}" onload="ui.handleOriginalLoad(this)" onerror="ui.handleOriginalError(this)">
+                        <img class="image-detail-original" src="${restricted ? this.getThumbnailUrl(image) : this.getImageUrl(image)}" ${restricted ? `data-sensitive-src="${this.getImageUrl(image)}"` : ''} loading="eager" decoding="async" fetchpriority="high" alt="图片 ${image.image_id}" onload="ui.handleOriginalLoad(this)" onerror="ui.handleOriginalError(this)">
                         <span class="image-detail-loading" role="status">正在加载原图…</span>
+                        ${restricted ? `
+                            <span class="age-rating-badge age-rating-badge-detail">${ratingLabel}</span>
+                            <button type="button" class="detail-age-reveal" aria-expanded="false" onclick="ui.toggleDetailAgeReveal(this)">揭示 ${ratingLabel} 内容</button>
+                        ` : ''}
                     </div>
                     <div class="image-detail-panel">
                         <div class="image-detail-head">
@@ -2660,7 +2892,7 @@ class UIManager {
                     </div>
                     
                     <div class="detail-actions">
-                        <button class="btn btn-secondary" onclick="ui.downloadImage('${image.image_id}')">下载原图</button>
+                        <button class="btn btn-secondary detail-protected-download" onclick="ui.downloadImage('${image.image_id}')" ${restricted ? 'disabled title="请先揭示受限内容"' : ''}>下载原图</button>
                         <button class="btn btn-primary" onclick="ui.editImage('${image.image_id}')">编辑</button>
                         <button class="btn btn-danger" onclick="ui.deleteImage('${image.image_id}')">删除</button>
                         <button class="btn btn-secondary" onclick="ui.closeModal()">关闭</button>
@@ -2686,6 +2918,27 @@ class UIManager {
                 return;
             }
             this.showToast(`加载图片详情失败: ${error.message}`, 'error');
+        }
+    }
+
+    toggleDetailAgeReveal(button) {
+        const media = button.closest('.image-detail-media');
+        if (!media) return;
+        const reveal = !media.classList.contains('age-revealed');
+        media.classList.toggle('age-revealed', reveal);
+        media.dataset.ageRevealed = String(reveal);
+        const rating = media.classList.contains('is-r18') ? 'R18' : 'R16';
+        button.setAttribute('aria-expanded', String(reveal));
+        button.textContent = reveal ? `隐藏 ${rating} 内容` : `揭示 ${rating} 内容`;
+        const original = media.querySelector('.image-detail-original');
+        if (reveal && original?.dataset.sensitiveSrc) {
+            original.src = original.dataset.sensitiveSrc;
+            delete original.dataset.sensitiveSrc;
+        }
+        const downloadButton = media.closest('.image-detail-card')?.querySelector('.detail-protected-download');
+        if (downloadButton) {
+            downloadButton.disabled = !reveal;
+            downloadButton.title = reveal ? '' : '请先揭示受限内容';
         }
     }
 }

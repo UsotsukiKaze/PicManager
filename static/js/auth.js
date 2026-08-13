@@ -4,6 +4,17 @@ class AuthManager {
         this.currentUser = null;
         this.isGuest = false;
         this.guestInfo = null;
+        this.featureLoadPromises = {};
+        this.featureAssets = {
+            upload: {
+                src: '/static/js/upload.js?v=20260812b',
+                resolve: () => window.upload,
+            },
+            emoji: {
+                src: '/static/js/emoji-library.js?v=20260812a',
+                resolve: () => window.emojiLibrary,
+            },
+        };
     }
 
     async init() {
@@ -12,16 +23,150 @@ class AuthManager {
             // 认证失败，已重定向到登录页
             return;
         }
-        
+
+        await this.loadApplication();
         this.updateUI();
-        
+
         // 认证成功后再初始化应用
         if (typeof initializeApp === 'function') {
             await initializeApp();
         }
-        
-        // 检查通知
-        await this.checkNotifications();
+
+        // 通知不是首屏依赖，在浏览器空闲时后台检查。
+        this.scheduleNotificationCheck();
+    }
+
+    loadStyle(href) {
+        return new Promise((resolve, reject) => {
+            const existing = Array.from(document.styleSheets).find(sheet => sheet.href && sheet.href.includes(href));
+            if (existing) {
+                resolve();
+                return;
+            }
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = href;
+            link.onload = resolve;
+            link.onerror = () => reject(new Error(`Failed to load stylesheet: ${href}`));
+            document.head.appendChild(link);
+        });
+    }
+
+    loadScript(src) {
+        return new Promise((resolve, reject) => {
+            const existing = Array.from(document.scripts).find(script => script.src && script.src.includes(src));
+            if (existing) {
+                if (existing.dataset.loaded === 'true') {
+                    resolve();
+                } else {
+                    existing.addEventListener('load', resolve, { once: true });
+                    existing.addEventListener('error', () => reject(new Error(`Failed to load script: ${src}`)), { once: true });
+                }
+                return;
+            }
+            const script = document.createElement('script');
+            script.src = src;
+            script.async = false;
+            script.onload = () => {
+                script.dataset.loaded = 'true';
+                resolve();
+            };
+            script.onerror = () => {
+                script.remove();
+                reject(new Error(`Failed to load script: ${src}`));
+            };
+            document.body.appendChild(script);
+        });
+    }
+
+    loadFeature(name) {
+        const feature = this.featureAssets[name];
+        if (!feature) {
+            return Promise.reject(new Error(`Unknown application feature: ${name}`));
+        }
+
+        const loadedFeature = feature.resolve();
+        if (loadedFeature) return Promise.resolve(loadedFeature);
+        if (this.featureLoadPromises[name]) return this.featureLoadPromises[name];
+
+        const loadPromise = this.loadScript(feature.src)
+            .then(() => {
+                const resolvedFeature = feature.resolve();
+                if (!resolvedFeature) {
+                    throw new Error(`Feature did not initialize after loading: ${name}`);
+                }
+                return resolvedFeature;
+            })
+            .catch(error => {
+                delete this.featureLoadPromises[name];
+                throw error;
+            });
+
+        this.featureLoadPromises[name] = loadPromise;
+        return loadPromise;
+    }
+
+    waitForDocumentBody() {
+        if (document.body) return Promise.resolve();
+        return new Promise(resolve => {
+            document.addEventListener('DOMContentLoaded', resolve, { once: true });
+        });
+    }
+
+    async loadApplication() {
+        if (this.applicationLoadPromise) return this.applicationLoadPromise;
+
+        this.applicationLoadPromise = (async () => {
+            await this.waitForDocumentBody();
+            const stylesReady = Promise.all([
+                this.loadStyle('/static/css/style.css?v=20260812c'),
+                this.loadStyle('/static/css/icons.css?v=20260812a'),
+            ]);
+            const scripts = [
+                '/static/js/pinyin-search.js?v=20260812a',
+                '/static/js/character-selector.js?v=20260812a',
+                '/static/js/tag-selector.js?v=20260812a',
+                '/static/js/api.js?v=20260813a',
+                '/static/js/ui.js?v=20260813a',
+                '/static/js/main.js?v=20260812c',
+            ];
+
+            // async=false 的动态 classic script 按插入顺序执行；一次性插入可让网络抓取并行。
+            const scriptsReady = Promise.all(scripts.map(src => this.loadScript(src)));
+            await stylesReady;
+            await scriptsReady;
+
+            document.querySelectorAll('[data-auth-src]').forEach(image => {
+                image.src = image.dataset.authSrc;
+                delete image.dataset.authSrc;
+            });
+            document.querySelectorAll('[data-auth-href]').forEach(link => {
+                link.href = link.dataset.authHref;
+                delete link.dataset.authHref;
+            });
+            document.documentElement.classList.remove('app-booting');
+        })();
+
+        try {
+            await this.applicationLoadPromise;
+        } catch (error) {
+            this.applicationLoadPromise = null;
+            throw error;
+        }
+    }
+
+    scheduleNotificationCheck() {
+        if (this.isGuest || !this.currentUser) return;
+        const run = () => {
+            this.checkNotifications().catch(error => {
+                console.error('Notification check failed:', error);
+            });
+        };
+        if ('requestIdleCallback' in window) {
+            window.requestIdleCallback(run, { timeout: 5000 });
+        } else {
+            window.setTimeout(run, 0);
+        }
     }
 
     async checkAuth() {
@@ -203,7 +348,8 @@ async function handleLogout() {
     }
 }
 
-// 页面加载时初始化认证
-document.addEventListener('DOMContentLoaded', () => {
-    auth.init();
+// 认证引导脚本位于 head：尽快拦截匿名访问，通过后才加载管理应用。
+auth.init().catch(error => {
+    console.error('Application bootstrap failed:', error);
+    window.location.replace('/login');
 });

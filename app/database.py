@@ -1,26 +1,40 @@
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker, Session
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 import os
-import shutil
-import hashlib
+import sqlite3
+import tempfile
 import threading
 import time
 from datetime import datetime, timedelta
 from .models import Base
 from .config import settings
-from .logger import log_success
+from .logger import log_error, log_success
 
 # 数据库路径
 DATABASE_PATH = os.path.join(settings.DATA_PATH, "picmanager.db")
 DATABASE_URL = settings.DATABASE_URL
+SQLITE_BUSY_TIMEOUT_MS = 5000
+
+
+def _configure_sqlite_connection(dbapi_connection, _connection_record) -> None:
+    """Apply connection-scoped SQLite concurrency settings."""
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_MS}")
+    finally:
+        cursor.close()
 
 # 创建数据库引擎
+_is_sqlite = make_url(DATABASE_URL).get_backend_name() == "sqlite"
 engine = create_engine(
     DATABASE_URL,
     echo=False,  # 设置为True可以看到SQL语句
-    connect_args={"check_same_thread": False}
+    connect_args={"check_same_thread": False, "timeout": SQLITE_BUSY_TIMEOUT_MS / 1000} if _is_sqlite else {},
 )
+if _is_sqlite:
+    event.listen(engine, "connect", _configure_sqlite_connection)
 
 # 创建会话工厂
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -60,67 +74,128 @@ def get_db_context():
 def init_database():
     """初始化数据库"""
     restore_snapshot_if_needed()
+    enable_sqlite_wal()
     create_tables()
     apply_migrations()
     start_daily_snapshot_scheduler()
     log_success(f"数据库初始化完成: {DATABASE_PATH}")
 
 
+def _is_memory_sqlite_database(target_engine) -> bool:
+    database_name = str(target_engine.url.database or "").strip().lower()
+    mode = str(target_engine.url.query.get("mode", "")).strip().lower()
+    return database_name in {"", ":memory:"} or mode == "memory" or database_name.startswith("file::memory:")
+
+
+def enable_sqlite_wal(target_engine=None) -> bool:
+    """Enable persistent WAL mode for file-backed SQLite databases."""
+    target_engine = target_engine or engine
+    if target_engine.url.get_backend_name() != "sqlite" or _is_memory_sqlite_database(target_engine):
+        return False
+    try:
+        with target_engine.connect() as connection:
+            mode = connection.exec_driver_sql("PRAGMA journal_mode=WAL").scalar_one()
+        if str(mode).lower() != "wal":
+            log_error(f"SQLite WAL mode was not enabled; journal_mode={mode}")
+            return False
+        return True
+    except Exception as exc:
+        # A read-only or unsupported filesystem may reject WAL. Keep the
+        # database usable in its existing journal mode and make the failure visible.
+        log_error(f"Failed to enable SQLite WAL mode: {exc}")
+        return False
+
+
 def get_snapshot_path() -> str:
     return f"{DATABASE_PATH}.snapshot"
 
 
-def file_hash(path: str) -> str:
-    hasher = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            hasher.update(chunk)
-    return hasher.hexdigest()
+def _atomic_sqlite_backup(source_path: str, destination_path: str, *, overwrite: bool) -> bool:
+    """Create a consistent SQLite backup and publish it atomically."""
+    destination_dir = os.path.dirname(os.path.abspath(destination_path))
+    os.makedirs(destination_dir, exist_ok=True)
+    if not overwrite and os.path.exists(destination_path):
+        return False
 
-
-def restore_snapshot_if_needed() -> None:
-    """启动时检查快照与当前数据库是否一致，不一致则用快照替换"""
-    snapshot_path = get_snapshot_path()
-    if not os.path.exists(snapshot_path):
-        return
-
-    if not os.path.exists(DATABASE_PATH):
-        shutil.copy2(snapshot_path, DATABASE_PATH)
-        return
-
+    fd, temp_path = tempfile.mkstemp(
+        prefix=f".{os.path.basename(destination_path)}.",
+        suffix=".tmp",
+        dir=destination_dir,
+    )
+    os.close(fd)
     try:
-        current_hash = file_hash(DATABASE_PATH)
-        snapshot_hash = file_hash(snapshot_path)
-    except Exception:
-        return
+        # sqlite3.Connection's context manager commits transactions but does
+        # not close the handle. Explicit closing is required before publishing
+        # the temp file on Windows.
+        with closing(sqlite3.connect(source_path, timeout=30)) as source_db:
+            with closing(sqlite3.connect(temp_path, timeout=30)) as backup_db:
+                source_db.backup(backup_db)
+                check = backup_db.execute("PRAGMA quick_check").fetchone()
+                if not check or check[0] != "ok":
+                    raise RuntimeError("SQLite backup integrity check failed")
 
-    if current_hash != snapshot_hash:
+        if overwrite:
+            os.replace(temp_path, destination_path)
+        else:
+            # Publishing through a hard link gives restore true create-if-absent
+            # semantics: another process creating the live DB wins, and the
+            # snapshot can never replace it in the check/rename race window.
+            try:
+                os.link(temp_path, destination_path)
+            except FileExistsError:
+                return False
+            os.unlink(temp_path)
+        temp_path = ""
+        return True
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+
+
+def restore_db_snapshot() -> bool:
+    """Restore the snapshot only when the live database is missing."""
+    snapshot_path = get_snapshot_path()
+    with _snapshot_lock:
+        if os.path.exists(DATABASE_PATH) or not os.path.isfile(snapshot_path):
+            return False
         try:
-            engine.dispose()
-        except Exception:
-            pass
-        shutil.copy2(snapshot_path, DATABASE_PATH)
+            return _atomic_sqlite_backup(snapshot_path, DATABASE_PATH, overwrite=False)
+        except Exception as exc:
+            log_error(f"Failed to restore database snapshot: {exc}")
+            return False
 
 
-def create_db_snapshot() -> None:
+def restore_snapshot_if_needed() -> bool:
+    """启动时仅在实时数据库缺失时从快照恢复，绝不覆盖现有数据库。"""
+    return restore_db_snapshot()
+
+
+def create_db_snapshot() -> bool:
     """创建数据库快照"""
-    if not os.path.exists(DATABASE_PATH):
-        return
-    snapshot_path = get_snapshot_path()
-    try:
-        shutil.copy2(DATABASE_PATH, snapshot_path)
-    except Exception:
-        pass
+    if engine.url.get_backend_name() != "sqlite" or not os.path.isfile(DATABASE_PATH):
+        return False
+    with _snapshot_lock:
+        try:
+            return _atomic_sqlite_backup(DATABASE_PATH, get_snapshot_path(), overwrite=True)
+        except Exception as exc:
+            log_error(f"Failed to create database snapshot: {exc}")
+            return False
 
 
 def register_db_commit() -> None:
     """记录一次数据库提交，累计到阈值后更新快照"""
     global _commit_counter
+    should_snapshot = False
     with _snapshot_lock:
         _commit_counter += 1
         if _commit_counter >= 50:
             _commit_counter = 0
-            create_db_snapshot()
+            should_snapshot = True
+    if should_snapshot:
+        create_db_snapshot()
 
 
 def _seconds_until_next_midnight() -> float:

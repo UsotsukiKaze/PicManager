@@ -25,6 +25,7 @@ GUEST_DAILY_LIMIT = 5
 # Session过期时间配置（秒）
 USER_SESSION_TIMEOUT = 86400 * 7  # 登录用户7天
 GUEST_SESSION_TIMEOUT = 86400  # 游客1天
+SESSION_ACTIVITY_WRITE_INTERVAL = timedelta(minutes=5)
 
 def init_root_user(db: Session):
     """初始化root用户"""
@@ -199,9 +200,13 @@ def get_session(db: Session, session_id: str) -> Optional[dict]:
         db.commit()
         return None
     
-    # 更新最后活动时间
-    session.last_activity = datetime.utcnow()
-    db.commit()
+    # Avoid turning every authenticated read into a SQLite write. Refreshing
+    # at a coarse interval keeps activity data useful without serializing all
+    # page assets/API requests behind the writer lock.
+    now = datetime.utcnow()
+    if not session.last_activity or now - session.last_activity >= SESSION_ACTIVITY_WRITE_INTERVAL:
+        session.last_activity = now
+        db.commit()
     
     return {
         "user_id": session.user_id,

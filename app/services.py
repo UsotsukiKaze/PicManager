@@ -70,6 +70,8 @@ class GroupService:
     @staticmethod
     def get_groups(db: Session, skip: int = 0, limit: int = 100) -> List[dict]:
         """获取分组列表"""
+        skip = max(0, skip)
+        limit = min(max(1, limit), settings.MAX_PAGE_SIZE)
         groups = db.query(models.Group).offset(skip).limit(limit).all()
         return [GroupService.group_to_dict(g) for g in groups]
     
@@ -209,6 +211,8 @@ class CharacterService:
     @staticmethod
     def get_characters(db: Session, group_id: Optional[int] = None, skip: int = 0, limit: int = 100) -> List[dict]:
         """获取角色列表，返回包含分组名称的字典"""
+        skip = max(0, skip)
+        limit = min(max(1, limit), settings.MAX_PAGE_SIZE)
         query = db.query(models.Character, models.Group).join(models.Group)
         if group_id:
             query = query.filter(models.Character.group_id == group_id)
@@ -338,6 +342,8 @@ class FeatureTagService:
 
     @staticmethod
     def get_feature_tags(db: Session, skip: int = 0, limit: int = 1000) -> List[dict]:
+        skip = max(0, skip)
+        limit = min(max(1, limit), settings.MAX_PAGE_SIZE)
         tags = db.query(models.FeatureTag).order_by(models.FeatureTag.name.asc()).offset(skip).limit(limit).all()
         return [FeatureTagService.tag_to_dict(tag) for tag in tags]
 
@@ -414,6 +420,8 @@ class EmotionTagService:
 
     @staticmethod
     def get_emotion_tags(db: Session, skip: int = 0, limit: int = 500) -> List[dict]:
+        skip = max(0, skip)
+        limit = min(max(1, limit), settings.MAX_PAGE_SIZE)
         tags = db.query(models.EmotionTag).order_by(models.EmotionTag.name.asc()).offset(skip).limit(limit).all()
         return [EmotionTagService.tag_to_dict(tag) for tag in tags]
 
@@ -630,8 +638,8 @@ class EmojiService:
         if params.description:
             query = query.filter(models.Emoji.description.like(f"%{params.description}%"))
 
-        offset = params.offset or 0
-        limit = params.limit or settings.DEFAULT_PAGE_SIZE
+        offset = max(0, params.offset)
+        limit = min(max(1, params.limit), settings.MAX_PAGE_SIZE)
         query = query.distinct()
         total = query.order_by(None).count()
         emojis = query.order_by(models.Emoji.created_at.desc(), models.Emoji.emoji_id.desc()).offset(offset).limit(limit).all()
@@ -1164,8 +1172,8 @@ class ImageService:
         if params.age_rating:
             query = query.filter(models.Image.age_rating == params.age_rating.lower())
         
-        offset = params.offset or 0
-        limit = params.limit or settings.DEFAULT_PAGE_SIZE
+        offset = max(0, params.offset)
+        limit = min(max(1, params.limit), settings.MAX_PAGE_SIZE)
         query = query.distinct()
         total = query.order_by(None).count()
         images = query.order_by(
@@ -1422,6 +1430,18 @@ class ImageService:
 
 class SystemService:
     """系统服务"""
+
+    @staticmethod
+    def get_public_status(db: Session) -> schemas.PublicSystemStatus:
+        """Return only the four counters needed by the initial home screen."""
+        # Separate tables cannot be counted in a single joined aggregate
+        # without multiplying rows, so keep these cheap index/table counts.
+        return schemas.PublicSystemStatus(
+            total_images=db.query(func.count(models.Image.image_id)).scalar() or 0,
+            total_emojis=db.query(func.count(models.Emoji.emoji_id)).scalar() or 0,
+            total_groups=db.query(func.count(models.Group.id)).scalar() or 0,
+            total_characters=db.query(func.count(models.Character.id)).scalar() or 0,
+        )
     
     @staticmethod
     def get_system_status(db: Session, store_path: str, temp_path: str) -> schemas.SystemStatus:

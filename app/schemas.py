@@ -1,6 +1,8 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional
 from datetime import datetime
+
+from .config import settings
 
 # 分组相关模型
 class GroupBase(BaseModel):
@@ -181,8 +183,8 @@ class ImageSearchParams(BaseModel):
     pid: Optional[str] = None
     description: Optional[str] = None
     age_rating: Optional[str] = None
-    limit: Optional[int] = 50
-    offset: Optional[int] = 0
+    limit: int = Field(default=50, ge=1, le=settings.MAX_PAGE_SIZE)
+    offset: int = Field(default=0, ge=0)
 
 class ImageSearchResult(BaseModel):
     images: List[ImageWithCharacters]
@@ -232,8 +234,8 @@ class EmojiSearchParams(BaseModel):
     character_id: Optional[int] = None
     emotion_id: Optional[int] = None
     description: Optional[str] = None
-    limit: Optional[int] = 50
-    offset: Optional[int] = 0
+    limit: int = Field(default=50, ge=1, le=settings.MAX_PAGE_SIZE)
+    offset: int = Field(default=0, ge=0)
 
 
 class EmojiSearchResult(BaseModel):
@@ -274,17 +276,21 @@ class BatchUploadImageResponse(BaseModel):
     failed_count: int
     results: List[UploadImageResponse]
 
-# 系统状态
-class SystemStatus(BaseModel):
+# Lightweight public counters used by the home page.
+class PublicSystemStatus(BaseModel):
     total_images: int
     total_emojis: int = 0
+    total_groups: int
+    total_characters: int
+
+
+# Admin-only storage and maintenance diagnostics.
+class SystemStatus(PublicSystemStatus):
     available_images: int = 0
     missing_images: int = 0
     archived_images: int = 0
     thumb_missing: int = 0
     thumb_failed: int = 0
-    total_groups: int
-    total_characters: int
     temp_images_count: int
     store_path: str
     temp_path: str
@@ -395,6 +401,7 @@ class BotLoginTicketCreate(BaseModel):
 class BotLoginTicketResponse(BaseModel):
     ticket: str
     login_url: str
+    lan_login_url: Optional[str] = None
     expires_at: datetime
     purpose: str
     qq_number: str

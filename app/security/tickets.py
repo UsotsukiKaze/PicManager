@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import LoginTicket
+from .lan_debug import configured_lan_base_url
 
 DEFAULT_TICKET_TTL_SECONDS = 300
 ALLOWED_PURPOSES = {"login", "upload", "admin", "phrolova"}
@@ -101,10 +102,20 @@ def consume_login_ticket(db: Session, ticket: str, purpose: str = "login") -> Lo
     return record
 
 
-def build_login_url(ticket: str, redirect_path: str | None = None) -> str:
-    public_base = getattr(settings, "PUBLIC_BASE_URL", "").rstrip("/")
+def _build_login_url(base_url: str, ticket: str, redirect_path: str | None = None) -> str:
     query = {"ticket": ticket}
     if redirect_path:
         query["redirect"] = redirect_path
     path = f"/login?{urlencode(query)}"
-    return f"{public_base}{path}" if public_base else path
+    return f"{base_url.rstrip('/')}{path}" if base_url else path
+
+
+def build_login_url(ticket: str, redirect_path: str | None = None) -> str:
+    return _build_login_url(getattr(settings, "PUBLIC_BASE_URL", ""), ticket, redirect_path)
+
+
+def build_lan_login_url(ticket: str, redirect_path: str | None = None) -> str | None:
+    base_url = configured_lan_base_url(settings)
+    if not base_url:
+        return None
+    return _build_login_url(base_url, ticket, redirect_path)

@@ -9,9 +9,17 @@ from ..services import ImageService, SystemService
 router = APIRouter()
 
 
-@router.get("/status", response_model=schemas.SystemStatus)
+@router.get("/status", response_model=schemas.PublicSystemStatus)
 def get_system_status():
-    """Return public system counters used by the web UI."""
+    """Return the lightweight public counters used by the home page."""
+    with get_db_context() as db:
+        return SystemService.get_public_status(db)
+
+
+@router.get("/diagnostics", response_model=schemas.SystemStatus)
+def get_system_diagnostics(request: Request):
+    """Return storage and maintenance diagnostics to administrators only."""
+    require_admin_user_id(request)
     with get_db_context() as db:
         return SystemService.get_system_status(db, settings.STORE_PATH, settings.TEMP_PATH)
 

@@ -3,6 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 
 import main
 from app.services import ImageService
@@ -72,7 +73,29 @@ def test_original_route_resolves_published_image_by_id(monkeypatch, tmp_path):
     monkeypatch.setattr(main.settings, "STORE_PATH", str(store_root))
     monkeypatch.setattr(main, "get_db_context", fake_db_context)
 
-    response = main.original_image("ABCDEF1234")
+    request = type("Request", (), {"cookies": {"session_id": "test-session"}})()
+    monkeypatch.setattr(main, "get_session", lambda db, session_id: {"session_id": session_id})
+    response = main.original_image("ABCDEF1234", request)
 
     assert Path(response.path) == original
-    assert response.headers["cache-control"] == "public, max-age=604800, immutable"
+    assert response.headers["cache-control"] == "private, max-age=3600"
+    assert response.headers["cloudflare-cdn-cache-control"] == "no-store"
+
+
+def test_original_route_requires_a_session():
+    request = type("Request", (), {"cookies": {}})()
+
+    with pytest.raises(HTTPException) as exc_info:
+        main.original_image("ABCDEF1234", request)
+
+    assert exc_info.value.status_code == 401
+
+
+def test_original_store_directory_is_not_static_mounted():
+    mounts = [
+        route.path
+        for route in main.app.routes
+        if getattr(route, "path", None)
+    ]
+
+    assert "/resource/store" not in mounts

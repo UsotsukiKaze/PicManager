@@ -3,6 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from contextlib import asynccontextmanager
 from pathlib import Path
 import os
@@ -20,6 +21,8 @@ from app.routers.integrations.bot import router as bot_router
 from app.routers.integrations.sso import router as sso_router
 from app.routers.public import router as public_router
 from app.routers.system import router as system_router
+from app.routers.auth import get_session
+from app.security.lan_debug import configured_lan_base_url, configured_lan_hosts, exact_hosts
 from app.security.permissions import require_admin_user_id
 
 UI_ASSET_VERSION = str(int(time.time()))
@@ -51,6 +54,17 @@ def _cors_origins() -> list[str]:
     return [origin.strip() for origin in settings.CORS_ALLOW_ORIGINS.split(",") if origin.strip()]
 
 
+def _trusted_hosts() -> list[str]:
+    hosts = exact_hosts(settings.TRUSTED_HOSTS, setting_name="TRUSTED_HOSTS")
+    if settings.LAN_DEBUG_ENABLED:
+        for host in configured_lan_hosts(settings):
+            if host not in hosts:
+                hosts.append(host)
+        # Validate the optional fixed LAN login origin during application startup.
+        configured_lan_base_url(settings)
+    return hosts
+
+
 def _is_ui_cache_sensitive_path(path: str) -> bool:
     if path in {"/", "/login", "/profile"}:
         return True
@@ -61,9 +75,38 @@ def _is_ui_cache_sensitive_path(path: str) -> bool:
 
 def _apply_no_store_headers(response) -> None:
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Cloudflare-CDN-Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     response.headers["X-PicManager-Asset-Version"] = UI_ASSET_VERSION
+
+
+def _apply_production_cache_headers(request: Request, response) -> None:
+    """Apply cache policy without ever varying the app shell by authentication state."""
+    if request.method not in {"GET", "HEAD"} or response.status_code >= 400:
+        return
+
+    path = request.url.path
+    if path in {"/login", "/profile"}:
+        _apply_no_store_headers(response)
+        return
+
+    if path in {"/", "/home"}:
+        # Browsers revalidate the HTML shell, while Cloudflare may briefly serve
+        # the same authentication-independent shell to every visitor.
+        response.headers["Cache-Control"] = "no-cache"
+        response.headers["Cloudflare-CDN-Cache-Control"] = (
+            "public, max-age=60, stale-while-revalidate=30, stale-if-error=86400"
+        )
+        return
+
+    if path.startswith("/static/"):
+        if request.query_params.get("v"):
+            policy = "public, max-age=31536000, immutable"
+        else:
+            policy = "public, max-age=14400"
+        response.headers["Cache-Control"] = policy
+        response.headers["Cloudflare-CDN-Cache-Control"] = policy
 
 
 def _safe_resource_file(base_path: str, filename: str) -> Path:
@@ -119,6 +162,8 @@ async def prevent_stale_ui_cache(request: Request, call_next):
     response = await call_next(request)
     if settings.DEBUG and _is_ui_cache_sensitive_path(request.url.path):
         _apply_no_store_headers(response)
+    elif not settings.DEBUG:
+        _apply_production_cache_headers(request, response)
     return response
 
 
@@ -130,6 +175,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=_trusted_hosts())
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # 挂载静态文件
@@ -180,9 +226,14 @@ async def thumbnail_file(resource_path: str):
 
 
 @app.get("/resource/originals/{image_id}")
-def original_image(image_id: str):
+def original_image(image_id: str, request: Request):
     """Serve a published original by id after the user explicitly opens it."""
     with get_db_context() as db:
+        session_id = request.cookies.get("session_id")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Login required")
+        if not get_session(db, session_id):
+            raise HTTPException(status_code=401, detail="Login required")
         image = db.query(ImageModel).filter(
             ImageModel.image_id == image_id,
             ImageModel.file_status == ImageService.AVAILABLE,
@@ -198,12 +249,16 @@ def original_image(image_id: str):
             raise HTTPException(status_code=404, detail="Image not found") from exc
 
         response = FileResponse(path)
-        response.headers["Cache-Control"] = "public, max-age=604800, immutable"
+        # This endpoint is authenticated. Never allow a shared intermediary to
+        # cache an original and replay it to a request without a valid session.
+        response.headers["Cache-Control"] = "private, max-age=3600"
+        response.headers["Cloudflare-CDN-Cache-Control"] = "no-store"
         return response
 
 
-# Only published store images are public.
-app.mount("/resource/store", StaticFiles(directory=settings.STORE_PATH), name="resource_store")
+# Originals are intentionally not mounted as static files. They are served by
+# the id-based authenticated routes above so restricted content has no direct
+# `/resource/store/...` bypass.
 app.mount("/resource/emojis", StaticFiles(directory=settings.EMOJI_PATH), name="resource_emojis")
 app.mount("/resource/avatars", StaticFiles(directory=settings.AVATAR_PATH), name="resource_avatars")
 
@@ -272,8 +327,8 @@ def main():
         "main:app",
         host=settings.HOST,
         port=settings.PORT,
-        reload=True,
-        reload_dirs=["app", "static"],
+        reload=settings.DEBUG,
+        reload_dirs=["app", "static"] if settings.DEBUG else None,
         log_level="info"
     )
 

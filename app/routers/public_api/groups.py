@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Request
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query, Request
 from sqlalchemy import func
 from typing import List, Optional, Union
 
@@ -30,11 +30,14 @@ def create_group(group: schemas.GroupCreate, request: Request):
     """创建分组"""
     _validate_managed_avatar(group.avatar_url)
     with get_db_context() as db:
+        session = get_current_session(request, db)
+        if not session:
+            raise HTTPException(status_code=401, detail="Login required")
+
         existing = db.query(models.Group).filter(models.Group.name == group.name).first()
         if existing:
             raise HTTPException(status_code=400, detail="分组名称已存在")
 
-        session = get_current_session(request, db)
         is_admin = False
         is_logged_in_user = False
         user_id = None
@@ -49,10 +52,11 @@ def create_group(group: schemas.GroupCreate, request: Request):
                     raise HTTPException(status_code=429, detail="今日操作次数已用完")
             else:
                 user = db.query(User).filter(User.id == session["user_id"]).first()
-                if user:
-                    user_id = user.id
-                    is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
-                    is_logged_in_user = True
+                if not user:
+                    raise HTTPException(status_code=401, detail="Invalid session")
+                user_id = user.id
+                is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
+                is_logged_in_user = True
 
         if is_admin or is_logged_in_user:
             return GroupService.create_group(db, group)
@@ -74,7 +78,10 @@ def create_group(group: schemas.GroupCreate, request: Request):
         return {"message": "提交成功，等待管理员审核"}
 
 @router.get("/groups/", response_model=List[schemas.Group])
-def get_groups(skip: int = 0, limit: int = 100):
+def get_groups(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=settings.MAX_PAGE_SIZE),
+):
     """获取分组列表"""
     with get_db_context() as db:
         return GroupService.get_groups(db, skip, limit)
@@ -129,6 +136,8 @@ def update_group(group_id: int, group_update: schemas.GroupUpdate, request: Requ
     """更新分组"""
     with get_db_context() as db:
         session = get_current_session(request, db)
+        if not session:
+            raise HTTPException(status_code=401, detail="Login required")
         is_admin = False
         is_logged_in_user = False
         user_id = None
@@ -143,10 +152,11 @@ def update_group(group_id: int, group_update: schemas.GroupUpdate, request: Requ
                     raise HTTPException(status_code=429, detail="今日操作次数已用完")
             else:
                 user = db.query(User).filter(User.id == session["user_id"]).first()
-                if user:
-                    user_id = user.id
-                    is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
-                    is_logged_in_user = True
+                if not user:
+                    raise HTTPException(status_code=401, detail="Invalid session")
+                user_id = user.id
+                is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
+                is_logged_in_user = True
 
         # 校验分组是否存在
         existing = db.query(models.Group).filter(models.Group.id == group_id).first()
@@ -188,6 +198,8 @@ def delete_group(group_id: int, request: Request):
     """删除分组"""
     with get_db_context() as db:
         session = get_current_session(request, db)
+        if not session:
+            raise HTTPException(status_code=401, detail="Login required")
         is_admin = False
         is_logged_in_user = False
         user_id = None
@@ -202,10 +214,11 @@ def delete_group(group_id: int, request: Request):
                     raise HTTPException(status_code=429, detail="今日操作次数已用完")
             else:
                 user = db.query(User).filter(User.id == session["user_id"]).first()
-                if user:
-                    user_id = user.id
-                    is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
-                    is_logged_in_user = True
+                if not user:
+                    raise HTTPException(status_code=401, detail="Invalid session")
+                user_id = user.id
+                is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
+                is_logged_in_user = True
 
         # 校验分组是否存在
         existing = db.query(models.Group).filter(models.Group.id == group_id).first()

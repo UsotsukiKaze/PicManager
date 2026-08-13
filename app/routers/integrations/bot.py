@@ -13,7 +13,7 @@ from ...config import settings
 from ...database import get_db_context
 from ...models import AgeAssertionNonce, AgeAuthorizationRequest, GroupAgeSetting, User, UserRole
 from ...security.api_key import require_bot_api_key
-from ...security.tickets import build_login_url, create_login_ticket, normalize_qq_number
+from ...security.tickets import build_lan_login_url, build_login_url, create_login_ticket, normalize_qq_number
 from ...services import CharacterService, EmojiService, EmotionTagService, FeatureTagService, GroupService, ImageService
 
 router = APIRouter(dependencies=[Depends(require_bot_api_key)])
@@ -51,25 +51,37 @@ def _verify_age_assertion(action: str, subject_id: str, subject_role: str, targe
         db.flush()
 
 
-def _public_image_url(file_path: str) -> str:
+def _public_resource_url(resource_path: str) -> str:
     public_base = getattr(settings, "PUBLIC_BASE_URL", "").rstrip("/")
-    normalized = file_path.lstrip("/")
+    normalized = resource_path.lstrip("/")
     return f"{public_base}/{normalized}" if public_base else f"/{normalized}"
 
 
-def _public_thumb_url(image: dict) -> str:
-    public_base = getattr(settings, "PUBLIC_BASE_URL", "").rstrip("/")
+def _public_thumb_url(image: dict) -> str | None:
     image_id = str(image.get("image_id") or "").strip()
-    thumb_path = f"resource/thumbs/{image_id}.webp" if image_id else image.get("file_path", "")
-    return f"{public_base}/{thumb_path}" if public_base else f"/{thumb_path}"
+    if not image_id:
+        return None
+    return _public_resource_url(f"resource/thumbs/{image_id}.webp")
+
+
+def _protected_original_url(image: dict) -> str | None:
+    image_id = str(image.get("image_id") or "").strip()
+    if not image_id:
+        return None
+    return _public_resource_url(f"resource/originals/{image_id}")
 
 
 def _with_image_url(image: dict) -> dict:
     result = dict(image)
-    original_url = _public_image_url(result["file_path"])
-    result["original_image_url"] = original_url
-    result["thumbnail_url"] = _public_thumb_url(result)
-    result["image_url"] = original_url
+    # Never expose the on-disk store path in an integration response. It is
+    # neither a valid public URL nor a stable authorization boundary.
+    result.pop("file_path", None)
+    thumbnail_url = _public_thumb_url(result)
+    result["original_image_url"] = _protected_original_url(result)
+    result["thumbnail_url"] = thumbnail_url
+    # Bots can fetch the public, size-bounded thumbnail using their normal HTTP
+    # client. The original URL intentionally remains session-protected.
+    result["image_url"] = thumbnail_url
     return result
 
 
@@ -460,7 +472,7 @@ def get_bot_random_emoji(
 
 
 @router.post("/emojis/upload")
-async def upload_bot_emoji(
+def upload_bot_emoji(
     file: UploadFile = File(...),
     character_ids: str = Form("[]"),
     group_ids: str = Form("[]"),
@@ -487,7 +499,7 @@ async def upload_bot_emoji(
             temp_file_path = temp_file.name
             total = 0
             while True:
-                chunk = await file.read(1024 * 1024)
+                chunk = file.file.read(1024 * 1024)
                 if not chunk:
                     break
                 total += len(chunk)
@@ -563,11 +575,14 @@ def create_bot_login_ticket(ticket_create: schemas.BotLoginTicketCreate):
             if not base_url:
                 raise HTTPException(status_code=503, detail="Phrolova public URL is not configured")
             login_url = f"{base_url}/auth/qq#ticket={issued.ticket}"
+            lan_login_url = None
         else:
             login_url = build_login_url(issued.ticket, issued.record.redirect_path)
+            lan_login_url = build_lan_login_url(issued.ticket, issued.record.redirect_path)
         return schemas.BotLoginTicketResponse(
             ticket=issued.ticket,
             login_url=login_url,
+            lan_login_url=lan_login_url,
             expires_at=issued.record.expires_at,
             purpose=issued.record.purpose,
             qq_number=issued.record.qq_number,

@@ -5,6 +5,7 @@ from ... import schemas
 from ...database import get_db_context
 from ...models import GuestLimit, User, UserRole, UserSession
 from ...security.tickets import consume_login_ticket
+from ...security.session_cookies import delete_auth_cookie, set_auth_cookie
 from ...security.guest_identity import (
     GUEST_IDENTITY_COOKIE,
     GUEST_IDENTITY_MAX_AGE,
@@ -22,17 +23,10 @@ from ..auth import (
     fetch_qq_info,
     get_client_ip,
     get_session,
-    init_root_user,
     ROOT_QQ,
 )
 
 router = APIRouter()
-
-
-def _is_debug_loopback(client_ip: str) -> bool:
-    normalized = (client_ip or "").strip().lower()
-    compact = normalized.replace(".", "").replace(":", "")
-    return normalized in {"127.0.0.1", "::1", "localhost"} or compact == "127001"
 
 
 @router.post("/login")
@@ -75,14 +69,13 @@ async def login_with_qq_ticket(ticket_data: schemas.QQTicketLogin, request: Requ
             db.refresh(user)
 
         session_id = create_session(db, user, timeout=USER_SESSION_TIMEOUT)
-        response.set_cookie(
+        set_auth_cookie(
+            response,
+            request,
             key="session_id",
             value=session_id,
-            httponly=True,
             max_age=USER_SESSION_TIMEOUT,
-            samesite="Lax",
-            secure=settings.SESSION_COOKIE_SECURE,
-            domain=settings.SESSION_COOKIE_DOMAIN or None,
+            config=settings,
         )
 
         return {
@@ -101,38 +94,17 @@ async def guest_login(request: Request, response: Response):
         # 清理过期session
         cleanup_expired_sessions(db)
 
-        if settings.DEBUG and _is_debug_loopback(client_ip):
-            root_user = init_root_user(db)
-            session_id = create_session(db, root_user, timeout=USER_SESSION_TIMEOUT)
-            response.set_cookie(
-                key="session_id",
-                value=session_id,
-                httponly=True,
-                max_age=USER_SESSION_TIMEOUT,
-                samesite="Lax",
-                secure=settings.SESSION_COOKIE_SECURE,
-                domain=settings.SESSION_COOKIE_DOMAIN or None,
-            )
-
-            return {
-                "message": "已进入本机调试账号",
-                "is_guest": False,
-                "debug_login": True,
-                "user": schemas.UserInfo.model_validate(root_user),
-            }
-
         guest_cookie = request.cookies.get(GUEST_IDENTITY_COOKIE)
         guest_name = read_guest_identity(guest_cookie)
         if not guest_name:
             guest_cookie, guest_name = create_guest_identity()
-            response.set_cookie(
+            set_auth_cookie(
+                response,
+                request,
                 key=GUEST_IDENTITY_COOKIE,
                 value=guest_cookie,
-                httponly=True,
                 max_age=GUEST_IDENTITY_MAX_AGE,
-                samesite="Lax",
-                secure=settings.SESSION_COOKIE_SECURE,
-                domain=settings.SESSION_COOKIE_DOMAIN or None,
+                config=settings,
             )
 
         # 创建持久化游客会话；显示身份来自已签名的长期Cookie。
@@ -143,14 +115,13 @@ async def guest_login(request: Request, response: Response):
             guest_name=guest_name,
             timeout=GUEST_SESSION_TIMEOUT,
         )
-        response.set_cookie(
+        set_auth_cookie(
+            response,
+            request,
             key="session_id",
             value=session_id,
-            httponly=True,
             max_age=GUEST_SESSION_TIMEOUT,
-            samesite="Lax",
-            secure=settings.SESSION_COOKIE_SECURE,
-            domain=settings.SESSION_COOKIE_DOMAIN or None,
+            config=settings,
         )
         
         # 获取今日剩余操作次数
@@ -208,14 +179,13 @@ async def get_current_user(request: Request, response: Response):
                 if db_session and db_session.guest_name != guest_name:
                     db_session.guest_name = guest_name
                     db.commit()
-                response.set_cookie(
+                set_auth_cookie(
+                    response,
+                    request,
                     key=GUEST_IDENTITY_COOKIE,
                     value=guest_cookie,
-                    httponly=True,
                     max_age=GUEST_IDENTITY_MAX_AGE,
-                    samesite="Lax",
-                    secure=settings.SESSION_COOKIE_SECURE,
-                    domain=settings.SESSION_COOKIE_DOMAIN or None,
+                    config=settings,
                 )
 
             client_ip = session["guest_ip"]
@@ -252,7 +222,7 @@ async def logout(request: Request, response: Response):
         with get_db_context() as db:
             delete_session(db, session_id)
     
-    response.delete_cookie("session_id")
+    delete_auth_cookie(response, request, key="session_id", config=settings)
     return {"message": "登出成功"}
 
 

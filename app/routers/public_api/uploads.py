@@ -25,7 +25,7 @@ def _allowed_image_extensions() -> set[str]:
     return {ext.lower().lstrip(".") for ext in settings.ALLOWED_EXTENSIONS}
 
 
-async def _save_limited_upload(file: UploadFile, suffix: str) -> str:
+def _save_limited_upload(file: UploadFile, suffix: str) -> str:
     total = 0
     temp_file_path = ""
     try:
@@ -33,7 +33,7 @@ async def _save_limited_upload(file: UploadFile, suffix: str) -> str:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=settings.TEMP_PATH) as temp_file:
             temp_file_path = temp_file.name
             while True:
-                chunk = await file.read(1024 * 1024)
+                chunk = file.file.read(1024 * 1024)
                 if not chunk:
                     break
                 total += len(chunk)
@@ -72,7 +72,7 @@ def _safe_temp_image_path(filename: str) -> Path:
 
 # 上传相关路由
 @router.post("/upload/single", response_model=schemas.UploadImageResponse)
-async def upload_single_image(
+def upload_single_image(
     request: Request,
     file: UploadFile = File(...),
     character_ids: str = Form(...),  # JSON字符串形式的角色ID列表
@@ -130,6 +130,8 @@ async def upload_single_image(
 
     with get_db_context() as db:
         session = get_current_session(request, db)
+        if not session:
+            raise HTTPException(status_code=401, detail="Login required")
         is_admin = False
         user_id = None
         guest_ip = None
@@ -144,12 +146,18 @@ async def upload_single_image(
                     raise HTTPException(status_code=429, detail="今日操作次数已用完")
             else:
                 user = db.query(User).filter(User.id == session["user_id"]).first()
-                if user:
-                    user_id = user.id
-                    is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
+                if not user:
+                    raise HTTPException(status_code=401, detail="Invalid session")
+                user_id = user.id
+                is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
         
         # Stream the upload to disk so large images do not sit in memory.
-        temp_file_path = await _save_limited_upload(file, suffix=f'.{file_extension}')
+        # This endpoint is deliberately synchronous. FastAPI executes the
+        # entire upload, Pillow validation, file copy, thumbnail generation,
+        # and SQLAlchemy unit of work in one worker thread. That keeps blocking
+        # image/filesystem work off the event loop without sharing a Session
+        # across threads.
+        temp_file_path = _save_limited_upload(file, suffix=f'.{file_extension}')
         _verify_image_file(temp_file_path)
 
         if is_admin:

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Request
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query, Request
 from fastapi.responses import FileResponse
 from typing import List, Optional, Union
 from pathlib import Path
@@ -28,8 +28,8 @@ def search_images(
     feature_tag_id: Optional[int] = None,
     pid: Optional[str] = None,
     description: Optional[str] = None,
-    limit: int = 50,
-    offset: int = 0
+    limit: int = Query(50, ge=1, le=settings.MAX_PAGE_SIZE),
+    offset: int = Query(0, ge=0)
 ):
     """搜索图片"""
     with get_db_context() as db:
@@ -94,9 +94,11 @@ def get_image(image_id: str):
 
 
 @router.get("/images/{image_id}/download")
-def download_image(image_id: str):
+def download_image(image_id: str, request: Request):
     """Download a managed original image through an id-based safe endpoint."""
     with get_db_context() as db:
+        if not get_current_session(request, db):
+            raise HTTPException(status_code=401, detail="Login required")
         db_image = db.query(models.Image).filter(
             models.Image.image_id == image_id,
             models.Image.file_status == ImageService.AVAILABLE
@@ -136,6 +138,8 @@ def update_image(image_id: str, image_update: schemas.ImageUpdate, request: Requ
     # 检查用户权限
     with get_db_context() as db:
         session = get_current_session(request, db)
+        if not session:
+            raise HTTPException(status_code=401, detail="Login required")
         is_admin = False
         user_id = None
         guest_ip = None
@@ -149,9 +153,10 @@ def update_image(image_id: str, image_update: schemas.ImageUpdate, request: Requ
                     raise HTTPException(status_code=429, detail="今日操作次数已用完")
             else:
                 user = db.query(User).filter(User.id == session["user_id"]).first()
-                if user:
-                    user_id = user.id
-                    is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
+                if not user:
+                    raise HTTPException(status_code=401, detail="Invalid session")
+                user_id = user.id
+                is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
 
         # 校验图片是否存在
         db_image = db.query(models.Image).filter(models.Image.image_id == image_id).first()
@@ -243,6 +248,8 @@ def delete_image(image_id: str, request: Request):
     # 检查用户权限
     with get_db_context() as db:
         session = get_current_session(request, db)
+        if not session:
+            raise HTTPException(status_code=401, detail="Login required")
         is_admin = False
         user_id = None
         guest_ip = None
@@ -256,9 +263,10 @@ def delete_image(image_id: str, request: Request):
                     raise HTTPException(status_code=429, detail="今日操作次数已用完")
             else:
                 user = db.query(User).filter(User.id == session["user_id"]).first()
-                if user:
-                    user_id = user.id
-                    is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
+                if not user:
+                    raise HTTPException(status_code=401, detail="Invalid session")
+                user_id = user.id
+                is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
 
         # 校验图片是否存在
         db_image = db.query(models.Image).filter(models.Image.image_id == image_id).first()

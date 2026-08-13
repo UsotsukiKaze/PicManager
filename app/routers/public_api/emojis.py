@@ -1,4 +1,4 @@
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from pathlib import Path
 from typing import Optional
@@ -15,6 +15,7 @@ from ...config import settings
 from ...database import get_db_context
 from ...security.permissions import require_admin_user_id
 from ...services import EmojiService, EmotionTagService
+from ..auth import get_session
 
 router = APIRouter()
 
@@ -77,7 +78,10 @@ def _validate_emoji_tags(db, character_ids: list[int], group_ids: list[int], emo
 
 
 @router.get("/emotion-tags/", response_model=list[schemas.EmotionTag])
-def list_emotion_tags(skip: int = 0, limit: int = 500):
+def list_emotion_tags(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=settings.MAX_PAGE_SIZE),
+):
     with get_db_context() as db:
         return EmotionTagService.get_emotion_tags(db, skip, limit)
 
@@ -121,8 +125,8 @@ def search_emojis(
     character_id: Optional[int] = None,
     emotion_id: Optional[int] = None,
     description: Optional[str] = None,
-    limit: int = 50,
-    offset: int = 0,
+    limit: int = Query(50, ge=1, le=settings.MAX_PAGE_SIZE),
+    offset: int = Query(0, ge=0),
 ):
     with get_db_context() as db:
         params = schemas.EmojiSearchParams(
@@ -156,7 +160,7 @@ def get_emoji(emoji_id: str):
 
 
 @router.post("/emojis/upload", response_model=schemas.UploadImageResponse)
-async def upload_emoji(
+def upload_emoji(
     request: Request,
     file: UploadFile = File(...),
     character_ids: str = Form("[]"),
@@ -180,7 +184,7 @@ async def upload_emoji(
             temp_path = temp_file.name
             total = 0
             while True:
-                chunk = await file.read(1024 * 1024)
+                chunk = file.file.read(1024 * 1024)
                 if not chunk:
                     break
                 total += len(chunk)
@@ -238,8 +242,13 @@ def delete_emoji(emoji_id: str, request: Request):
 
 
 @router.get("/emojis/{emoji_id}/download")
-def download_emoji(emoji_id: str):
+def download_emoji(emoji_id: str, request: Request):
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Login required")
     with get_db_context() as db:
+        if not get_session(db, session_id):
+            raise HTTPException(status_code=401, detail="Login required")
         db_emoji = db.query(models.Emoji).filter(models.Emoji.emoji_id == emoji_id, models.Emoji.file_status == EmojiService.AVAILABLE).first()
         if not db_emoji or not EmojiService.emoji_file_exists(db_emoji):
             raise HTTPException(status_code=404, detail="Emoji not found")

@@ -1,6 +1,7 @@
 # PicManager 配置文件
 from pydantic_settings import BaseSettings
 import os
+import secrets
 from pathlib import Path
 
 class Settings(BaseSettings):
@@ -38,7 +39,7 @@ class Settings(BaseSettings):
     # 服务器配置
     HOST: str = "0.0.0.0"
     PORT: int = 8000
-    DEBUG: bool = True
+    DEBUG: bool = False
     ENABLE_API_DOCS: bool = False
     
     # 安全配置
@@ -55,6 +56,10 @@ class Settings(BaseSettings):
     SESSION_COOKIE_SECURE: bool = False
     SESSION_COOKIE_DOMAIN: str | None = None
     TRUST_PROXY_HEADERS: bool = False
+    TRUSTED_HOSTS: str = "localhost,127.0.0.1,pic.usotsuki-kaze.com,usotsuki-kaze.com,www.usotsuki-kaze.com"
+    LAN_DEBUG_ENABLED: bool = False
+    LAN_DEBUG_HOSTS: str = ""
+    LAN_DEBUG_BASE_URL: str = ""
     
     class Config:
         env_file = ".env"
@@ -63,3 +68,48 @@ class Settings(BaseSettings):
 
 # 创建全局设置实例
 settings = Settings()
+
+
+_INSECURE_SECRET_KEYS = {
+    "",
+    "your-secret-key-here",
+    "your-secret-key-change-this-in-production-min-32-chars",
+}
+
+
+def _resolve_secret_key(config: Settings) -> str:
+    """Return a stable signing key without accepting shipped placeholders."""
+    configured = str(config.SECRET_KEY or "").strip()
+    if configured not in _INSECURE_SECRET_KEYS:
+        if len(configured) < 32:
+            raise RuntimeError("SECRET_KEY must contain at least 32 characters")
+        return configured
+
+    secret_path = Path(config.DATA_PATH) / ".secret_key"
+    secret_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        persisted = secret_path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        persisted = ""
+    if persisted:
+        if len(persisted) < 32:
+            raise RuntimeError(f"Runtime signing key is invalid: {secret_path}")
+        return persisted
+
+    generated = secrets.token_urlsafe(48)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    try:
+        descriptor = os.open(secret_path, flags, 0o600)
+    except FileExistsError:
+        persisted = secret_path.read_text(encoding="utf-8").strip()
+        if len(persisted) < 32:
+            raise RuntimeError(f"Runtime signing key is invalid: {secret_path}")
+        return persisted
+
+    with os.fdopen(descriptor, "w", encoding="utf-8") as secret_file:
+        secret_file.write(generated)
+    return generated
+
+
+settings.SECRET_KEY = _resolve_secret_key(settings)

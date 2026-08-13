@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Request
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query, Request
 from typing import List, Optional, Union
 
 from ...database import get_db_context
@@ -29,6 +29,10 @@ def create_character(character: schemas.CharacterCreate, request: Request):
     """创建角色"""
     _validate_managed_avatar(character.avatar_url)
     with get_db_context() as db:
+        session = get_current_session(request, db)
+        if not session:
+            raise HTTPException(status_code=401, detail="Login required")
+
         existing = db.query(models.Character).filter(
             models.Character.group_id == character.group_id,
             models.Character.name == character.name
@@ -36,7 +40,6 @@ def create_character(character: schemas.CharacterCreate, request: Request):
         if existing:
             raise HTTPException(status_code=400, detail="该分组下已存在同名角色")
 
-        session = get_current_session(request, db)
         is_admin = False
         is_logged_in_user = False
         user_id = None
@@ -51,10 +54,11 @@ def create_character(character: schemas.CharacterCreate, request: Request):
                     raise HTTPException(status_code=429, detail="今日操作次数已用完")
             else:
                 user = db.query(User).filter(User.id == session["user_id"]).first()
-                if user:
-                    user_id = user.id
-                    is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
-                    is_logged_in_user = True
+                if not user:
+                    raise HTTPException(status_code=401, detail="Invalid session")
+                user_id = user.id
+                is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
+                is_logged_in_user = True
 
         # 校验分组是否存在
         group_exists = db.query(models.Group).filter(models.Group.id == character.group_id).first()
@@ -91,7 +95,11 @@ def create_character(character: schemas.CharacterCreate, request: Request):
         return {"message": "提交成功，等待管理员审核"}
 
 @router.get("/characters/", response_model=List[schemas.CharacterWithGroupName])
-def get_characters(group_id: Optional[int] = None, skip: int = 0, limit: int = 1000):
+def get_characters(
+    group_id: Optional[int] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=settings.MAX_PAGE_SIZE),
+):
     """获取角色列表"""
     with get_db_context() as db:
         return CharacterService.get_characters(db, group_id, skip, limit)
@@ -110,6 +118,8 @@ def update_character(character_id: int, character_update: schemas.CharacterUpdat
     """更新角色"""
     with get_db_context() as db:
         session = get_current_session(request, db)
+        if not session:
+            raise HTTPException(status_code=401, detail="Login required")
         is_admin = False
         is_logged_in_user = False
         user_id = None
@@ -124,10 +134,11 @@ def update_character(character_id: int, character_update: schemas.CharacterUpdat
                     raise HTTPException(status_code=429, detail="今日操作次数已用完")
             else:
                 user = db.query(User).filter(User.id == session["user_id"]).first()
-                if user:
-                    user_id = user.id
-                    is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
-                    is_logged_in_user = True
+                if not user:
+                    raise HTTPException(status_code=401, detail="Invalid session")
+                user_id = user.id
+                is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
+                is_logged_in_user = True
 
         # 校验角色是否存在
         existing = db.query(models.Character).filter(models.Character.id == character_id).first()
@@ -184,6 +195,8 @@ def delete_character(character_id: int, request: Request):
     """删除角色"""
     with get_db_context() as db:
         session = get_current_session(request, db)
+        if not session:
+            raise HTTPException(status_code=401, detail="Login required")
         is_admin = False
         is_logged_in_user = False
         user_id = None
@@ -198,10 +211,11 @@ def delete_character(character_id: int, request: Request):
                     raise HTTPException(status_code=429, detail="今日操作次数已用完")
             else:
                 user = db.query(User).filter(User.id == session["user_id"]).first()
-                if user:
-                    user_id = user.id
-                    is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
-                    is_logged_in_user = True
+                if not user:
+                    raise HTTPException(status_code=401, detail="Invalid session")
+                user_id = user.id
+                is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
+                is_logged_in_user = True
 
         # 校验角色是否存在
         existing = db.query(models.Character).filter(models.Character.id == character_id).first()

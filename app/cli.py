@@ -131,7 +131,7 @@ def build_parser() -> argparse.ArgumentParser:
     run = subparsers.add_parser("run", help="启动 Web 服务")
     run.add_argument("--host", help="覆盖监听地址")
     run.add_argument("--port", type=int, help="覆盖监听端口")
-    run.add_argument("--reload", dest="reload", action="store_true", default=True, help="开启热重载")
+    run.add_argument("--reload", dest="reload", action="store_true", default=False, help="开启热重载")
     run.add_argument("--no-reload", dest="reload", action="store_false", help="关闭热重载")
     run.add_argument("--log-level", default="info", choices=["critical", "error", "warning", "info", "debug", "trace"])
     run.set_defaults(func=cmd_run)

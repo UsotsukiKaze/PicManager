@@ -6,6 +6,7 @@ import uuid
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from PIL import Image, ImageOps, UnidentifiedImageError
+from starlette.concurrency import run_in_threadpool
 
 from ...config import settings
 from ...database import get_db_context
@@ -41,9 +42,13 @@ def _two_pass_square_resize(image: Image.Image, target_size: int) -> Image.Image
 
 
 def _encode_avatar(image: Image.Image, max_bytes: int) -> bytes | None:
-    for quality in range(92, 31, -4):
+    # A long method=6 quality sweep is pathological for noisy RGBA images: a
+    # single avatar can monopolize a worker for close to a minute. A small,
+    # bounded sweep at method=4 is visually suitable at avatar sizes and keeps
+    # worst-case processing predictable.
+    for quality in (88, 72, 56, 40):
         output = BytesIO()
-        image.save(output, format="WEBP", quality=quality, method=6, exact=True)
+        image.save(output, format="WEBP", quality=quality, method=4)
         payload = output.getvalue()
         if len(payload) <= max_bytes:
             return payload
@@ -54,7 +59,7 @@ def process_avatar_bytes(raw: bytes) -> bytes:
     try:
         with Image.open(BytesIO(raw)) as source:
             avatar = _two_pass_square_resize(source, settings.AVATAR_SIZE)
-            for size in (settings.AVATAR_SIZE, 448, 384, 320, 256, 192, 128):
+            for size in (settings.AVATAR_SIZE, 384, 256, 192, 128):
                 if avatar.width != size:
                     avatar = _two_pass_square_resize(avatar, size)
                 payload = _encode_avatar(avatar, settings.AVATAR_MAX_FILE_SIZE)
@@ -89,26 +94,32 @@ async def process_avatar(request: Request, file: UploadFile = File(...)):
         if not get_current_session(request, db):
             raise HTTPException(status_code=401, detail="请先登录或进入游客模式")
 
-    payload = process_avatar_bytes(await _read_limited(file))
-    with Image.open(BytesIO(payload)) as processed:
-        output_width, output_height = processed.size
-    avatar_name = f"{uuid.uuid4().hex}.webp"
-    avatar_root = Path(settings.AVATAR_PATH).resolve()
-    avatar_root.mkdir(parents=True, exist_ok=True)
-    avatar_path = (avatar_root / avatar_name).resolve()
-    avatar_path.relative_to(avatar_root)
+    raw = await _read_limited(file)
 
-    temporary_path = avatar_path.with_suffix(".tmp")
-    try:
-        temporary_path.write_bytes(payload)
-        os.replace(temporary_path, avatar_path)
-    finally:
-        if temporary_path.exists():
-            temporary_path.unlink()
+    def process_and_store() -> tuple[str, int, int, int]:
+        payload = process_avatar_bytes(raw)
+        with Image.open(BytesIO(payload)) as processed:
+            output_width, output_height = processed.size
+        avatar_name = f"{uuid.uuid4().hex}.webp"
+        avatar_root = Path(settings.AVATAR_PATH).resolve()
+        avatar_root.mkdir(parents=True, exist_ok=True)
+        avatar_path = (avatar_root / avatar_name).resolve()
+        avatar_path.relative_to(avatar_root)
+
+        temporary_path = avatar_path.with_suffix(".tmp")
+        try:
+            temporary_path.write_bytes(payload)
+            os.replace(temporary_path, avatar_path)
+        finally:
+            if temporary_path.exists():
+                temporary_path.unlink()
+        return avatar_name, output_width, output_height, len(payload)
+
+    avatar_name, output_width, output_height, output_size = await run_in_threadpool(process_and_store)
 
     return {
         "avatar_url": f"/resource/avatars/{avatar_name}",
         "width": output_width,
         "height": output_height,
-        "file_size": len(payload),
+        "file_size": output_size,
     }

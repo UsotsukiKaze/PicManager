@@ -21,7 +21,7 @@
         html:not(.app-booting) .app-bootstrap-status { display: none; }
     </style>
     <noscript><meta http-equiv="refresh" content="0; url=/login"></noscript>
-    <script src="/static/js/auth.js?v=20260813c"></script>
+    <script src="/static/js/auth.js?v=20260813d"></script>
 </head>
 <body>
     <div class="app-bootstrap-status" role="status">正在验证登录状态…</div>
@@ -579,6 +579,7 @@
                             <button class="btn btn-secondary" onclick="syncImageStatus()">重新检查</button>
                             <button class="btn btn-secondary" onclick="rebuildThumbnails()">生成小图</button>
                             <button class="btn btn-secondary" onclick="scanStoreOrphans()">找多出来的文件</button>
+                            <button class="btn btn-secondary" id="scan-duplicates-button" onclick="scanExistingDuplicates()">比对重复图片</button>
                             <button class="btn btn-danger" onclick="cleanupOrphaned()">收起打不开的图</button>
                         </div>
                     </div>

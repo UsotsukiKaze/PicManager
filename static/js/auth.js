@@ -126,8 +126,8 @@ class AuthManager {
                 '/static/js/pinyin-search.js?v=20260812a',
                 '/static/js/character-selector.js?v=20260812a',
                 '/static/js/tag-selector.js?v=20260812a',
-                '/static/js/api.js?v=20260813c',
-                '/static/js/ui.js?v=20260813c',
+                '/static/js/api.js?v=20260813d',
+                '/static/js/ui.js?v=20260813d',
                 '/static/js/main.js?v=20260812c',
             ];
 

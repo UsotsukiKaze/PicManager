@@ -430,6 +430,19 @@ class API {
         });
     }
 
+    async scanExistingDuplicates(limit = 25) {
+        return this.request(`/system/duplicates/scan?limit=${encodeURIComponent(limit)}`, {
+            method: 'POST',
+        });
+    }
+
+    async resolveExistingDuplicates(imageIds, keepImageId) {
+        return this.request('/system/duplicates/resolve', {
+            method: 'POST',
+            body: JSON.stringify({ image_ids: imageIds, keep_image_id: keepImageId }),
+        });
+    }
+
     // 榜单
     async getRankings(limit = 10) {
         return this.request(`/rankings?limit=${limit}`);

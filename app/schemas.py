@@ -274,6 +274,18 @@ class DuplicateImageResolveRequest(BaseModel):
     token: str = Field(min_length=32, max_length=16384)
     keep: str = Field(min_length=3, max_length=32)
 
+class ExistingDuplicateResolveRequest(BaseModel):
+    image_ids: List[str] = Field(min_length=2, max_length=20)
+    keep_image_id: str = Field(min_length=10, max_length=10)
+
+    @field_validator("image_ids")
+    @classmethod
+    def validate_image_ids(cls, values: List[str]) -> List[str]:
+        unique = list(dict.fromkeys(values))
+        if len(unique) < 2 or any(len(value) != 10 for value in unique):
+            raise ValueError("At least two valid image IDs are required")
+        return unique
+
 # Temp目录上传
 class TempImageUpload(BaseModel):
     filename: str

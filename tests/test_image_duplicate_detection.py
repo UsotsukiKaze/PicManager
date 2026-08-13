@@ -71,6 +71,117 @@ def test_duplicate_search_is_scoped_to_selected_characters(tmp_path):
     assert other_matches == []
 
 
+def test_existing_duplicate_scan_and_resolve_are_character_scoped(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'maintenance-duplicates.db'}")
+    models.Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    first_file = tmp_path / "first.png"
+    second_file = tmp_path / "second.webp"
+    unrelated_file = tmp_path / "unrelated.png"
+    _pattern(first_file, "PNG")
+    _pattern(second_file, "WEBP")
+    _pattern(unrelated_file, "PNG")
+
+    with Session() as db:
+        group = models.Group(name="group")
+        selected = models.Character(name="selected", group=group)
+        other = models.Character(name="other", group=group)
+        first = models.Image(
+            image_id="1111111111",
+            original_filename="first.png",
+            file_extension="png",
+            file_path=str(first_file),
+            file_status=ImageService.AVAILABLE,
+            thumb_status=ImageService.THUMB_PENDING,
+            characters=[selected],
+        )
+        second = models.Image(
+            image_id="2222222222",
+            original_filename="second.webp",
+            file_extension="webp",
+            file_path=str(second_file),
+            file_status=ImageService.AVAILABLE,
+            thumb_status=ImageService.THUMB_PENDING,
+            characters=[selected],
+        )
+        unrelated = models.Image(
+            image_id="3333333333",
+            original_filename="unrelated.png",
+            file_extension="png",
+            file_path=str(unrelated_file),
+            file_status=ImageService.AVAILABLE,
+            thumb_status=ImageService.THUMB_PENDING,
+            characters=[other],
+        )
+        db.add_all([group, selected, other, first, second, unrelated])
+        db.commit()
+
+        result = ImageService.scan_existing_perceptual_duplicates(db, threshold=1)
+
+        assert result["scanned_images"] == 3
+        assert result["computed_hashes"] == 3
+        assert [item["image_ids"] for item in result["groups"]] == [["1111111111", "2222222222"]]
+        assert {item["image_id"] for item in result["groups"][0]["images"]} == {
+            "1111111111",
+            "2222222222",
+        }
+
+        archived = ImageService.resolve_existing_perceptual_duplicates(
+            db,
+            ["1111111111", "2222222222"],
+            "2222222222",
+            threshold=1,
+        )
+        db.commit()
+
+        assert archived == 1
+        assert first.file_status == ImageService.ARCHIVED
+        assert second.file_status == ImageService.AVAILABLE
+        assert unrelated.file_status == ImageService.AVAILABLE
+
+
+def test_existing_duplicate_resolution_rejects_images_without_shared_character(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'maintenance-safety.db'}")
+    models.Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    left_file = tmp_path / "left.png"
+    right_file = tmp_path / "right.png"
+    _pattern(left_file, "PNG")
+    _pattern(right_file, "PNG")
+
+    with Session() as db:
+        group = models.Group(name="group")
+        left_character = models.Character(name="left", group=group)
+        right_character = models.Character(name="right", group=group)
+        left = models.Image(
+            image_id="AAAAAAAAAA",
+            file_extension="png",
+            file_path=str(left_file),
+            file_status=ImageService.AVAILABLE,
+            characters=[left_character],
+        )
+        right = models.Image(
+            image_id="BBBBBBBBBB",
+            file_extension="png",
+            file_path=str(right_file),
+            file_status=ImageService.AVAILABLE,
+            characters=[right_character],
+        )
+        db.add_all([group, left_character, right_character, left, right])
+        db.commit()
+
+        with pytest.raises(ValueError, match="share a character"):
+            ImageService.resolve_existing_perceptual_duplicates(
+                db,
+                [left.image_id, right.image_id],
+                left.image_id,
+                threshold=0,
+            )
+
+        assert left.file_status == ImageService.AVAILABLE
+        assert right.file_status == ImageService.AVAILABLE
+
+
 def test_duplicate_decision_token_rejects_tampering():
     token = uploads._encode_duplicate_token({"expires_at": 4_102_444_800, "match_ids": ["ABCDEF1234"]})
     assert uploads._decode_duplicate_token(token)["match_ids"] == ["ABCDEF1234"]

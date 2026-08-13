@@ -1,6 +1,7 @@
 from fastapi import HTTPException
+import pytest
 
-from app import models
+from app import schemas
 from app.routers import system
 from app.services import SystemService
 
@@ -45,3 +46,23 @@ def test_diagnostics_requires_admin_before_database_work(monkeypatch):
         assert exc.status_code == 401
     else:
         raise AssertionError("diagnostics must require admin")
+
+
+def test_existing_duplicate_maintenance_requires_admin(monkeypatch):
+    monkeypatch.setattr(
+        system,
+        "require_admin_user_id",
+        lambda request: (_ for _ in ()).throw(HTTPException(status_code=401)),
+    )
+
+    with pytest.raises(HTTPException) as scan_error:
+        system.scan_existing_duplicates(object())
+    assert scan_error.value.status_code == 401
+
+    choice = schemas.ExistingDuplicateResolveRequest(
+        image_ids=["1111111111", "2222222222"],
+        keep_image_id="1111111111",
+    )
+    with pytest.raises(HTTPException) as resolve_error:
+        system.resolve_existing_duplicates(choice, object())
+    assert resolve_error.value.status_code == 401

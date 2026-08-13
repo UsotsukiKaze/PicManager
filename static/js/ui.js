@@ -3133,5 +3133,60 @@ async function scanStoreOrphans() {
     }
 }
 
+async function scanExistingDuplicates() {
+    if (!ui.isAdminView()) {
+        ui.showToast('只有管理员可以执行维护操作', 'warning');
+        return;
+    }
+
+    const button = document.getElementById('scan-duplicates-button');
+    if (button?.disabled) return;
+    let archived = 0;
+    let scanned = 0;
+    try {
+        if (button) {
+            button.disabled = true;
+            button.textContent = '正在比对…';
+        }
+        const uploadFeature = await window.auth.loadFeature('upload');
+        while (true) {
+            const result = await api.scanExistingDuplicates(25);
+            scanned = Math.max(scanned, Number(result.scanned_images || 0));
+            const groups = result.groups || [];
+            if (groups.length === 0) break;
+
+            for (const group of groups) {
+                const choice = await uploadFeature.resolveDuplicateChoice({
+                    duplicates: group.images || [],
+                });
+                if (!choice) {
+                    ui.showToast(`已停止比对；本次已归档 ${archived} 张重复图片`, 'info');
+                    return;
+                }
+                const keepImageId = choice.startsWith('existing:') ? choice.slice('existing:'.length) : '';
+                if (!keepImageId) throw new Error('请选择一张现有图片');
+                const resolved = await api.resolveExistingDuplicates(group.image_ids || [], keepImageId);
+                archived += Number(resolved.archived || 0);
+            }
+        }
+
+        ui.showToast(
+            archived > 0
+                ? `重复比对完成：扫描 ${scanned} 张，归档 ${archived} 张重复图片`
+                : `重复比对完成：扫描 ${scanned} 张，没有发现重复图片`,
+            'success'
+        );
+        ui.loadImages(null);
+        ui.loadSystemStatus();
+    } catch (error) {
+        ui.showToast(`重复比对失败: ${error.message}`, 'error');
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.textContent = '比对重复图片';
+        }
+    }
+}
+
 // 创建全局UI实例
 window.ui = new UIManager();

@@ -13,7 +13,7 @@ def test_anonymous_shell_only_eagerly_loads_auth_bootstrap():
     html = INDEX_HTML.read_text(encoding="utf-8")
     eager_scripts = re.findall(r'<script\b[^>]*\bsrc="([^"]+)"', html)
 
-    assert eager_scripts == ["/static/js/auth.js?v=20260813c"]
+    assert eager_scripts == ["/static/js/auth.js?v=20260813d"]
     assert 'class="app-booting"' in html
     assert '<noscript><meta http-equiv="refresh" content="0; url=/login"></noscript>' in html
     assert 'rel="stylesheet" href="/static/css/style.css' not in html
@@ -33,8 +33,8 @@ def test_authenticated_bootstrap_loads_application_only_after_auth_success():
 
     for asset in (
         "/static/css/style.css?v=20260813c",
-        "/static/js/api.js?v=20260813c",
-        "/static/js/ui.js?v=20260813c",
+        "/static/js/api.js?v=20260813d",
+        "/static/js/ui.js?v=20260813d",
         "/static/js/main.js?v=20260812c",
     ):
         assert asset in source

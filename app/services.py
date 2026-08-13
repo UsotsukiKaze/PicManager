@@ -764,6 +764,37 @@ class ImageService:
         return (int(left, 16) ^ int(right, 16)).bit_count()
 
     @staticmethod
+    def _perceptual_hash_for_image(db: Session, image: models.Image) -> Optional[str]:
+        """Return a valid cached dHash, computing it from disk when necessary."""
+        if not ImageService.image_file_exists(image):
+            ImageService.mark_file_status(db, image, exists=False)
+            return None
+
+        candidate_hash = str(image.perceptual_hash or "").lower()
+        if len(candidate_hash) == 16 and all(char in "0123456789abcdef" for char in candidate_hash):
+            return candidate_hash
+
+        try:
+            thumb_path = ImageService.thumb_path(image)
+            hash_source = thumb_path if os.path.isfile(thumb_path) else ImageService.image_full_path(image)
+            candidate_hash = ImageService.compute_dhash(hash_source)
+        except (OSError, ValueError):
+            return None
+        image.perceptual_hash = candidate_hash
+        return candidate_hash
+
+    @staticmethod
+    def _duplicate_match(image: models.Image, distance: int) -> dict:
+        return {
+            "image_id": image.image_id,
+            "distance": distance,
+            "thumbnail_url": f"/resource/thumbs/{image.image_id}.webp",
+            "character_names": [character.name for character in image.characters],
+            "pid": image.pid,
+            "original_filename": image.original_filename,
+        }
+
+    @staticmethod
     def find_perceptual_duplicates(
         db: Session,
         file_path: str,
@@ -787,32 +818,166 @@ class ImageService:
 
         matches = []
         for candidate in candidates:
-            if not ImageService.image_file_exists(candidate):
-                ImageService.mark_file_status(db, candidate, exists=False)
+            candidate_hash = ImageService._perceptual_hash_for_image(db, candidate)
+            if not candidate_hash:
                 continue
-            candidate_hash = str(candidate.perceptual_hash or "").lower()
-            if len(candidate_hash) != 16 or any(char not in "0123456789abcdef" for char in candidate_hash):
-                try:
-                    thumb_path = ImageService.thumb_path(candidate)
-                    hash_source = thumb_path if os.path.isfile(thumb_path) else ImageService.image_full_path(candidate)
-                    candidate_hash = ImageService.compute_dhash(hash_source)
-                except (OSError, ValueError):
-                    continue
-                candidate.perceptual_hash = candidate_hash
 
             distance = ImageService.dhash_distance(upload_hash, candidate_hash)
             if distance <= threshold:
-                matches.append({
-                    "image_id": candidate.image_id,
-                    "distance": distance,
-                    "thumbnail_url": f"/resource/thumbs/{candidate.image_id}.webp",
-                    "character_names": [character.name for character in candidate.characters],
-                    "pid": candidate.pid,
-                    "original_filename": candidate.original_filename,
-                })
+                matches.append(ImageService._duplicate_match(candidate, distance))
 
         matches.sort(key=lambda item: (item["distance"], item["image_id"]))
         return upload_hash, matches
+
+    @staticmethod
+    def scan_existing_perceptual_duplicates(
+        db: Session,
+        threshold: Optional[int] = None,
+        limit: int = 100,
+    ) -> dict:
+        """Find non-overlapping duplicate pairs that share at least one character."""
+        threshold = settings.DUPLICATE_DHASH_DISTANCE if threshold is None else threshold
+        threshold = min(64, max(0, int(threshold)))
+        limit = min(500, max(1, int(limit)))
+        images = db.query(models.Image).options(
+            joinedload(models.Image.characters),
+        ).filter(
+            models.Image.file_status == ImageService.AVAILABLE,
+        ).order_by(models.Image.image_id).all()
+
+        hashes = {}
+        computed_hashes = 0
+        missing_images = 0
+        images_by_character = defaultdict(list)
+        for image in images:
+            previous_hash = str(image.perceptual_hash or "").lower()
+            candidate_hash = ImageService._perceptual_hash_for_image(db, image)
+            if not candidate_hash:
+                if image.file_status == ImageService.MISSING:
+                    missing_images += 1
+                continue
+            if candidate_hash != previous_hash:
+                computed_hashes += 1
+            hashes[image.image_id] = candidate_hash
+            for character in image.characters:
+                images_by_character[character.id].append(image)
+
+        groups = []
+        used_image_ids = set()
+        for character_id in sorted(images_by_character):
+            candidates = sorted(images_by_character[character_id], key=lambda item: item.image_id)
+            hash_tree = None
+
+            def add_to_tree(image):
+                nonlocal hash_tree
+                node = {"image": image, "children": {}}
+                if hash_tree is None:
+                    hash_tree = node
+                    return
+                current = hash_tree
+                while True:
+                    distance = ImageService.dhash_distance(
+                        hashes[image.image_id],
+                        hashes[current["image"].image_id],
+                    )
+                    child = current["children"].get(distance)
+                    if child is None:
+                        current["children"][distance] = node
+                        return
+                    current = child
+
+            def nearby_images(image):
+                if hash_tree is None:
+                    return []
+                found = []
+                pending = [hash_tree]
+                while pending:
+                    node = pending.pop()
+                    candidate = node["image"]
+                    distance = ImageService.dhash_distance(
+                        hashes[image.image_id],
+                        hashes[candidate.image_id],
+                    )
+                    if distance <= threshold and candidate.image_id not in used_image_ids:
+                        found.append((distance, candidate))
+                    lower = distance - threshold
+                    upper = distance + threshold
+                    pending.extend(
+                        child
+                        for edge, child in node["children"].items()
+                        if lower <= edge <= upper
+                    )
+                return found
+
+            for right in candidates:
+                matches = nearby_images(right) if right.image_id not in used_image_ids else []
+                if matches:
+                    distance, left = min(matches, key=lambda item: (item[0], item[1].image_id))
+                    groups.append({
+                        "image_ids": [left.image_id, right.image_id],
+                        "images": [
+                            ImageService._duplicate_match(left, 0),
+                            ImageService._duplicate_match(right, distance),
+                        ],
+                    })
+                    used_image_ids.update((left.image_id, right.image_id))
+                add_to_tree(right)
+                if len(groups) >= limit:
+                    break
+            if len(groups) >= limit:
+                break
+
+        return {
+            "algorithm": "dhash64",
+            "threshold": threshold,
+            "scanned_images": len(hashes),
+            "computed_hashes": computed_hashes,
+            "missing_images": missing_images,
+            "groups": groups,
+        }
+
+    @staticmethod
+    def resolve_existing_perceptual_duplicates(
+        db: Session,
+        image_ids: List[str],
+        keep_image_id: str,
+        threshold: Optional[int] = None,
+    ) -> int:
+        """Revalidate an existing duplicate group and archive every image except the selected one."""
+        unique_ids = list(dict.fromkeys(str(item) for item in image_ids if item))
+        if len(unique_ids) < 2 or keep_image_id not in unique_ids:
+            raise ValueError("Invalid duplicate selection")
+
+        threshold = settings.DUPLICATE_DHASH_DISTANCE if threshold is None else threshold
+        threshold = min(64, max(0, int(threshold)))
+        images = db.query(models.Image).options(
+            joinedload(models.Image.characters),
+        ).filter(
+            models.Image.image_id.in_(unique_ids),
+            models.Image.file_status == ImageService.AVAILABLE,
+        ).all()
+        image_map = {image.image_id: image for image in images}
+        if set(image_map) != set(unique_ids):
+            raise ValueError("Duplicate set changed")
+
+        keep = image_map[keep_image_id]
+        keep_hash = ImageService._perceptual_hash_for_image(db, keep)
+        keep_character_ids = {character.id for character in keep.characters}
+        if not keep_hash or not keep_character_ids:
+            raise ValueError("Selected image is no longer eligible")
+
+        for image_id in unique_ids:
+            if image_id == keep_image_id:
+                continue
+            image = image_map[image_id]
+            image_hash = ImageService._perceptual_hash_for_image(db, image)
+            shared_characters = keep_character_ids & {character.id for character in image.characters}
+            if not image_hash or not shared_characters:
+                raise ValueError("Images no longer share a character")
+            if ImageService.dhash_distance(keep_hash, image_hash) > threshold:
+                raise ValueError("Images are no longer duplicates")
+
+        return ImageService.archive_duplicate_images(db, unique_ids, keep_image_id=keep_image_id)
 
     @staticmethod
     def archive_duplicate_images(db: Session, image_ids: List[str], keep_image_id: Optional[str] = None) -> int:

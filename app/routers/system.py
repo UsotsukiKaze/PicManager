@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Query
+from fastapi import APIRouter, HTTPException, Request, Query
 
 from .. import schemas
 from ..config import settings
@@ -76,3 +76,35 @@ def scan_store_orphans(request: Request):
     with get_db_context() as db:
         moved = ImageService.move_orphaned_files_to_temp(db, settings.STORE_PATH, settings.TEMP_PATH)
         return {"message": f"Moved {moved} orphaned files to temp", "moved": moved}
+
+
+@router.post("/duplicates/scan")
+def scan_existing_duplicates(
+    request: Request,
+    limit: int = Query(25, ge=1, le=100),
+):
+    """Find existing images that share a character and are visually similar."""
+    require_admin_user_id(request)
+    with get_db_context() as db:
+        return ImageService.scan_existing_perceptual_duplicates(db, limit=limit)
+
+
+@router.post("/duplicates/resolve")
+def resolve_existing_duplicates(choice: schemas.ExistingDuplicateResolveRequest, request: Request):
+    """Revalidate a scanned duplicate group and archive all but the selected image."""
+    require_admin_user_id(request)
+    try:
+        with ImageService.DUPLICATE_WRITE_LOCK:
+            with get_db_context() as db:
+                archived = ImageService.resolve_existing_perceptual_duplicates(
+                    db,
+                    choice.image_ids,
+                    choice.keep_image_id,
+                )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "message": f"已保留 {choice.keep_image_id}，归档 {archived} 张重复图片",
+        "kept_image_id": choice.keep_image_id,
+        "archived": archived,
+    }

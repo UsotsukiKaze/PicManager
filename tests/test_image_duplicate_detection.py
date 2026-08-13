@@ -126,6 +126,13 @@ def test_existing_duplicate_scan_and_resolve_are_character_scoped(tmp_path):
             "2222222222",
         }
 
+        excluded = ImageService.scan_existing_perceptual_duplicates(
+            db,
+            threshold=1,
+            excluded_pairs=[["1111111111", "2222222222"]],
+        )
+        assert excluded["groups"] == []
+
         archived = ImageService.resolve_existing_perceptual_duplicates(
             db,
             ["1111111111", "2222222222"],
@@ -222,6 +229,17 @@ def test_admin_upload_can_keep_existing_then_replace_it(tmp_path, monkeypatch):
     monkeypatch.setattr(uploads.settings, "PENDING_PATH", str(pending_path))
     monkeypatch.setattr(uploads.settings, "STORE_PATH", str(store_path))
     monkeypatch.setattr(ImageService, "thumb_path", staticmethod(lambda image: str(thumb_path / f"{image.image_id}.webp")))
+    monkeypatch.setattr(
+        ImageService,
+        "image_full_path",
+        staticmethod(
+            lambda image: (
+                image.file_path
+                if Path(image.file_path).is_absolute()
+                else str(store_path / f"{image.image_id}.{image.file_extension}")
+            )
+        ),
+    )
 
     engine = create_engine(f"sqlite:///{tmp_path / 'route.db'}", connect_args={"check_same_thread": False})
     models.Base.metadata.create_all(engine)
@@ -314,5 +332,24 @@ def test_admin_upload_can_keep_existing_then_replace_it(tmp_path, monkeypatch):
         ).one()
         assert old.file_status == ImageService.ARCHIVED
         assert replacement.file_status == ImageService.AVAILABLE
+        replacement_id = replacement.image_id
         stored_replacement = store_path / f"{replacement.image_id}.{replacement.file_extension}"
         assert replacement.perceptual_hash == ImageService.compute_dhash(str(stored_replacement))
+
+    third = submit_duplicate()
+    assert third.json()["status"] == "duplicate"
+    keep_all = client.post(
+        "/upload/duplicates/resolve",
+        json={"token": third.json()["duplicate_token"], "keep": "all"},
+    )
+    assert keep_all.status_code == 200
+    assert keep_all.json()["status"] == "kept_all"
+
+    with Session() as db:
+        available = db.query(models.Image).filter(
+            models.Image.file_status == ImageService.AVAILABLE,
+        ).all()
+        assert {image.image_id for image in available} == {
+            replacement_id,
+            keep_all.json()["image_id"],
+        }

@@ -739,7 +739,7 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                 status="pending_cleanup" if pending_cleanup else "kept_existing",
             )
 
-        if choice.keep != "new":
+        if choice.keep not in {"new", "all"}:
             raise HTTPException(status_code=400, detail="Invalid duplicate choice")
         if guest_ip and not check_guest_limit(db, guest_ip):
             raise HTTPException(status_code=429, detail="今日操作次数已用完")
@@ -754,7 +754,8 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                 raise HTTPException(status_code=409, detail="Duplicate set changed; submit the image again")
 
             if is_admin:
-                ImageService.archive_duplicate_images(db, confirmed_ids)
+                if choice.keep == "new":
+                    ImageService.archive_duplicate_images(db, confirmed_ids)
                 image = ImageService.create_image(
                     db,
                     schemas.ImageCreate(
@@ -776,7 +777,14 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                         user_id=user_id,
                         status=RequestStatus.APPROVED.value,
                         image_id=image.image_id,
-                        image_data=json.dumps({**metadata, "replaced_duplicate_ids": confirmed_ids}),
+                        image_data=json.dumps({
+                            **metadata,
+                            **(
+                                {"replaced_duplicate_ids": confirmed_ids}
+                                if choice.keep == "new" else
+                                {"kept_duplicate_ids": confirmed_ids}
+                            ),
+                        }),
                         reviewed_at=datetime.utcnow(),
                         reviewed_by=user_id,
                     ))
@@ -787,8 +795,12 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                     source_path.unlink(missing_ok=True)
                 return schemas.UploadImageResponse(
                     image_id=image.image_id,
-                    message="已保留新图片，重复的现有图片已归档",
-                    status="replaced_duplicates",
+                    message=(
+                        "已保留新图片，重复的现有图片已归档"
+                        if choice.keep == "new" else
+                        "新图片和相似的现有图片均已保留"
+                    ),
+                    status="replaced_duplicates" if choice.keep == "new" else "kept_all",
                 )
 
             if source != "upload":
@@ -803,7 +815,7 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                 guest_name=guest_name,
                 image_data=json.dumps({
                     **metadata,
-                    "duplicate_keep": "new",
+                    "duplicate_keep": choice.keep,
                     "duplicate_image_ids": confirmed_ids,
                     "perceptual_hash": payload.get("upload_hash"),
                 }),
@@ -813,8 +825,12 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
             db.commit()
             return schemas.UploadImageResponse(
                 image_id="pending",
-                message="已提交替换请求，等待管理员审核",
-                status="pending_replacement",
+                message=(
+                    "已提交替换请求，等待管理员审核"
+                    if choice.keep == "new" else
+                    "已提交全部保留请求，等待管理员审核"
+                ),
+                status="pending_replacement" if choice.keep == "new" else "pending_review",
             )
 
 

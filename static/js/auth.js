@@ -7,7 +7,7 @@ class AuthManager {
         this.featureLoadPromises = {};
         this.featureAssets = {
             upload: {
-                src: '/static/js/upload.js?v=20260813c',
+                src: '/static/js/upload.js?v=20260813e',
                 resolve: () => window.upload,
             },
             emoji: {
@@ -119,15 +119,15 @@ class AuthManager {
         this.applicationLoadPromise = (async () => {
             await this.waitForDocumentBody();
             const stylesReady = Promise.all([
-                this.loadStyle('/static/css/style.css?v=20260813c'),
+                this.loadStyle('/static/css/style.css?v=20260813e'),
                 this.loadStyle('/static/css/icons.css?v=20260812a'),
             ]);
             const scripts = [
                 '/static/js/pinyin-search.js?v=20260812a',
                 '/static/js/character-selector.js?v=20260812a',
                 '/static/js/tag-selector.js?v=20260812a',
-                '/static/js/api.js?v=20260813d',
-                '/static/js/ui.js?v=20260813d',
+                '/static/js/api.js?v=20260813e',
+                '/static/js/ui.js?v=20260813e',
                 '/static/js/main.js?v=20260812c',
             ];
 

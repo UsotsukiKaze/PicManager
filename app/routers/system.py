@@ -82,11 +82,16 @@ def scan_store_orphans(request: Request):
 def scan_existing_duplicates(
     request: Request,
     limit: int = Query(25, ge=1, le=100),
+    options: schemas.ExistingDuplicateScanRequest | None = None,
 ):
     """Find existing images that share a character and are visually similar."""
     require_admin_user_id(request)
     with get_db_context() as db:
-        return ImageService.scan_existing_perceptual_duplicates(db, limit=limit)
+        return ImageService.scan_existing_perceptual_duplicates(
+            db,
+            limit=limit,
+            excluded_pairs=options.excluded_pairs if options else None,
+        )
 
 
 @router.post("/duplicates/resolve")

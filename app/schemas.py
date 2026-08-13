@@ -286,6 +286,24 @@ class ExistingDuplicateResolveRequest(BaseModel):
             raise ValueError("At least two valid image IDs are required")
         return unique
 
+class ExistingDuplicateScanRequest(BaseModel):
+    excluded_pairs: List[List[str]] = Field(default_factory=list, max_length=500)
+
+    @field_validator("excluded_pairs")
+    @classmethod
+    def validate_excluded_pairs(cls, pairs: List[List[str]]) -> List[List[str]]:
+        normalized = []
+        seen = set()
+        for pair in pairs:
+            unique = sorted(set(pair))
+            if len(unique) != 2 or any(len(value) != 10 for value in unique):
+                raise ValueError("Excluded pairs must contain two valid image IDs")
+            key = tuple(unique)
+            if key not in seen:
+                seen.add(key)
+                normalized.append(unique)
+        return normalized
+
 # Temp目录上传
 class TempImageUpload(BaseModel):
     filename: str

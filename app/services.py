@@ -834,11 +834,17 @@ class ImageService:
         db: Session,
         threshold: Optional[int] = None,
         limit: int = 100,
+        excluded_pairs: Optional[List[List[str]]] = None,
     ) -> dict:
         """Find non-overlapping duplicate pairs that share at least one character."""
         threshold = settings.DUPLICATE_DHASH_DISTANCE if threshold is None else threshold
         threshold = min(64, max(0, int(threshold)))
         limit = min(500, max(1, int(limit)))
+        excluded_pair_keys = {
+            frozenset(str(image_id) for image_id in pair)
+            for pair in (excluded_pairs or [])
+            if len(pair) == 2
+        }
         images = db.query(models.Image).options(
             joinedload(models.Image.characters),
         ).filter(
@@ -898,7 +904,12 @@ class ImageService:
                         hashes[image.image_id],
                         hashes[candidate.image_id],
                     )
-                    if distance <= threshold and candidate.image_id not in used_image_ids:
+                    pair_key = frozenset((image.image_id, candidate.image_id))
+                    if (
+                        distance <= threshold
+                        and candidate.image_id not in used_image_ids
+                        and pair_key not in excluded_pair_keys
+                    ):
                         found.append((distance, candidate))
                     lower = distance - threshold
                     upper = distance + threshold

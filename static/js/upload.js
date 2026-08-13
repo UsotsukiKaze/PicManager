@@ -391,12 +391,22 @@ class UploadManager {
                     <span><strong>保留新图片</strong><small>重复的现有图片将归档，但不会物理删除原文件</small></span>
                 </label>
             ` : '';
+            const keepAllDescription = newPreviewUrl
+                ? '不归档任何现有图片；新上传图片也会继续保存'
+                : '不归档任何图片；跳过本组并继续比对其他图片';
+            const keepAll = `
+                <label class="duplicate-choice-card duplicate-choice-all">
+                    <input type="radio" name="duplicate-keep" value="all">
+                    <div class="duplicate-keep-all-icon" aria-hidden="true">✓✓</div>
+                    <span><strong>全部保留</strong><small>${keepAllDescription}</small></span>
+                </label>
+            `;
             const overlay = document.getElementById('modal-overlay');
             const nested = overlay?.style.display === 'flex' && overlay.getAttribute('aria-hidden') !== 'true';
             ui.showModal('发现可能重复的图片', `
                 <div class="duplicate-review" role="group" aria-label="选择要保留的图片">
-                    <p>dHash 检测到 ${matches.length} 张相似图片。请选择保留哪一张。</p>
-                    <div class="duplicate-choice-list">${cards}${newPreview}</div>
+                    <p>dHash 检测到 ${matches.length} 张相似图片。请选择保留一张，或全部保留。</p>
+                    <div class="duplicate-choice-list">${cards}${newPreview}${keepAll}</div>
                     <div class="form-actions">
                         <button type="button" class="btn btn-secondary" id="duplicate-cancel">取消</button>
                         <button type="button" class="btn btn-primary" id="duplicate-confirm" disabled>确认选择</button>

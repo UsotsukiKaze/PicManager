@@ -24,3 +24,5 @@ def test_duplicate_dialog_serializes_batch_choices_and_handles_modal_close():
     assert "layer._onModalClose" in upload_source
     assert "typeof activeLayer?._onModalClose === 'function'" in ui_source
     assert "重复的现有图片将归档，但不会物理删除原文件" in upload_source
+    assert 'name="duplicate-keep" value="all"' in upload_source
+    assert "新上传图片也会继续保存" in upload_source

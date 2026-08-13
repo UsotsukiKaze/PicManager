@@ -342,7 +342,7 @@ async def handle_pending_request(
                     )
 
                     with ImageService.DUPLICATE_WRITE_LOCK:
-                        if image_data.get("duplicate_keep") == "new":
+                        if image_data.get("duplicate_keep") in {"new", "all"}:
                             _, current_matches = ImageService.find_perceptual_duplicates(
                                 db,
                                 pending_req.temp_file_path,
@@ -359,7 +359,8 @@ async def handle_pending_request(
                                 match["image_id"] for match in current_matches
                                 if match["image_id"] in expected_ids
                             ]
-                            ImageService.archive_duplicate_images(db, confirmed_ids)
+                            if image_data.get("duplicate_keep") == "new":
+                                ImageService.archive_duplicate_images(db, confirmed_ids)
 
                         image = ImageService.create_image(
                             db, image_create,

@@ -3143,6 +3143,7 @@ async function scanExistingDuplicates() {
     if (button?.disabled) return;
     let archived = 0;
     let scanned = 0;
+    const excludedPairs = [];
     try {
         if (button) {
             button.disabled = true;
@@ -3150,7 +3151,7 @@ async function scanExistingDuplicates() {
         }
         const uploadFeature = await window.auth.loadFeature('upload');
         while (true) {
-            const result = await api.scanExistingDuplicates(25);
+            const result = await api.scanExistingDuplicates(25, excludedPairs);
             scanned = Math.max(scanned, Number(result.scanned_images || 0));
             const groups = result.groups || [];
             if (groups.length === 0) break;
@@ -3162,6 +3163,10 @@ async function scanExistingDuplicates() {
                 if (!choice) {
                     ui.showToast(`已停止比对；本次已归档 ${archived} 张重复图片`, 'info');
                     return;
+                }
+                if (choice === 'all') {
+                    excludedPairs.push(group.image_ids || []);
+                    continue;
                 }
                 const keepImageId = choice.startsWith('existing:') ? choice.slice('existing:'.length) : '';
                 if (!keepImageId) throw new Error('请选择一张现有图片');

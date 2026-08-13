@@ -273,6 +273,20 @@ body {
     background: var(--background);
 }
 
+.duplicate-keep-all-icon {
+    display: grid;
+    place-items: center;
+    width: 92px;
+    height: 92px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--primary-color) 12%, var(--background));
+    color: var(--primary-color);
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -5px;
+    padding-right: 5px;
+}
+
 .duplicate-choice-card span,
 .duplicate-choice-card small {
     display: block;

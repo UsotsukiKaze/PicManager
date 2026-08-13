@@ -430,9 +430,10 @@ class API {
         });
     }
 
-    async scanExistingDuplicates(limit = 25) {
+    async scanExistingDuplicates(limit = 25, excludedPairs = []) {
         return this.request(`/system/duplicates/scan?limit=${encodeURIComponent(limit)}`, {
             method: 'POST',
+            body: JSON.stringify({ excluded_pairs: excludedPairs }),
         });
     }
 

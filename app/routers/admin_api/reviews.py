@@ -136,6 +136,20 @@ async def get_pending_requests(request: Request):
                     if characters:
                         item["character_names"] = [ch.name for ch in characters]
 
+                duplicate_ids = image_data.get("duplicate_image_ids") or []
+                if duplicate_ids:
+                    duplicate_images = db.query(Image).filter(Image.image_id.in_(duplicate_ids)).all()
+                    duplicate_map = {image.image_id: image for image in duplicate_images}
+                    item["image_data"]["duplicate_images"] = [
+                        {
+                            "image_id": image_id,
+                            "thumbnail_url": f"/resource/thumbs/{image_id}.webp",
+                            "pid": duplicate_map[image_id].pid,
+                        }
+                        for image_id in duplicate_ids
+                        if image_id in duplicate_map
+                    ]
+
                 # 分组/角色审核数据
                 if req.request_type.startswith("group_"):
                     if image_data.get("group_id"):
@@ -228,7 +242,7 @@ async def get_pending_requests(request: Request):
                         item["has_changes"] = bool(item["changes"])
             
             # 对于 edit 和 delete 请求，获取原图信息
-            if req.request_type in ["edit", "delete"] and req.image_id:
+            if req.request_type in ["edit", "delete", "duplicate_archive"] and req.image_id:
                 original_img = db.query(Image).filter(Image.image_id == req.image_id).first()
                 if original_img:
                     # 获取原图的角色信息
@@ -326,14 +340,34 @@ async def handle_pending_request(
                         description=image_data.get("description"),
                         age_rating=image_data.get("age_rating", "all"),
                     )
-                    
-                    image = ImageService.create_image(
-                        db, image_create, 
-                        pending_req.temp_file_path, 
-                        pending_req.original_filename, 
-                        file_extension, 
-                        store_path
-                    )
+
+                    with ImageService.DUPLICATE_WRITE_LOCK:
+                        if image_data.get("duplicate_keep") == "new":
+                            _, current_matches = ImageService.find_perceptual_duplicates(
+                                db,
+                                pending_req.temp_file_path,
+                                image_data.get("character_ids", []),
+                            )
+                            expected_ids = set(image_data.get("duplicate_image_ids") or [])
+                            current_ids = {match["image_id"] for match in current_matches}
+                            if not (expected_ids & current_ids) or current_ids - expected_ids:
+                                raise HTTPException(
+                                    status_code=409,
+                                    detail="Duplicate set changed; ask the requester to submit again",
+                                )
+                            confirmed_ids = [
+                                match["image_id"] for match in current_matches
+                                if match["image_id"] in expected_ids
+                            ]
+                            ImageService.archive_duplicate_images(db, confirmed_ids)
+
+                        image = ImageService.create_image(
+                            db, image_create,
+                            pending_req.temp_file_path,
+                            pending_req.original_filename,
+                            file_extension,
+                            store_path
+                        )
                     
                     # 删除临时文件
                     try:
@@ -363,6 +397,15 @@ async def handle_pending_request(
                     ImageService.update_image(db, pending_req.image_id, schemas.ImageUpdate(**update_data))
                 else:
                     unchanged = True
+
+            elif pending_req.request_type == "duplicate_archive":
+                image = db.query(Image).filter(Image.image_id == pending_req.image_id).first()
+                if not image:
+                    raise HTTPException(status_code=404, detail="图片不存在")
+                if image.file_status == ImageService.ARCHIVED:
+                    unchanged = True
+                else:
+                    image.file_status = ImageService.ARCHIVED
             
             elif pending_req.request_type == "group_add":
                 group_data = json.loads(pending_req.image_data) if pending_req.image_data else {}

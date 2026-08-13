@@ -356,7 +356,9 @@ class API {
                 if (xhr.status >= 200 && xhr.status < 300) {
                     resolve(data);
                 } else {
-                    reject(new Error((data && data.detail) || `HTTP ${xhr.status}`));
+                    const error = new Error((data && data.detail) || `HTTP ${xhr.status}`);
+                    error.status = xhr.status;
+                    reject(error);
                 }
             };
             xhr.onerror = () => reject(new Error('网络连接失败，请检查网络'));
@@ -380,6 +382,12 @@ class API {
             body: JSON.stringify(data),
         });
     }    
+    async resolveDuplicateImage(token, keep) {
+        return this.request('/upload/duplicates/resolve', {
+            method: 'POST',
+            body: JSON.stringify({ token, keep }),
+        });
+    }
     async deleteTempImage(filename) {
         return this.request(`/upload/temp/${encodeURIComponent(filename)}`, {
             method: 'DELETE'

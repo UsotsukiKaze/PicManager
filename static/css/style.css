@@ -234,6 +234,57 @@ body {
     mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='4' width='18' height='16' rx='2'/><circle cx='8.5' cy='9' r='1.5'/><path d='M21 16l-5-5-4 4-3-3-4 4'/></svg>");
 }
 
+.duplicate-review > p {
+    margin: 0 0 16px;
+    color: var(--text-secondary);
+}
+
+.duplicate-choice-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 12px;
+    max-height: min(56vh, 560px);
+    overflow: auto;
+    padding: 2px;
+}
+
+.duplicate-choice-card {
+    display: grid;
+    grid-template-columns: 22px 92px 1fr;
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    cursor: pointer;
+}
+
+.duplicate-choice-card:has(input:checked) {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 20%, transparent);
+}
+
+.duplicate-choice-card img {
+    width: 92px;
+    height: 92px;
+    object-fit: cover;
+    border-radius: 8px;
+    background: var(--background);
+}
+
+.duplicate-choice-card span,
+.duplicate-choice-card small {
+    display: block;
+    min-width: 0;
+}
+
+.duplicate-choice-card small {
+    margin-top: 5px;
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+}
+
 .menu-item[data-page="home"] .menu-icon {
     -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 11l9-8 9 8'/><path d='M5 10v10h14V10'/><path d='M9 20v-6h6v6'/></svg>");
     mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 11l9-8 9 8'/><path d='M5 10v10h14V10'/><path d='M9 20v-6h6v6'/></svg>");

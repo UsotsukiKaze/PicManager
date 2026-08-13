@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     AVATAR_MAX_FILE_SIZE: int = 256 * 1024
     AVATAR_UPLOAD_MAX_FILE_SIZE: int = 10 * 1024 * 1024
     AVATAR_SIZE: int = 512
+    DUPLICATE_DHASH_DISTANCE: int = 4
+    DUPLICATE_DECISION_TTL_SECONDS: int = 600
     
     # 分页配置
     DEFAULT_PAGE_SIZE: int = 50

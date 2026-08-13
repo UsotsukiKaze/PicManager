@@ -13,6 +13,7 @@ class UploadManager {
         this.batchWorkerCount = 3;
         this.nextBatchItemId = 1;
         this.batchOptions = null;
+        this.duplicateChoiceQueue = Promise.resolve();
     }
 
     initializeEventListeners() {
@@ -369,6 +370,82 @@ class UploadManager {
         return validTypes.includes(file.type);
     }
 
+    resolveDuplicateChoice(result, newPreviewUrl = '') {
+        const choose = () => new Promise(resolve => {
+            const matches = result.duplicates || [];
+            const cards = matches.map(match => `
+                <label class="duplicate-choice-card">
+                    <input type="radio" name="duplicate-keep" value="existing:${this.escapeHtml(match.image_id)}">
+                    <img src="${this.escapeHtml(match.thumbnail_url)}" alt="现有图片 ${this.escapeHtml(match.image_id)}" loading="lazy">
+                    <span>
+                        <strong>保留现有图片</strong>
+                        <small>ID ${this.escapeHtml(match.image_id)} · 差异 ${match.distance}/64</small>
+                        <small>${this.escapeHtml((match.character_names || []).join('、') || '未标注角色')}</small>
+                    </span>
+                </label>
+            `).join('');
+            const newPreview = newPreviewUrl ? `
+                <label class="duplicate-choice-card duplicate-choice-new">
+                    <input type="radio" name="duplicate-keep" value="new">
+                    <img src="${this.escapeHtml(newPreviewUrl)}" alt="本次上传的新图片">
+                    <span><strong>保留新图片</strong><small>重复的现有图片将归档，但不会物理删除原文件</small></span>
+                </label>
+            ` : '';
+            const overlay = document.getElementById('modal-overlay');
+            const nested = overlay?.style.display === 'flex' && overlay.getAttribute('aria-hidden') !== 'true';
+            ui.showModal('发现可能重复的图片', `
+                <div class="duplicate-review" role="group" aria-label="选择要保留的图片">
+                    <p>dHash 检测到 ${matches.length} 张相似图片。请选择保留哪一张。</p>
+                    <div class="duplicate-choice-list">${cards}${newPreview}</div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" id="duplicate-cancel">取消</button>
+                        <button type="button" class="btn btn-primary" id="duplicate-confirm" disabled>确认选择</button>
+                    </div>
+                </div>
+            `, nested);
+            const layer = document.getElementById('modal-body')?.lastElementChild;
+            let settled = false;
+            const finish = value => {
+                if (settled) return;
+                settled = true;
+                if (layer) delete layer._onModalClose;
+                ui.closeModal();
+                resolve(value);
+            };
+            if (layer) {
+                layer._onModalClose = () => {
+                    if (settled) return;
+                    settled = true;
+                    resolve(null);
+                };
+            }
+            layer?.querySelectorAll('input[name="duplicate-keep"]').forEach(input => {
+                input.addEventListener('change', () => {
+                    const confirmButton = layer.querySelector('#duplicate-confirm');
+                    if (confirmButton) confirmButton.disabled = false;
+                });
+            });
+            layer?.querySelector('#duplicate-cancel')?.addEventListener('click', () => finish(null));
+            layer?.querySelector('#duplicate-confirm')?.addEventListener('click', () => {
+                finish(layer.querySelector('input[name="duplicate-keep"]:checked')?.value || null);
+            });
+        });
+        const queued = this.duplicateChoiceQueue.then(choose, choose);
+        this.duplicateChoiceQueue = queued.catch(() => null);
+        return queued;
+    }
+
+    async uploadWithDuplicateChoice(file, metadata, onProgress, previewUrl = '') {
+        const firstResult = await api.uploadSingleImage(file, metadata, onProgress);
+        if (firstResult?.status !== 'duplicate') return firstResult;
+        const duplicateKeep = await this.resolveDuplicateChoice(firstResult, previewUrl);
+        if (!duplicateKeep) {
+            await api.resolveDuplicateImage(firstResult.duplicate_token, 'cancel');
+            return { status: 'cancelled', message: '已取消提交' };
+        }
+        return api.resolveDuplicateImage(firstResult.duplicate_token, duplicateKeep);
+    }
+
     async uploadSingleImage() {
         if (this.singleSubmitting) return;
         try {
@@ -410,10 +487,14 @@ class UploadManager {
             }
             ui.showToast('正在上传图片...', 'info');
             
-            const result = await api.uploadSingleImage(file, metadata, (progress) => {
+            const result = await this.uploadWithDuplicateChoice(file, metadata, (progress) => {
                 ui.showToast(`正在上传图片... ${progress}%`, 'info');
-            });
-            ui.showToast(result.message, 'success');
+            }, this.singlePreviewUrl || '');
+            if (result.status === 'cancelled') {
+                ui.showToast(result.message, 'info');
+                return;
+            }
+            ui.showToast(result.message, result.status === 'kept_existing' ? 'info' : 'success');
             
             this.clearSingleUpload();
             
@@ -486,10 +567,16 @@ class UploadManager {
                 item.progress = 0;
                 item.message = '';
                 this.updateBatchItemStatus(item);
-                const result = await api.uploadSingleImage(item.file, metadata, (progress) => {
+                const result = await this.uploadWithDuplicateChoice(item.file, metadata, (progress) => {
                     item.progress = progress;
                     this.updateBatchItemStatus(item);
-                });
+                }, item.previewUrl || '');
+                if (result.status === 'cancelled') {
+                    item.status = 'ready';
+                    item.message = result.message;
+                    this.updateBatchItemStatus(item);
+                    return;
+                }
                 const message = result && result.message ? result.message : '上传成功';
                 const isPending = message.includes('审核');
                 item.status = isPending ? 'pending-review' : 'success';
@@ -771,7 +858,19 @@ class UploadManager {
             
             ui.showToast('正在提交图片...', 'info');
             
-            const result = await api.uploadTempImage(data);
+            let result = await api.uploadTempImage(data);
+            if (result?.status === 'duplicate') {
+                const choice = await this.resolveDuplicateChoice(
+                    result,
+                    `/resource/temp/${encodeURIComponent(imageName)}`
+                );
+                if (!choice) {
+                    await api.resolveDuplicateImage(result.duplicate_token, 'cancel');
+                    ui.showToast('已取消提交', 'info');
+                    return;
+                }
+                result = await api.resolveDuplicateImage(result.duplicate_token, choice);
+            }
             ui.showToast(result.message, 'success');
             
             ui.closeModal();

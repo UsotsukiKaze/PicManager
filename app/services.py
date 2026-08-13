@@ -7,9 +7,10 @@ from . import models, schemas
 from .config import settings
 import os
 import secrets
-from PIL import Image as PILImage
+from PIL import Image as PILImage, ImageOps
 import shutil
 import uuid
+import threading
 
 DEFAULT_ENTITY_AVATAR = "/favicon.ico"
 
@@ -736,6 +737,95 @@ class ImageService:
     RANDOM_RECENT_LIMIT = 50
     _random_recent_image_ids = defaultdict(lambda: deque(maxlen=ImageService.RANDOM_RECENT_LIMIT))
     AGE_RATINGS = ("all", "r12", "r16", "r18")
+    DUPLICATE_WRITE_LOCK = threading.Lock()
+
+    @staticmethod
+    def compute_dhash(file_path: str) -> str:
+        """Return a deterministic 64-bit difference hash for the first frame."""
+        with PILImage.open(file_path) as source:
+            source.seek(0)
+            image = ImageOps.exif_transpose(source)
+            if image.mode in ("RGBA", "LA") or "transparency" in image.info:
+                rgba = image.convert("RGBA")
+                background = PILImage.new("RGBA", rgba.size, "white")
+                image = PILImage.alpha_composite(background, rgba).convert("RGB")
+            grayscale = image.convert("L").resize((9, 8), PILImage.Resampling.LANCZOS)
+            pixels = list(grayscale.getdata())
+
+        value = 0
+        for row in range(8):
+            offset = row * 9
+            for column in range(8):
+                value = (value << 1) | int(pixels[offset + column] > pixels[offset + column + 1])
+        return f"{value:016x}"
+
+    @staticmethod
+    def dhash_distance(left: str, right: str) -> int:
+        return (int(left, 16) ^ int(right, 16)).bit_count()
+
+    @staticmethod
+    def find_perceptual_duplicates(
+        db: Session,
+        file_path: str,
+        character_ids: List[int],
+        threshold: Optional[int] = None,
+    ) -> Tuple[str, List[dict]]:
+        """Compare an upload with every available image assigned to any selected character."""
+        character_ids = ImageService._unique_ints(character_ids)
+        upload_hash = ImageService.compute_dhash(file_path)
+        if not character_ids:
+            return upload_hash, []
+
+        threshold = settings.DUPLICATE_DHASH_DISTANCE if threshold is None else threshold
+        threshold = min(64, max(0, int(threshold)))
+        candidates = db.query(models.Image).options(
+            joinedload(models.Image.characters),
+        ).join(models.Image.characters).filter(
+            models.Character.id.in_(character_ids),
+            models.Image.file_status == ImageService.AVAILABLE,
+        ).distinct().all()
+
+        matches = []
+        for candidate in candidates:
+            if not ImageService.image_file_exists(candidate):
+                ImageService.mark_file_status(db, candidate, exists=False)
+                continue
+            candidate_hash = str(candidate.perceptual_hash or "").lower()
+            if len(candidate_hash) != 16 or any(char not in "0123456789abcdef" for char in candidate_hash):
+                try:
+                    thumb_path = ImageService.thumb_path(candidate)
+                    hash_source = thumb_path if os.path.isfile(thumb_path) else ImageService.image_full_path(candidate)
+                    candidate_hash = ImageService.compute_dhash(hash_source)
+                except (OSError, ValueError):
+                    continue
+                candidate.perceptual_hash = candidate_hash
+
+            distance = ImageService.dhash_distance(upload_hash, candidate_hash)
+            if distance <= threshold:
+                matches.append({
+                    "image_id": candidate.image_id,
+                    "distance": distance,
+                    "thumbnail_url": f"/resource/thumbs/{candidate.image_id}.webp",
+                    "character_names": [character.name for character in candidate.characters],
+                    "pid": candidate.pid,
+                    "original_filename": candidate.original_filename,
+                })
+
+        matches.sort(key=lambda item: (item["distance"], item["image_id"]))
+        return upload_hash, matches
+
+    @staticmethod
+    def archive_duplicate_images(db: Session, image_ids: List[str], keep_image_id: Optional[str] = None) -> int:
+        """Hide superseded duplicates while retaining their files for recovery."""
+        unique_ids = list(dict.fromkeys(str(item) for item in image_ids if item))
+        if keep_image_id:
+            unique_ids = [item for item in unique_ids if item != keep_image_id]
+        if not unique_ids:
+            return 0
+        return db.query(models.Image).filter(
+            models.Image.image_id.in_(unique_ids),
+            models.Image.file_status == ImageService.AVAILABLE,
+        ).update({models.Image.file_status: ImageService.ARCHIVED}, synchronize_session=False)
 
     @staticmethod
     def allowed_age_ratings(max_age_rating: Optional[str]) -> tuple[str, ...]:
@@ -748,7 +838,10 @@ class ImageService:
     
     @staticmethod
     def image_full_path(image: models.Image) -> str:
-        file_path = (image.file_path or "").replace("\\", "/").lstrip("/")
+        raw_path = str(image.file_path or "")
+        if os.path.isabs(raw_path):
+            return raw_path
+        file_path = raw_path.replace("\\", "/").lstrip("/")
         return os.path.join(settings.BASE_DIR, *file_path.split("/"))
 
     @staticmethod
@@ -1018,6 +1111,7 @@ class ImageService:
             file_status=ImageService.AVAILABLE,
             file_checked_at=datetime.utcnow(),
             thumb_status=ImageService.THUMB_PENDING,
+            perceptual_hash=ImageService.compute_dhash(file_path),
             **image_info
         )
         

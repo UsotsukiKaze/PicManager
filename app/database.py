@@ -280,6 +280,8 @@ def apply_migrations():
             conn.execute(text("ALTER TABLE images ADD COLUMN file_checked_at DATETIME"))
         if "thumb_status" not in image_columns:
             conn.execute(text("ALTER TABLE images ADD COLUMN thumb_status VARCHAR(20) NOT NULL DEFAULT 'pending'"))
+        if "perceptual_hash" not in image_columns:
+            conn.execute(text("ALTER TABLE images ADD COLUMN perceptual_hash VARCHAR(16)"))
 
         auth_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(age_authorization_requests)"))]
         if auth_columns and "authorization_group_id" not in auth_columns:

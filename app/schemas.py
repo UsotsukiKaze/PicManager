@@ -253,9 +253,26 @@ class UploadImageRequest(BaseModel):
     description: Optional[str] = None
     age_rating: str = "all"
 
+class DuplicateImageMatch(BaseModel):
+    image_id: str
+    distance: int
+    thumbnail_url: str
+    character_names: List[str] = Field(default_factory=list)
+    pid: Optional[str] = None
+    original_filename: Optional[str] = None
+
 class UploadImageResponse(BaseModel):
     image_id: str
     message: str
+    status: str = "success"
+    duplicates: List[DuplicateImageMatch] = Field(default_factory=list)
+    duplicate_algorithm: Optional[str] = None
+    duplicate_threshold: Optional[int] = None
+    duplicate_token: Optional[str] = None
+
+class DuplicateImageResolveRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=16384)
+    keep: str = Field(min_length=3, max_length=32)
 
 # Temp目录上传
 class TempImageUpload(BaseModel):

@@ -323,6 +323,8 @@ class Image(Base):
     file_status = Column(String(20), nullable=False, default="available", index=True)
     file_checked_at = Column(DateTime, nullable=True)
     thumb_status = Column(String(20), nullable=False, default="pending", index=True)
+    # 64-bit difference hash, stored as 16 lowercase hexadecimal characters.
+    perceptual_hash = Column(String(16), nullable=True)
     # 创建和更新时间
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

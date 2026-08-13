@@ -2055,6 +2055,7 @@
                         'add': { text: '添加图片', class: 'type-add' },
                         'edit': { text: '编辑图片', class: 'type-edit' },
                         'delete': { text: '删除图片', class: 'type-delete' },
+                        'duplicate_archive': { text: '归档重复图片', class: 'type-delete' },
                         'group_add': { text: '添加分组', class: 'type-add' },
                         'group_edit': { text: '编辑分组', class: 'type-edit' },
                         'group_delete': { text: '删除分组', class: 'type-delete' },
@@ -2075,6 +2076,7 @@
                         const filename = req.temp_file_path.split(/[/\\]/).pop();
                         const pendingImageUrl = `/resource/pending/${encodeURIComponent(filename)}`;
                         mediaHtml = renderRequestImage(pendingImageUrl, '待审核图片', req.pending_image);
+                        const duplicateIds = (req.image_data?.duplicate_images || []).map(item => item.image_id);
                         contentHtml = `
                             <div class="request-detail">
                                 <div class="request-fact-grid">
@@ -2083,6 +2085,7 @@
                                     ${requestFact('角色', req.character_names && req.character_names.length ? req.character_names : '未选择')}
                                     ${requestFact('PID', req.image_data?.pid || '--')}
                                     ${requestFact('描述', req.image_data?.description || '--')}
+                                    ${duplicateIds.length ? `<div class="request-warning">批准后将归档重复图片：${escapeReviewHtml(duplicateIds.join('、'))}（原文件不会物理删除）</div>` : ''}
                                 </div>
                             </div>
                         `;
@@ -2096,7 +2099,7 @@
                                 ${renderReviewChanges(req)}
                             </div>
                         `;
-                    } else if (req.request_type === 'delete') {
+                    } else if (req.request_type === 'delete' || req.request_type === 'duplicate_archive') {
                         if (req.original_image) {
                             const originalImageUrl = `/resource/originals/${encodeURIComponent(req.original_image.image_id)}`;
                             mediaHtml = renderRequestImage(originalImageUrl, '待删除图片原图', req.original_image);
@@ -2108,7 +2111,7 @@
                                     ${requestFact('PID', req.original_image?.pid || '--')}
                                     ${requestFact('角色', req.original_image?.character_names?.length ? req.original_image.character_names : '--')}
                                     ${requestFact('描述', req.original_image?.description || '--')}
-                                    <div class="request-warning">批准后该图片将被删除</div>
+                                    <div class="request-warning">${req.request_type === 'duplicate_archive' ? '批准后该重复图片将被归档，原文件不会物理删除' : '批准后该图片将被删除'}</div>
                                 </div>
                             </div>
                         `;

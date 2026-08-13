@@ -1830,6 +1830,12 @@ class UIManager {
     }
 
     closeModal() {
+        const activeLayer = document.getElementById('modal-body')?.lastElementChild;
+        if (typeof activeLayer?._onModalClose === 'function') {
+            const onModalClose = activeLayer._onModalClose;
+            delete activeLayer._onModalClose;
+            onModalClose();
+        }
         if (document.getElementById('modal-body')?.lastElementChild?.querySelector('.avatar-crop-dialog')) {
             this.releaseAvatarCropState();
         }

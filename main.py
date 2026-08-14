@@ -227,6 +227,7 @@ async def thumbnail_file(resource_path: str):
 
 
 @app.get("/resource/originals/{image_id}")
+@app.get("/resource/store/{image_id}")
 def original_image(
     image_id: str,
     request: Request,

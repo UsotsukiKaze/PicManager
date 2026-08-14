@@ -71,7 +71,7 @@ def _protected_original_url(image: dict) -> str | None:
         return None
     expires, signature = sign_bot_image(image_id)
     return _public_resource_url(
-        f"resource/originals/{image_id}?expires={expires}&signature={signature}"
+        f"resource/store/{image_id}?expires={expires}&signature={signature}"
     )
 
 

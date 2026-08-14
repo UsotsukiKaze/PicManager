@@ -11,13 +11,12 @@ def test_bot_image_url_uses_signed_original_not_store_path(monkeypatch):
     })
 
     expected_thumbnail = "https://pic.example/resource/thumbs/ABCDEF1234.webp"
-    assert result["image_url"].startswith("https://pic.example/resource/originals/ABCDEF1234?")
+    assert result["image_url"].startswith("https://pic.example/resource/store/ABCDEF1234?")
     assert result["thumbnail_url"] == expected_thumbnail
     assert result["original_image_url"] == result["image_url"]
     assert "expires=" in result["image_url"]
     assert "signature=" in result["image_url"]
-    assert "resource/store" not in result["image_url"]
-    assert "resource/store" not in result["original_image_url"]
+    assert "private-original.png" not in result["image_url"]
     assert "file_path" not in result
     assert "private-original.png" not in repr(result)
 

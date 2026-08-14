@@ -78,7 +78,7 @@ def test_original_route_resolves_published_image_by_id(monkeypatch, tmp_path):
     response = main.original_image("ABCDEF1234", request)
 
     assert Path(response.path) == original
-    assert response.headers["cache-control"] == "private, max-age=3600"
+    assert response.headers["cache-control"] == "private, max-age=300"
     assert response.headers["cloudflare-cdn-cache-control"] == "no-store"
 
 
@@ -89,6 +89,42 @@ def test_original_route_requires_a_session():
         main.original_image("ABCDEF1234", request)
 
     assert exc_info.value.status_code == 401
+
+
+def test_original_route_accepts_valid_bot_signature(monkeypatch, tmp_path):
+    store_root = tmp_path / "store"
+    store_root.mkdir()
+    original = store_root / "ABCDEF1234.jpg"
+    original.write_bytes(b"large-original")
+    image = SimpleNamespace(
+        image_id="ABCDEF1234",
+        file_path="resource/store/ABCDEF1234.jpg",
+        file_status=ImageService.AVAILABLE,
+    )
+
+    class FakeQuery:
+        def filter(self, *args):
+            return self
+
+        def first(self):
+            return image
+
+    class FakeDb:
+        def query(self, model):
+            return FakeQuery()
+
+    @contextmanager
+    def fake_db_context():
+        yield FakeDb()
+
+    monkeypatch.setattr(main.settings, "STORE_PATH", str(store_root))
+    monkeypatch.setattr(main, "get_db_context", fake_db_context)
+    expires, signature = main.sign_bot_image("ABCDEF1234")
+    request = type("Request", (), {"cookies": {}})()
+
+    response = main.original_image("ABCDEF1234", request, expires, signature)
+
+    assert Path(response.path) == original
 
 
 def test_original_store_directory_is_not_static_mounted():

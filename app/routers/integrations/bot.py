@@ -13,6 +13,7 @@ from ...config import settings
 from ...database import get_db_context
 from ...models import AgeAssertionNonce, AgeAuthorizationRequest, GroupAgeSetting, User, UserRole
 from ...security.api_key import require_bot_api_key
+from ...security.image_tokens import sign_bot_image
 from ...security.tickets import build_lan_login_url, build_login_url, create_login_ticket, normalize_qq_number
 from ...services import CharacterService, EmojiService, EmotionTagService, FeatureTagService, GroupService, ImageService
 
@@ -68,7 +69,10 @@ def _protected_original_url(image: dict) -> str | None:
     image_id = str(image.get("image_id") or "").strip()
     if not image_id:
         return None
-    return _public_resource_url(f"resource/originals/{image_id}")
+    expires, signature = sign_bot_image(image_id)
+    return _public_resource_url(
+        f"resource/originals/{image_id}?expires={expires}&signature={signature}"
+    )
 
 
 def _with_image_url(image: dict) -> dict:
@@ -79,9 +83,7 @@ def _with_image_url(image: dict) -> dict:
     thumbnail_url = _public_thumb_url(result)
     result["original_image_url"] = _protected_original_url(result)
     result["thumbnail_url"] = thumbnail_url
-    # Bots can fetch the public, size-bounded thumbnail using their normal HTTP
-    # client. The original URL intentionally remains session-protected.
-    result["image_url"] = thumbnail_url
+    result["image_url"] = result["original_image_url"] or thumbnail_url
     return result
 
 
@@ -105,8 +107,22 @@ def _normalize_aliases(value) -> list[str]:
     return [item.strip() for item in value if isinstance(item, str) and item.strip()]
 
 
+def _all_pages(fetch_page, *, limit: int = 5000) -> list[dict]:
+    """Aggregate bounded service pages for the trusted bot API contract."""
+    page_size = settings.MAX_PAGE_SIZE
+    items = []
+    while len(items) < limit:
+        page = fetch_page(len(items), min(page_size, limit - len(items)))
+        items.extend(page)
+        if len(page) < page_size:
+            break
+    return items
+
+
 def _find_character_by_alias(db, name: str):
-    characters = CharacterService.get_characters(db, limit=5000)
+    characters = _all_pages(
+        lambda skip, limit: CharacterService.get_characters(db, skip=skip, limit=limit)
+    )
     for character in characters:
         if character.get("name") == name:
             return character
@@ -175,7 +191,13 @@ def get_bot_groups(skip: int = 0, limit: int = 500):
 def get_bot_characters(group_id: int | None = None, skip: int = 0, limit: int = 5000):
     """Return characters for bot-side caching and alias matching."""
     with get_db_context() as db:
-        return CharacterService.get_characters(db, group_id, skip, limit)
+        characters = _all_pages(
+            lambda page_skip, page_limit: CharacterService.get_characters(
+                db, group_id, page_skip, page_limit
+            ),
+            limit=skip + min(max(1, limit), 5000),
+        )
+        return characters[skip:]
 
 
 @router.get("/feature-tags")

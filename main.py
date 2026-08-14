@@ -24,6 +24,7 @@ from app.routers.system import router as system_router
 from app.routers.auth import get_session
 from app.security.lan_debug import configured_lan_base_url, configured_lan_hosts, exact_hosts
 from app.security.permissions import require_admin_user_id
+from app.security.image_tokens import sign_bot_image, verify_bot_image
 
 UI_ASSET_VERSION = str(int(time.time()))
 
@@ -226,14 +227,23 @@ async def thumbnail_file(resource_path: str):
 
 
 @app.get("/resource/originals/{image_id}")
-def original_image(image_id: str, request: Request):
+def original_image(
+    image_id: str,
+    request: Request,
+    expires: int | None = None,
+    signature: str | None = None,
+):
     """Serve a published original by id after the user explicitly opens it."""
     with get_db_context() as db:
-        session_id = request.cookies.get("session_id")
-        if not session_id:
-            raise HTTPException(status_code=401, detail="Login required")
-        if not get_session(db, session_id):
-            raise HTTPException(status_code=401, detail="Login required")
+        signed_bot_request = (
+            expires is not None
+            and signature is not None
+            and verify_bot_image(image_id, expires, signature)
+        )
+        if not signed_bot_request:
+            session_id = request.cookies.get("session_id")
+            if not session_id or not get_session(db, session_id):
+                raise HTTPException(status_code=401, detail="Login required")
         image = db.query(ImageModel).filter(
             ImageModel.image_id == image_id,
             ImageModel.file_status == ImageService.AVAILABLE,
@@ -251,7 +261,7 @@ def original_image(image_id: str, request: Request):
         response = FileResponse(path)
         # This endpoint is authenticated. Never allow a shared intermediary to
         # cache an original and replay it to a request without a valid session.
-        response.headers["Cache-Control"] = "private, max-age=3600"
+        response.headers["Cache-Control"] = "private, max-age=300"
         response.headers["Cloudflare-CDN-Cache-Control"] = "no-store"
         return response
 

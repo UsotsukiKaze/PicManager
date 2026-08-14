@@ -1048,8 +1048,8 @@ class ImageService:
         threshold = min(64, max(0, int(threshold)))
         other_image_id = next(image_id for image_id in unique_ids if image_id != keep_image_id)
         ImageService._validate_existing_duplicate_pair(db, keep_image_id, other_image_id, threshold)
-
-        return ImageService.archive_duplicate_images(db, unique_ids, keep_image_id=keep_image_id)
+        ImageService.merge_duplicate_image_metadata(db, keep_image_id, other_image_id)
+        return 1
 
     @staticmethod
     def _merged_text(left: Optional[str], right: Optional[str]) -> Optional[str]:
@@ -1100,7 +1100,31 @@ class ImageService:
         keep.characters = source_value("characters", list(keep.characters), list(other.characters))
         keep.feature_tags = source_value("feature_tags", list(keep.feature_tags), list(other.feature_tags))
         other.file_status = ImageService.ARCHIVED
+        db.flush()
+        ImageService.delete_superseded_image_files(keep, other)
         return keep
+
+    @staticmethod
+    def delete_superseded_image_files(keep: models.Image, superseded: models.Image) -> None:
+        """Permanently remove the discarded original and thumbnail after DB changes flush."""
+        keep_path = ImageService.image_full_path(keep) if keep.file_path else ""
+        superseded_path = ImageService.image_full_path(superseded) if superseded.file_path else ""
+        if keep_path and superseded_path:
+            same_path = os.path.normcase(os.path.realpath(keep_path)) == os.path.normcase(os.path.realpath(superseded_path))
+            if same_path:
+                raise ValueError("Duplicate records point to the same physical file; refusing to delete it")
+
+        try:
+            thumbnail = ImageService.thumb_path(superseded)
+            if os.path.isfile(thumbnail):
+                os.remove(thumbnail)
+            if superseded_path and os.path.isfile(superseded_path):
+                os.remove(superseded_path)
+        except OSError as exc:
+            raise ValueError(f"Failed to delete the superseded image file: {exc}") from exc
+
+        superseded.thumb_status = ImageService.THUMB_MISSING
+        superseded.file_checked_at = datetime.utcnow()
 
     @staticmethod
     def merge_incoming_image_metadata(

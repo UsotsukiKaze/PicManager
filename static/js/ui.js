@@ -3141,7 +3141,7 @@ async function scanExistingDuplicates() {
 
     const button = document.getElementById('scan-duplicates-button');
     if (button?.disabled) return;
-    let archived = 0;
+    let deleted = 0;
     let distinguished = 0;
     let deferred = 0;
     let scanned = 0;
@@ -3149,7 +3149,7 @@ async function scanExistingDuplicates() {
     try {
         if (button) {
             button.disabled = true;
-            button.textContent = '正在比对…';
+            button.textContent = '检查中…';
         }
         const uploadFeature = await window.auth.loadFeature('upload');
         while (true) {
@@ -3163,7 +3163,7 @@ async function scanExistingDuplicates() {
                     duplicates: group.images || [],
                 });
                 if (!decision) {
-                    ui.showToast(`已停止比对；本次已归档 ${archived} 张重复图片`, 'info');
+                    ui.showToast(`已停止；本次删除 ${deleted} 份重复文件`, 'info');
                     return;
                 }
                 if (decision.action === 'later') {
@@ -3177,13 +3177,13 @@ async function scanExistingDuplicates() {
                     decision.keep || null,
                     decision.metadataSources || {},
                 );
-                archived += Number(resolved.archived || 0);
+                deleted += Number(resolved.deleted ?? resolved.archived ?? 0);
                 if (decision.action === 'distinct') distinguished += 1;
             }
         }
 
         ui.showToast(
-            `重复比对完成：扫描 ${scanned} 张，归档 ${archived} 张，确认不同 ${distinguished} 对，暂缓 ${deferred} 对`,
+            `查重完成：扫描 ${scanned} 张，删除 ${deleted} 份，保存 ${distinguished} 对，暂缓 ${deferred} 对`,
             'success'
         );
         ui.loadImages(null);
@@ -3193,7 +3193,7 @@ async function scanExistingDuplicates() {
     } finally {
         if (button) {
             button.disabled = false;
-            button.textContent = '比对重复图片';
+            button.textContent = '查重';
         }
     }
 }

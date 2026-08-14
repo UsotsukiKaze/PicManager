@@ -120,8 +120,9 @@ def resolve_existing_duplicates(choice: schemas.ExistingDuplicateResolveRequest,
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {
-        "message": f"已保留 {choice.keep_image_id}，合并信息并归档 {archived} 张重复图片",
+        "message": f"已保留 {choice.keep_image_id}，合并信息并删除 {archived} 份重复文件",
         "action": "merge",
         "kept_image_id": choice.keep_image_id,
         "archived": archived,
+        "deleted": archived,
     }

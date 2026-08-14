@@ -179,6 +179,42 @@ def test_merge_duplicate_metadata_can_select_and_combine_fields(tmp_path):
         assert other.file_status == ImageService.ARCHIVED
 
 
+def test_merge_refuses_to_delete_when_records_share_one_physical_file(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'shared-file.db'}")
+    models.Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    shared_file = tmp_path / "shared.png"
+    _pattern(shared_file, "PNG")
+
+    with Session() as db:
+        group = models.Group(name="group")
+        character = models.Character(name="character", group=group)
+        left = models.Image(
+            image_id="1111111111",
+            file_extension="png",
+            file_path=str(shared_file),
+            file_status=ImageService.AVAILABLE,
+            characters=[character],
+        )
+        right = models.Image(
+            image_id="2222222222",
+            file_extension="png",
+            file_path=str(shared_file),
+            file_status=ImageService.AVAILABLE,
+            characters=[character],
+        )
+        db.add_all([left, right])
+        db.commit()
+
+        with pytest.raises(ValueError, match="same physical file"):
+            ImageService.merge_duplicate_image_metadata(db, left.image_id, right.image_id)
+        db.rollback()
+
+        assert shared_file.exists()
+        assert db.get(models.Image, left.image_id).file_status == ImageService.AVAILABLE
+        assert db.get(models.Image, right.image_id).file_status == ImageService.AVAILABLE
+
+
 def test_existing_duplicate_scan_and_resolve_are_character_scoped(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'maintenance-duplicates.db'}")
     models.Base.metadata.create_all(engine)
@@ -258,7 +294,9 @@ def test_existing_duplicate_scan_and_resolve_are_character_scoped(tmp_path):
 
         assert archived == 1
         assert first.file_status == ImageService.ARCHIVED
+        assert not first_file.exists()
         assert second.file_status == ImageService.AVAILABLE
+        assert second_file.exists()
         assert unrelated.file_status == ImageService.AVAILABLE
 
 
@@ -440,6 +478,8 @@ def test_admin_upload_can_keep_existing_then_replace_it(tmp_path, monkeypatch):
 
     second = submit_duplicate()
     assert second.json()["status"] == "duplicate"
+    discarded_thumb = thumb_path / "ABCDEF1234.webp"
+    discarded_thumb.write_bytes(b"thumbnail")
     keep_new = client.post(
         "/upload/duplicates/resolve",
         json={"token": second.json()["duplicate_token"], "keep": "merge-new"},
@@ -453,6 +493,8 @@ def test_admin_upload_can_keep_existing_then_replace_it(tmp_path, monkeypatch):
             models.Image.image_id == keep_new.json()["image_id"]
         ).one()
         assert old.file_status == ImageService.ARCHIVED
+        assert not existing_file.exists()
+        assert not discarded_thumb.exists()
         assert replacement.file_status == ImageService.AVAILABLE
         replacement_id = replacement.image_id
         stored_replacement = store_path / f"{replacement.image_id}.{replacement.file_extension}"

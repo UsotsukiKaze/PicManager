@@ -17,4 +17,6 @@ def test_duplicate_maintenance_reuses_existing_comparison_dialog():
     assert "api.resolveExistingDuplicates" in ui_source
     assert "/system/duplicates/scan" in api_source
     assert "'/system/duplicates/resolve'" in api_source
-    assert "归档" in ui_source
+    assert "删除" in ui_source
+    for label in ("校验文件", "补缩略图", "整理孤立文件", "查重", "归档缺失图片"):
+        assert label in html

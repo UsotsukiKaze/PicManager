@@ -784,8 +784,8 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                     ImageService.mark_file_status(db, existing, exists=False)
                     raise HTTPException(status_code=409, detail="Selected existing image file is missing")
                 ImageService.merge_incoming_image_metadata(db, selected_id, metadata, choice.metadata_sources)
+                source_path.unlink(missing_ok=True)
                 db.commit()
-            source_path.unlink(missing_ok=True)
             return schemas.UploadImageResponse(
                 image_id=selected_id,
                 message="已保留现有图片文件，并同步所选信息",
@@ -857,7 +857,7 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                 return schemas.UploadImageResponse(
                     image_id=image.image_id,
                     message=(
-                        "已保留新图片文件，合并信息并归档现有图片"
+                        "已保留新图片文件，合并信息并删除现有重复文件"
                         if choice.keep == "merge-new" else
                         "两张图片均已保留" + ("，后续不再提示这一对" if choice.keep == "distinct" else "，下次仍可处理")
                     ),

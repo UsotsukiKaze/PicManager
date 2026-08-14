@@ -396,6 +396,49 @@ class UploadManager {
         `;
     }
 
+    mergedDuplicateItem(items, layer) {
+        const keepId = layer.querySelector('input[name="duplicate-file-keep"]:checked')?.value;
+        const kept = items.find(item => String(item.image_id) === String(keepId)) || items[0];
+        const other = items.find(item => item !== kept) || items[1];
+        const sourceFor = field => layer.querySelector(`[data-merge-field="${field}"]`)?.value || 'merge';
+        const pick = (field, keepValue, otherValue) => {
+            const source = sourceFor(field);
+            if (source === 'keep') return keepValue;
+            if (source === 'other') return otherValue;
+            if (field === 'pid' || field === 'description') {
+                return [...new Set([keepValue, otherValue].map(value => String(value || '').trim()).filter(Boolean))].join('\n');
+            }
+            if (field === 'age_rating') {
+                const rank = { all: 0, r12: 1, r16: 2, r18: 3 };
+                return rank[otherValue || 'all'] > rank[keepValue || 'all'] ? otherValue : keepValue;
+            }
+            return [...new Set([...(keepValue || []), ...(otherValue || [])])];
+        };
+        return {
+            ...kept,
+            pid: pick('pid', kept.pid, other.pid),
+            description: pick('description', kept.description, other.description),
+            age_rating: pick('age_rating', kept.age_rating || 'all', other.age_rating || 'all'),
+            group_names: pick('groups', kept.group_names, other.group_names),
+            character_names: pick('characters', kept.character_names, other.character_names),
+            feature_tag_names: pick('feature_tags', kept.feature_tag_names, other.feature_tag_names),
+        };
+    }
+
+    renderMergedDuplicatePreview(items, layer) {
+        const container = layer.querySelector('[data-duplicate-merge-preview]');
+        if (!container) return;
+        const merged = this.mergedDuplicateItem(items, layer);
+        const title = (merged.character_names || []).join('、') || '合并后图片';
+        container.innerHTML = `
+            <article class="duplicate-compare-card duplicate-result-card">
+                <header><strong>${this.escapeHtml(title)}</strong><span>最终保留 · ${merged.image_id === 'new' ? '新上传' : `ID ${this.escapeHtml(merged.image_id)}`}</span></header>
+                <img src="${this.escapeHtml(merged.thumbnail_url)}" alt="合并后保留图片" loading="lazy">
+                ${this.duplicateMetadataRows(merged)}
+            </article>
+        `;
+    }
+
     resolveDuplicateChoice(result, newPreviewUrl = '') {
         const choose = () => new Promise(resolve => {
             const existing = (result.duplicates || [])[0];
@@ -435,17 +478,19 @@ class UploadManager {
                     <p>dHash 差异 ${items[1].distance ?? items[0].distance}/64。请判断它们是不同图片、同一图片，或稍后再处理。</p>
                     <div class="duplicate-compare-grid">${cards}</div>
                     <section class="duplicate-merge-panel" hidden>
-                        <h4>同一图片：选择保留的文件与信息来源</h4>
+                        <h4>选择保留文件与信息来源</h4>
                         <div class="duplicate-file-choice">
                             ${items.map((item, index) => `<label><input type="radio" name="duplicate-file-keep" value="${this.escapeHtml(item.image_id)}" ${index === 0 ? 'checked' : ''}> 保留${index === 0 ? '左侧' : '右侧'}文件</label>`).join('')}
                         </div>
                         <div class="duplicate-merge-fields">${mergeFields}</div>
-                        <p class="duplicate-merge-note">标签选择“合并”时取并集；PID/描述去重拼接；年龄分级采用更严格的一侧。另一张只归档，不物理删除文件。</p>
+                        <h4 class="duplicate-result-title">修改后保留图片</h4>
+                        <div class="duplicate-merge-preview" data-duplicate-merge-preview></div>
+                        <p class="duplicate-merge-note duplicate-delete-warning">确认后会永久删除另一份原图及缩略图，无法从系统恢复。</p>
                     </section>
                     <div class="duplicate-decision-actions">
                         <button type="button" class="btn btn-secondary" data-duplicate-action="later">暂不处理</button>
-                        <button type="button" class="btn btn-secondary" data-duplicate-action="distinct">这是两张图，全部保存且不再提示</button>
-                        <button type="button" class="btn btn-primary" data-duplicate-action="show-merge">这是同一张图，合并</button>
+                        <button type="button" class="btn btn-secondary" data-duplicate-action="distinct">保存全部</button>
+                        <button type="button" class="btn btn-primary" data-duplicate-action="show-merge">合并检查</button>
                         <button type="button" class="btn btn-primary" data-duplicate-action="confirm-merge" hidden>确认合并</button>
                     </div>
                 </div>
@@ -472,6 +517,10 @@ class UploadManager {
                 layer.querySelector('.duplicate-merge-panel').hidden = false;
                 event.currentTarget.hidden = true;
                 layer.querySelector('[data-duplicate-action="confirm-merge"]').hidden = false;
+                this.renderMergedDuplicatePreview(items, layer);
+            });
+            layer?.querySelectorAll('input[name="duplicate-file-keep"], [data-merge-field]').forEach(control => {
+                control.addEventListener('change', () => this.renderMergedDuplicatePreview(items, layer));
             });
             layer?.querySelector('[data-duplicate-action="confirm-merge"]')?.addEventListener('click', () => {
                 const keep = layer.querySelector('input[name="duplicate-file-keep"]:checked')?.value;

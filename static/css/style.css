@@ -239,6 +239,127 @@ body {
     color: var(--text-secondary);
 }
 
+.modal:has(.duplicate-review-large) {
+    width: min(1180px, 96vw);
+    max-width: 1180px;
+    max-height: 94vh;
+}
+
+.duplicate-review-large {
+    padding: 20px;
+}
+
+.duplicate-compare-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.duplicate-compare-card {
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--surface);
+}
+
+.duplicate-compare-card > header {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    background: var(--background);
+}
+
+.duplicate-compare-card > header span {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.duplicate-compare-card > img {
+    display: block;
+    width: 100%;
+    height: clamp(240px, 38vh, 440px);
+    object-fit: contain;
+    background: #16181d;
+}
+
+.duplicate-metadata {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin: 0;
+    padding: 12px 14px;
+    gap: 9px 16px;
+}
+
+.duplicate-metadata > div {
+    min-width: 0;
+}
+
+.duplicate-metadata dt {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.duplicate-metadata dd {
+    margin: 3px 0 0;
+    overflow-wrap: anywhere;
+}
+
+.duplicate-metadata .duplicate-description {
+    grid-column: 1 / -1;
+}
+
+.duplicate-merge-panel {
+    margin-top: 16px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--background);
+}
+
+.duplicate-file-choice,
+.duplicate-decision-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.duplicate-merge-fields {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 14px;
+}
+
+.duplicate-merge-fields label,
+.duplicate-merge-fields select {
+    width: 100%;
+}
+
+.duplicate-merge-fields select {
+    margin-top: 5px;
+    padding: 8px;
+}
+
+.duplicate-merge-note {
+    margin: 12px 0 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+@media (max-width: 760px) {
+    .duplicate-compare-grid,
+    .duplicate-merge-fields {
+        grid-template-columns: 1fr;
+    }
+
+    .duplicate-compare-card > img {
+        height: min(52vh, 380px);
+    }
+}
+
 .duplicate-choice-list {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));

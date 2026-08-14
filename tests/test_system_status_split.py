@@ -61,6 +61,7 @@ def test_existing_duplicate_maintenance_requires_admin(monkeypatch):
 
     choice = schemas.ExistingDuplicateResolveRequest(
         image_ids=["1111111111", "2222222222"],
+        action="merge",
         keep_image_id="1111111111",
     )
     with pytest.raises(HTTPException) as resolve_error:

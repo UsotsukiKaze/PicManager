@@ -370,46 +370,83 @@ class UploadManager {
         return validTypes.includes(file.type);
     }
 
+    formatDuplicateFileSize(bytes) {
+        const value = Number(bytes || 0);
+        if (!value) return '未知';
+        if (value < 1024) return `${value} B`;
+        if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
+        return `${(value / 1024 / 1024).toFixed(2)} MiB`;
+    }
+
+    duplicateMetadataRows(item) {
+        const text = value => this.escapeHtml(value || '—');
+        const list = values => text((values || []).join('、'));
+        return `
+            <dl class="duplicate-metadata">
+                <div><dt>文件</dt><dd>${text(item.original_filename)}</dd></div>
+                <div><dt>大小</dt><dd>${this.formatDuplicateFileSize(item.file_size)}</dd></div>
+                <div><dt>分辨率</dt><dd>${item.width && item.height ? `${item.width} × ${item.height}` : '未知'}</dd></div>
+                <div><dt>PID</dt><dd>${text(item.pid)}</dd></div>
+                <div><dt>年龄分级</dt><dd>${text((item.age_rating || 'all').toUpperCase())}</dd></div>
+                <div><dt>分组</dt><dd>${list(item.group_names)}</dd></div>
+                <div><dt>角色</dt><dd>${list(item.character_names)}</dd></div>
+                <div><dt>特征标签</dt><dd>${list(item.feature_tag_names)}</dd></div>
+                <div class="duplicate-description"><dt>描述</dt><dd>${text(item.description)}</dd></div>
+            </dl>
+        `;
+    }
+
     resolveDuplicateChoice(result, newPreviewUrl = '') {
         const choose = () => new Promise(resolve => {
-            const matches = result.duplicates || [];
-            const cards = matches.map(match => `
-                <label class="duplicate-choice-card">
-                    <input type="radio" name="duplicate-keep" value="existing:${this.escapeHtml(match.image_id)}">
-                    <img src="${this.escapeHtml(match.thumbnail_url)}" alt="现有图片 ${this.escapeHtml(match.image_id)}" loading="lazy">
-                    <span>
-                        <strong>保留现有图片</strong>
-                        <small>ID ${this.escapeHtml(match.image_id)} · 差异 ${match.distance}/64</small>
-                        <small>${this.escapeHtml((match.character_names || []).join('、') || '未标注角色')}</small>
-                    </span>
+            const existing = (result.duplicates || [])[0];
+            const incoming = result.incoming || null;
+            const items = incoming ? [existing, { ...incoming, image_id: 'new', thumbnail_url: newPreviewUrl }] : (result.duplicates || []).slice(0, 2);
+            if (items.length !== 2 || items.some(item => !item)) {
+                resolve(null);
+                return;
+            }
+            const cards = items.map((item, index) => {
+                const title = (item.character_names || []).join('、') || (index === 0 ? '图片 A' : '图片 B');
+                const preview = item.thumbnail_url || newPreviewUrl;
+                return `
+                    <article class="duplicate-compare-card" data-image-id="${this.escapeHtml(item.image_id)}">
+                        <header><strong>${this.escapeHtml(title)}</strong><span>${item.image_id === 'new' ? '新上传' : `ID ${this.escapeHtml(item.image_id)}`}</span></header>
+                        <img src="${this.escapeHtml(preview)}" alt="${this.escapeHtml(title)}" loading="lazy">
+                        ${this.duplicateMetadataRows(item)}
+                    </article>
+                `;
+            }).join('');
+            const mergeFields = [
+                ['pid', 'PID'], ['description', '描述'], ['age_rating', '年龄分级'],
+                ['groups', '分组标签'], ['characters', '角色标签'], ['feature_tags', '特征标签'],
+            ].map(([field, label]) => `
+                <label>${label}
+                    <select data-merge-field="${field}">
+                        <option value="merge">合并两侧</option>
+                        <option value="keep">采用保留图</option>
+                        <option value="other">采用另一张</option>
+                    </select>
                 </label>
             `).join('');
-            const newPreview = newPreviewUrl ? `
-                <label class="duplicate-choice-card duplicate-choice-new">
-                    <input type="radio" name="duplicate-keep" value="new">
-                    <img src="${this.escapeHtml(newPreviewUrl)}" alt="本次上传的新图片">
-                    <span><strong>保留新图片</strong><small>重复的现有图片将归档，但不会物理删除原文件</small></span>
-                </label>
-            ` : '';
-            const keepAllDescription = newPreviewUrl
-                ? '不归档任何现有图片；新上传图片也会继续保存'
-                : '不归档任何图片；跳过本组并继续比对其他图片';
-            const keepAll = `
-                <label class="duplicate-choice-card duplicate-choice-all">
-                    <input type="radio" name="duplicate-keep" value="all">
-                    <div class="duplicate-keep-all-icon" aria-hidden="true">✓✓</div>
-                    <span><strong>全部保留</strong><small>${keepAllDescription}</small></span>
-                </label>
-            `;
             const overlay = document.getElementById('modal-overlay');
             const nested = overlay?.style.display === 'flex' && overlay.getAttribute('aria-hidden') !== 'true';
-            ui.showModal('发现可能重复的图片', `
-                <div class="duplicate-review" role="group" aria-label="选择要保留的图片">
-                    <p>dHash 检测到 ${matches.length} 张相似图片。请选择保留一张，或全部保留。</p>
-                    <div class="duplicate-choice-list">${cards}${newPreview}${keepAll}</div>
-                    <div class="form-actions">
-                        <button type="button" class="btn btn-secondary" id="duplicate-cancel">取消</button>
-                        <button type="button" class="btn btn-primary" id="duplicate-confirm" disabled>确认选择</button>
+            ui.showModal('相似图片比对', `
+                <div class="duplicate-review duplicate-review-large" role="group" aria-label="相似图片比对">
+                    <p>dHash 差异 ${items[1].distance ?? items[0].distance}/64。请判断它们是不同图片、同一图片，或稍后再处理。</p>
+                    <div class="duplicate-compare-grid">${cards}</div>
+                    <section class="duplicate-merge-panel" hidden>
+                        <h4>同一图片：选择保留的文件与信息来源</h4>
+                        <div class="duplicate-file-choice">
+                            ${items.map((item, index) => `<label><input type="radio" name="duplicate-file-keep" value="${this.escapeHtml(item.image_id)}" ${index === 0 ? 'checked' : ''}> 保留${index === 0 ? '左侧' : '右侧'}文件</label>`).join('')}
+                        </div>
+                        <div class="duplicate-merge-fields">${mergeFields}</div>
+                        <p class="duplicate-merge-note">标签选择“合并”时取并集；PID/描述去重拼接；年龄分级采用更严格的一侧。另一张只归档，不物理删除文件。</p>
+                    </section>
+                    <div class="duplicate-decision-actions">
+                        <button type="button" class="btn btn-secondary" data-duplicate-action="later">暂不处理</button>
+                        <button type="button" class="btn btn-secondary" data-duplicate-action="distinct">这是两张图，全部保存且不再提示</button>
+                        <button type="button" class="btn btn-primary" data-duplicate-action="show-merge">这是同一张图，合并</button>
+                        <button type="button" class="btn btn-primary" data-duplicate-action="confirm-merge" hidden>确认合并</button>
                     </div>
                 </div>
             `, nested);
@@ -429,15 +466,20 @@ class UploadManager {
                     resolve(null);
                 };
             }
-            layer?.querySelectorAll('input[name="duplicate-keep"]').forEach(input => {
-                input.addEventListener('change', () => {
-                    const confirmButton = layer.querySelector('#duplicate-confirm');
-                    if (confirmButton) confirmButton.disabled = false;
-                });
+            layer?.querySelector('[data-duplicate-action="later"]')?.addEventListener('click', () => finish({ action: 'later' }));
+            layer?.querySelector('[data-duplicate-action="distinct"]')?.addEventListener('click', () => finish({ action: 'distinct' }));
+            layer?.querySelector('[data-duplicate-action="show-merge"]')?.addEventListener('click', event => {
+                layer.querySelector('.duplicate-merge-panel').hidden = false;
+                event.currentTarget.hidden = true;
+                layer.querySelector('[data-duplicate-action="confirm-merge"]').hidden = false;
             });
-            layer?.querySelector('#duplicate-cancel')?.addEventListener('click', () => finish(null));
-            layer?.querySelector('#duplicate-confirm')?.addEventListener('click', () => {
-                finish(layer.querySelector('input[name="duplicate-keep"]:checked')?.value || null);
+            layer?.querySelector('[data-duplicate-action="confirm-merge"]')?.addEventListener('click', () => {
+                const keep = layer.querySelector('input[name="duplicate-file-keep"]:checked')?.value;
+                const metadataSources = {};
+                layer.querySelectorAll('[data-merge-field]').forEach(select => {
+                    metadataSources[select.dataset.mergeField] = select.value;
+                });
+                finish({ action: 'merge', keep, metadataSources });
             });
         });
         const queued = this.duplicateChoiceQueue.then(choose, choose);
@@ -448,12 +490,25 @@ class UploadManager {
     async uploadWithDuplicateChoice(file, metadata, onProgress, previewUrl = '') {
         const firstResult = await api.uploadSingleImage(file, metadata, onProgress);
         if (firstResult?.status !== 'duplicate') return firstResult;
-        const duplicateKeep = await this.resolveDuplicateChoice(firstResult, previewUrl);
-        if (!duplicateKeep) {
+        const decision = await this.resolveDuplicateChoice(firstResult, previewUrl);
+        if (!decision) {
             await api.resolveDuplicateImage(firstResult.duplicate_token, 'cancel');
             return { status: 'cancelled', message: '已取消提交' };
         }
-        return api.resolveDuplicateImage(firstResult.duplicate_token, duplicateKeep);
+        const keep = decision.action === 'merge'
+            ? (decision.keep === 'new' ? 'merge-new' : `merge-existing:${decision.keep}`)
+            : decision.action;
+        return api.resolveDuplicateImage(firstResult.duplicate_token, keep, decision.metadataSources || {});
+    }
+
+    duplicateDecisionRequest(decision) {
+        if (!decision) return { keep: 'cancel', metadataSources: {} };
+        return {
+            keep: decision.action === 'merge'
+                ? (decision.keep === 'new' ? 'merge-new' : `merge-existing:${decision.keep}`)
+                : decision.action,
+            metadataSources: decision.metadataSources || {},
+        };
     }
 
     async uploadSingleImage() {
@@ -870,16 +925,21 @@ class UploadManager {
             
             let result = await api.uploadTempImage(data);
             if (result?.status === 'duplicate') {
-                const choice = await this.resolveDuplicateChoice(
+                const decision = await this.resolveDuplicateChoice(
                     result,
                     `/resource/temp/${encodeURIComponent(imageName)}`
                 );
-                if (!choice) {
+                if (!decision) {
                     await api.resolveDuplicateImage(result.duplicate_token, 'cancel');
                     ui.showToast('已取消提交', 'info');
                     return;
                 }
-                result = await api.resolveDuplicateImage(result.duplicate_token, choice);
+                const request = this.duplicateDecisionRequest(decision);
+                result = await api.resolveDuplicateImage(
+                    result.duplicate_token,
+                    request.keep,
+                    request.metadataSources,
+                );
             }
             ui.showToast(result.message, 'success');
             

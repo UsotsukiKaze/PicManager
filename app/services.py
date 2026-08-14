@@ -766,13 +766,13 @@ class ImageService:
     @staticmethod
     def _perceptual_hash_for_image(db: Session, image: models.Image) -> Optional[str]:
         """Return a valid cached dHash, computing it from disk when necessary."""
-        if not ImageService.image_file_exists(image):
-            ImageService.mark_file_status(db, image, exists=False)
-            return None
-
         candidate_hash = str(image.perceptual_hash or "").lower()
         if len(candidate_hash) == 16 and all(char in "0123456789abcdef" for char in candidate_hash):
             return candidate_hash
+
+        if not ImageService.image_file_exists(image):
+            ImageService.mark_file_status(db, image, exists=False)
+            return None
 
         try:
             thumb_path = ImageService.thumb_path(image)
@@ -790,9 +790,80 @@ class ImageService:
             "distance": distance,
             "thumbnail_url": f"/resource/thumbs/{image.image_id}.webp",
             "character_names": [character.name for character in image.characters],
+            "character_ids": [character.id for character in image.characters],
+            "group_ids": [group.id for group in image.groups],
+            "group_names": [group.name for group in image.groups],
+            "feature_tag_ids": [tag.id for tag in image.feature_tags],
+            "feature_tag_names": [tag.name for tag in image.feature_tags],
             "pid": image.pid,
+            "description": image.description,
+            "age_rating": image.age_rating or "all",
             "original_filename": image.original_filename,
+            "file_size": image.file_size,
+            "width": image.width,
+            "height": image.height,
         }
+
+    @staticmethod
+    def duplicate_pair_key(left_image_id: str, right_image_id: str) -> str:
+        left, right = sorted((str(left_image_id), str(right_image_id)))
+        return f"{left}:{right}"
+
+    @staticmethod
+    def remember_distinct_duplicate_pair(
+        db: Session,
+        left_image_id: str,
+        right_image_id: str,
+        decided_by: Optional[int] = None,
+    ) -> None:
+        pair_key = ImageService.duplicate_pair_key(left_image_id, right_image_id)
+        existing = db.query(models.DuplicatePairDecision).filter(
+            models.DuplicatePairDecision.pair_key == pair_key,
+        ).first()
+        if existing:
+            existing.decision = "distinct"
+            existing.decided_by = decided_by
+            existing.updated_at = datetime.utcnow()
+            return
+        left, right = sorted((str(left_image_id), str(right_image_id)))
+        db.add(models.DuplicatePairDecision(
+            pair_key=pair_key,
+            left_image_id=left,
+            right_image_id=right,
+            decision="distinct",
+            decided_by=decided_by,
+        ))
+
+    @staticmethod
+    def _validate_existing_duplicate_pair(
+        db: Session,
+        left_image_id: str,
+        right_image_id: str,
+        threshold: Optional[int] = None,
+    ) -> Tuple[models.Image, models.Image]:
+        threshold = settings.DUPLICATE_DHASH_DISTANCE if threshold is None else threshold
+        threshold = min(64, max(0, int(threshold)))
+        images = db.query(models.Image).options(
+            joinedload(models.Image.characters),
+            joinedload(models.Image.groups),
+            joinedload(models.Image.feature_tags),
+        ).filter(
+            models.Image.image_id.in_([left_image_id, right_image_id]),
+            models.Image.file_status == ImageService.AVAILABLE,
+        ).all()
+        image_map = {image.image_id: image for image in images}
+        if set(image_map) != {left_image_id, right_image_id}:
+            raise ValueError("Duplicate set changed")
+        left = image_map[left_image_id]
+        right = image_map[right_image_id]
+        left_hash = ImageService._perceptual_hash_for_image(db, left)
+        right_hash = ImageService._perceptual_hash_for_image(db, right)
+        shared_characters = {item.id for item in left.characters} & {item.id for item in right.characters}
+        if not left_hash or not right_hash or not shared_characters:
+            raise ValueError("Images no longer share a character")
+        if ImageService.dhash_distance(left_hash, right_hash) > threshold:
+            raise ValueError("Images are no longer duplicates")
+        return left, right
 
     @staticmethod
     def find_perceptual_duplicates(
@@ -800,10 +871,13 @@ class ImageService:
         file_path: str,
         character_ids: List[int],
         threshold: Optional[int] = None,
+        upload_hash: Optional[str] = None,
     ) -> Tuple[str, List[dict]]:
         """Compare an upload with every available image assigned to any selected character."""
         character_ids = ImageService._unique_ints(character_ids)
-        upload_hash = ImageService.compute_dhash(file_path)
+        upload_hash = str(upload_hash or "").lower()
+        if len(upload_hash) != 16 or any(char not in "0123456789abcdef" for char in upload_hash):
+            upload_hash = ImageService.compute_dhash(file_path)
         if not character_ids:
             return upload_hash, []
 
@@ -811,6 +885,8 @@ class ImageService:
         threshold = min(64, max(0, int(threshold)))
         candidates = db.query(models.Image).options(
             joinedload(models.Image.characters),
+            joinedload(models.Image.groups),
+            joinedload(models.Image.feature_tags),
         ).join(models.Image.characters).filter(
             models.Character.id.in_(character_ids),
             models.Image.file_status == ImageService.AVAILABLE,
@@ -847,6 +923,8 @@ class ImageService:
         }
         images = db.query(models.Image).options(
             joinedload(models.Image.characters),
+            joinedload(models.Image.groups),
+            joinedload(models.Image.feature_tags),
         ).filter(
             models.Image.file_status == ImageService.AVAILABLE,
         ).order_by(models.Image.image_id).all()
@@ -855,6 +933,13 @@ class ImageService:
         computed_hashes = 0
         missing_images = 0
         images_by_character = defaultdict(list)
+        durable_excluded_pairs = {
+            frozenset((decision.left_image_id, decision.right_image_id))
+            for decision in db.query(models.DuplicatePairDecision).filter(
+                models.DuplicatePairDecision.decision == "distinct",
+            ).all()
+        }
+        excluded_pair_keys.update(durable_excluded_pairs)
         for image in images:
             previous_hash = str(image.perceptual_hash or "").lower()
             candidate_hash = ImageService._perceptual_hash_for_image(db, image)
@@ -961,34 +1046,109 @@ class ImageService:
 
         threshold = settings.DUPLICATE_DHASH_DISTANCE if threshold is None else threshold
         threshold = min(64, max(0, int(threshold)))
-        images = db.query(models.Image).options(
-            joinedload(models.Image.characters),
-        ).filter(
-            models.Image.image_id.in_(unique_ids),
-            models.Image.file_status == ImageService.AVAILABLE,
-        ).all()
-        image_map = {image.image_id: image for image in images}
-        if set(image_map) != set(unique_ids):
-            raise ValueError("Duplicate set changed")
-
-        keep = image_map[keep_image_id]
-        keep_hash = ImageService._perceptual_hash_for_image(db, keep)
-        keep_character_ids = {character.id for character in keep.characters}
-        if not keep_hash or not keep_character_ids:
-            raise ValueError("Selected image is no longer eligible")
-
-        for image_id in unique_ids:
-            if image_id == keep_image_id:
-                continue
-            image = image_map[image_id]
-            image_hash = ImageService._perceptual_hash_for_image(db, image)
-            shared_characters = keep_character_ids & {character.id for character in image.characters}
-            if not image_hash or not shared_characters:
-                raise ValueError("Images no longer share a character")
-            if ImageService.dhash_distance(keep_hash, image_hash) > threshold:
-                raise ValueError("Images are no longer duplicates")
+        other_image_id = next(image_id for image_id in unique_ids if image_id != keep_image_id)
+        ImageService._validate_existing_duplicate_pair(db, keep_image_id, other_image_id, threshold)
 
         return ImageService.archive_duplicate_images(db, unique_ids, keep_image_id=keep_image_id)
+
+    @staticmethod
+    def _merged_text(left: Optional[str], right: Optional[str]) -> Optional[str]:
+        values = []
+        for value in (left, right):
+            normalized = str(value or "").strip()
+            if normalized and normalized not in values:
+                values.append(normalized)
+        return "\n".join(values) or None
+
+    @staticmethod
+    def merge_duplicate_image_metadata(
+        db: Session,
+        keep_image_id: str,
+        other_image_id: str,
+        metadata_sources: Optional[dict] = None,
+    ) -> models.Image:
+        """Merge selected metadata into the kept image, then archive the other record."""
+        metadata_sources = metadata_sources or {}
+        images = db.query(models.Image).options(
+            joinedload(models.Image.characters),
+            joinedload(models.Image.groups),
+            joinedload(models.Image.feature_tags),
+        ).filter(models.Image.image_id.in_([keep_image_id, other_image_id])).all()
+        image_map = {image.image_id: image for image in images}
+        if set(image_map) != {keep_image_id, other_image_id}:
+            raise ValueError("Duplicate set changed")
+        keep = image_map[keep_image_id]
+        other = image_map[other_image_id]
+
+        def source_value(field: str, left_value, right_value):
+            source = metadata_sources.get(field, "merge")
+            if source == "keep":
+                return left_value
+            if source == "other":
+                return right_value
+            if field in {"pid", "description"}:
+                return ImageService._merged_text(left_value, right_value)
+            if field == "age_rating":
+                ranks = {value: index for index, value in enumerate(ImageService.AGE_RATINGS)}
+                return max((left_value or "all", right_value or "all"), key=lambda value: ranks.get(value, 0))
+            return list(dict.fromkeys([*left_value, *right_value]))
+
+        keep.pid = source_value("pid", keep.pid, other.pid)
+        keep.description = source_value("description", keep.description, other.description)
+        keep.age_rating = source_value("age_rating", keep.age_rating, other.age_rating)
+        keep.groups = source_value("groups", list(keep.groups), list(other.groups))
+        keep.characters = source_value("characters", list(keep.characters), list(other.characters))
+        keep.feature_tags = source_value("feature_tags", list(keep.feature_tags), list(other.feature_tags))
+        other.file_status = ImageService.ARCHIVED
+        return keep
+
+    @staticmethod
+    def merge_incoming_image_metadata(
+        db: Session,
+        keep_image_id: str,
+        incoming: dict,
+        metadata_sources: Optional[dict] = None,
+    ) -> models.Image:
+        """Merge upload metadata into an existing kept image without storing the incoming file."""
+        metadata_sources = metadata_sources or {}
+        keep = db.query(models.Image).options(
+            joinedload(models.Image.characters),
+            joinedload(models.Image.groups),
+            joinedload(models.Image.feature_tags),
+        ).filter(
+            models.Image.image_id == keep_image_id,
+            models.Image.file_status == ImageService.AVAILABLE,
+        ).first()
+        if not keep:
+            raise ValueError("Selected image is no longer available")
+
+        character_ids = ImageService._unique_ints(incoming.get("character_ids"))
+        group_ids = ImageService._unique_ints(incoming.get("group_ids"))
+        feature_ids = ImageService._unique_ints(incoming.get("feature_tag_ids"))
+        incoming_characters = db.query(models.Character).filter(models.Character.id.in_(character_ids)).all() if character_ids else []
+        incoming_groups = db.query(models.Group).filter(models.Group.id.in_(group_ids)).all() if group_ids else []
+        incoming_tags = db.query(models.FeatureTag).filter(models.FeatureTag.id.in_(feature_ids)).all() if feature_ids else []
+
+        def selected(field: str, keep_value, other_value):
+            source = metadata_sources.get(field, "merge")
+            if source == "keep":
+                return keep_value
+            if source == "other":
+                return other_value
+            if field in {"pid", "description"}:
+                return ImageService._merged_text(keep_value, other_value)
+            if field == "age_rating":
+                ranks = {value: index for index, value in enumerate(ImageService.AGE_RATINGS)}
+                return max((keep_value or "all", other_value or "all"), key=lambda value: ranks.get(value, 0))
+            return list(dict.fromkeys([*keep_value, *other_value]))
+
+        keep.pid = selected("pid", keep.pid, incoming.get("pid"))
+        keep.description = selected("description", keep.description, incoming.get("description"))
+        keep.age_rating = selected("age_rating", keep.age_rating, incoming.get("age_rating") or "all")
+        keep.groups = selected("groups", list(keep.groups), incoming_groups)
+        keep.characters = selected("characters", list(keep.characters), incoming_characters)
+        keep.feature_tags = selected("feature_tags", list(keep.feature_tags), incoming_tags)
+        return keep
 
     @staticmethod
     def archive_duplicate_images(db: Session, image_ids: List[str], keep_image_id: Optional[str] = None) -> int:

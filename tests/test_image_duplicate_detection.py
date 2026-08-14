@@ -1,5 +1,7 @@
 from pathlib import Path
 from contextlib import contextmanager
+import asyncio
+import json
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -8,7 +10,8 @@ from PIL import Image, ImageDraw
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app import models
+from app import models, schemas
+from app.routers.admin_api import reviews
 from app.routers.public_api import uploads
 from app.services import ImageService
 
@@ -69,6 +72,111 @@ def test_duplicate_search_is_scoped_to_selected_characters(tmp_path):
 
     assert [match["image_id"] for match in selected_matches] == ["ABCDEF1234"]
     assert other_matches == []
+
+
+def test_duplicate_search_reuses_precomputed_upload_and_candidate_hashes(monkeypatch, tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'cached-duplicates.db'}")
+    models.Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    cached_hash = "0123456789abcdef"
+
+    with Session() as db:
+        group = models.Group(name="group")
+        character = models.Character(name="character", group=group)
+        image = models.Image(
+            image_id="ABCDEF1234",
+            original_filename="cached.png",
+            file_extension="png",
+            file_path="resource/store/missing-but-already-hashed.png",
+            file_status=ImageService.AVAILABLE,
+            thumb_status=ImageService.THUMB_PENDING,
+            perceptual_hash=cached_hash,
+            characters=[character],
+        )
+        db.add_all([group, character, image])
+        db.commit()
+
+        monkeypatch.setattr(
+            ImageService,
+            "compute_dhash",
+            staticmethod(lambda _path: pytest.fail("cached hashes must not decode either file again")),
+        )
+        returned_hash, matches = ImageService.find_perceptual_duplicates(
+            db,
+            "staged-upload.png",
+            [character.id],
+            threshold=0,
+            upload_hash=cached_hash,
+        )
+
+    assert returned_hash == cached_hash
+    assert [match["image_id"] for match in matches] == ["ABCDEF1234"]
+
+
+def test_merge_duplicate_metadata_can_select_and_combine_fields(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'merge-duplicates.db'}")
+    models.Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+
+    with Session() as db:
+        first_group = models.Group(name="first group")
+        second_group = models.Group(name="second group")
+        shared = models.Character(name="shared", group=first_group)
+        extra = models.Character(name="extra", group=second_group)
+        first_tag = models.FeatureTag(name="first tag")
+        second_tag = models.FeatureTag(name="second tag")
+        kept = models.Image(
+            image_id="1111111111",
+            pid="PID-A",
+            description="keep description",
+            age_rating="r12",
+            file_extension="png",
+            file_path="kept.png",
+            file_status=ImageService.AVAILABLE,
+            groups=[first_group],
+            characters=[shared],
+            feature_tags=[first_tag],
+        )
+        other = models.Image(
+            image_id="2222222222",
+            pid="PID-B",
+            description="other description",
+            age_rating="r18",
+            file_extension="webp",
+            file_path="other.webp",
+            file_status=ImageService.AVAILABLE,
+            groups=[second_group],
+            characters=[shared, extra],
+            feature_tags=[second_tag],
+        )
+        db.add_all([kept, other])
+        db.commit()
+
+        ImageService.merge_duplicate_image_metadata(
+            db,
+            kept.image_id,
+            other.image_id,
+            {
+                "pid": "merge",
+                "description": "other",
+                "age_rating": "merge",
+                "groups": "keep",
+                "characters": "merge",
+                "feature_tags": "merge",
+            },
+        )
+        db.commit()
+        db.refresh(kept)
+        db.refresh(other)
+
+        assert kept.file_path == "kept.png"
+        assert kept.pid == "PID-A\nPID-B"
+        assert kept.description == "other description"
+        assert kept.age_rating == "r18"
+        assert {group.name for group in kept.groups} == {"first group"}
+        assert {character.name for character in kept.characters} == {"shared", "extra"}
+        assert {tag.name for tag in kept.feature_tags} == {"first tag", "second tag"}
+        assert other.file_status == ImageService.ARCHIVED
 
 
 def test_existing_duplicate_scan_and_resolve_are_character_scoped(tmp_path):
@@ -132,6 +240,13 @@ def test_existing_duplicate_scan_and_resolve_are_character_scoped(tmp_path):
             excluded_pairs=[["1111111111", "2222222222"]],
         )
         assert excluded["groups"] == []
+
+        ImageService.remember_distinct_duplicate_pair(db, first.image_id, second.image_id)
+        db.commit()
+        durable_excluded = ImageService.scan_existing_perceptual_duplicates(db, threshold=1)
+        assert durable_excluded["groups"] == []
+        db.query(models.DuplicatePairDecision).delete()
+        db.commit()
 
         archived = ImageService.resolve_existing_perceptual_duplicates(
             db,
@@ -251,6 +366,7 @@ def test_admin_upload_can_keep_existing_then_replace_it(tmp_path, monkeypatch):
 
     with Session() as db:
         admin = models.User(qq_number="12345", role=models.UserRole.ADMIN.value)
+        user = models.User(qq_number="67890", role=models.UserRole.USER.value)
         group = models.Group(name="group")
         character = models.Character(name="character", group=group)
         existing = models.Image(
@@ -263,9 +379,10 @@ def test_admin_upload_can_keep_existing_then_replace_it(tmp_path, monkeypatch):
             perceptual_hash=ImageService.compute_dhash(str(existing_file)),
             characters=[character],
         )
-        db.add_all([admin, group, character, existing])
+        db.add_all([admin, user, group, character, existing])
         db.commit()
         admin_id = admin.id
+        user_id = user.id
         character_id = character.id
         group_id = group.id
 
@@ -282,10 +399,11 @@ def test_admin_upload_can_keep_existing_then_replace_it(tmp_path, monkeypatch):
             db.close()
 
     monkeypatch.setattr(uploads, "get_db_context", database_context)
+    current_identity = {"user_id": admin_id}
     monkeypatch.setattr(
         uploads,
         "get_current_session",
-        lambda request, db: {"is_guest": False, "user_id": admin_id},
+        lambda request, db: {"is_guest": False, "user_id": current_identity["user_id"]},
     )
     app = FastAPI()
     app.include_router(uploads.router)
@@ -310,20 +428,24 @@ def test_admin_upload_can_keep_existing_then_replace_it(tmp_path, monkeypatch):
     assert [item["image_id"] for item in first.json()["duplicates"]] == ["ABCDEF1234"]
     keep_existing = client.post(
         "/upload/duplicates/resolve",
-        json={"token": first.json()["duplicate_token"], "keep": "existing:ABCDEF1234"},
+        json={
+            "token": first.json()["duplicate_token"],
+            "keep": "merge-existing:ABCDEF1234",
+            "metadata_sources": {"pid": "merge", "characters": "merge"},
+        },
     )
     assert keep_existing.status_code == 200
-    assert keep_existing.json()["status"] == "kept_existing"
+    assert keep_existing.json()["status"] == "merged_existing"
     assert list(pending_path.glob("duplicate-*")) == []
 
     second = submit_duplicate()
     assert second.json()["status"] == "duplicate"
     keep_new = client.post(
         "/upload/duplicates/resolve",
-        json={"token": second.json()["duplicate_token"], "keep": "new"},
+        json={"token": second.json()["duplicate_token"], "keep": "merge-new"},
     )
     assert keep_new.status_code == 200
-    assert keep_new.json()["status"] == "replaced_duplicates"
+    assert keep_new.json()["status"] == "merged_new"
 
     with Session() as db:
         old = db.query(models.Image).filter(models.Image.image_id == "ABCDEF1234").one()
@@ -340,10 +462,10 @@ def test_admin_upload_can_keep_existing_then_replace_it(tmp_path, monkeypatch):
     assert third.json()["status"] == "duplicate"
     keep_all = client.post(
         "/upload/duplicates/resolve",
-        json={"token": third.json()["duplicate_token"], "keep": "all"},
+        json={"token": third.json()["duplicate_token"], "keep": "distinct"},
     )
     assert keep_all.status_code == 200
-    assert keep_all.json()["status"] == "kept_all"
+    assert keep_all.json()["status"] == "kept_distinct"
 
     with Session() as db:
         available = db.query(models.Image).filter(
@@ -353,3 +475,43 @@ def test_admin_upload_can_keep_existing_then_replace_it(tmp_path, monkeypatch):
             replacement_id,
             keep_all.json()["image_id"],
         }
+        decision = db.query(models.DuplicatePairDecision).one()
+        assert decision.pair_key == ImageService.duplicate_pair_key(replacement_id, keep_all.json()["image_id"])
+
+    current_identity["user_id"] = user_id
+    fourth = submit_duplicate()
+    offered_id = fourth.json()["duplicates"][0]["image_id"]
+    pending_merge = client.post(
+        "/upload/duplicates/resolve",
+        json={
+            "token": fourth.json()["duplicate_token"],
+            "keep": f"merge-existing:{offered_id}",
+            "metadata_sources": {"pid": "merge", "feature_tags": "merge"},
+        },
+    )
+    assert pending_merge.status_code == 200
+    assert pending_merge.json()["status"] == "pending_review"
+    with Session() as db:
+        request_data = db.query(models.PendingRequest).filter(
+            models.PendingRequest.user_id == user_id,
+            models.PendingRequest.status == models.RequestStatus.PENDING.value,
+        ).one()
+        stored = json.loads(request_data.image_data)
+        request_id = request_data.id
+        assert stored["duplicate_keep"] == "merge-existing"
+        assert stored["duplicate_image_ids"] == [offered_id]
+        assert stored["duplicate_metadata_sources"]["feature_tags"] == "merge"
+
+    monkeypatch.setattr(reviews, "get_db_context", database_context)
+    monkeypatch.setattr(reviews, "require_admin_user_id", lambda _request: admin_id)
+    monkeypatch.setattr(reviews.settings, "STORE_PATH", str(store_path))
+    asyncio.run(reviews.handle_pending_request(
+        request_id,
+        schemas.PendingRequestAction(action="approve"),
+        object(),
+    ))
+    with Session() as db:
+        reviewed = db.query(models.PendingRequest).filter(models.PendingRequest.id == request_id).one()
+        assert reviewed.status == models.RequestStatus.APPROVED.value
+        assert reviewed.image_id == offered_id
+        assert db.query(models.Image).count() == 3

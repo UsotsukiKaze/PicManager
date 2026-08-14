@@ -12,7 +12,7 @@ def test_duplicate_maintenance_reuses_existing_comparison_dialog():
     assert 'id="scan-duplicates-button"' in html
     assert "api.scanExistingDuplicates(25, excludedPairs)" in ui_source
     assert "uploadFeature.resolveDuplicateChoice" in ui_source
-    assert "if (choice === 'all')" in ui_source
+    assert "if (decision.action === 'later')" in ui_source
     assert "excludedPairs.push(group.image_ids || [])" in ui_source
     assert "api.resolveExistingDuplicates" in ui_source
     assert "/system/duplicates/scan" in api_source

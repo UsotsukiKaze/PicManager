@@ -338,6 +338,19 @@ class Image(Base):
         return f"<Image(image_id='{self.image_id}', pid='{self.pid}')>"
 
 
+class DuplicatePairDecision(Base):
+    """A durable decision that two visually similar images are intentionally distinct."""
+    __tablename__ = "duplicate_pair_decisions"
+
+    pair_key = Column(String(21), primary_key=True)
+    left_image_id = Column(String(10), nullable=False, index=True)
+    right_image_id = Column(String(10), nullable=False, index=True)
+    decision = Column(String(20), nullable=False, default="distinct")
+    decided_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class GroupAgeSetting(Base):
     """Bot group content ceiling managed by PicManager."""
     __tablename__ = 'group_age_settings'

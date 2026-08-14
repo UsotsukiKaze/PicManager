@@ -90,8 +90,18 @@ def _validate_upload_tags(db, character_ids: List[int], group_ids: List[int], fe
             raise HTTPException(status_code=400, detail=f"Selected {label} do not exist: {missing_ids}")
 
 
-def _duplicate_upload_scan(db, file_path: str, character_ids: List[int]):
-    upload_hash, matches = ImageService.find_perceptual_duplicates(db, file_path, character_ids)
+def _duplicate_upload_scan(
+    db,
+    file_path: str,
+    character_ids: List[int],
+    upload_hash: Optional[str] = None,
+):
+    upload_hash, matches = ImageService.find_perceptual_duplicates(
+        db,
+        file_path,
+        character_ids,
+        upload_hash=upload_hash,
+    )
     return upload_hash, matches
 
 
@@ -126,12 +136,46 @@ def _decode_duplicate_token(token: str) -> dict:
         raise HTTPException(status_code=400, detail="Invalid duplicate decision token") from exc
 
 
-def _duplicate_response(matches: List[dict], token: str) -> schemas.UploadImageResponse:
+def _incoming_duplicate_match(db, file_path: str, metadata: dict, original_filename: str) -> dict:
+    character_ids = ImageService._unique_ints(metadata.get("character_ids"))
+    group_ids = ImageService._unique_ints(metadata.get("group_ids"))
+    feature_tag_ids = ImageService._unique_ints(metadata.get("feature_tag_ids"))
+    characters = db.query(models.Character).filter(models.Character.id.in_(character_ids)).all() if character_ids else []
+    groups = db.query(models.Group).filter(models.Group.id.in_(group_ids)).all() if group_ids else []
+    tags = db.query(models.FeatureTag).filter(models.FeatureTag.id.in_(feature_tag_ids)).all() if feature_tag_ids else []
+    width = height = None
+    try:
+        with Image.open(file_path) as image:
+            width, height = image.size
+    except OSError:
+        pass
+    return {
+        "image_id": "new",
+        "distance": 0,
+        "thumbnail_url": "",
+        "character_ids": [item.id for item in characters],
+        "character_names": [item.name for item in characters],
+        "group_ids": [item.id for item in groups],
+        "group_names": [item.name for item in groups],
+        "feature_tag_ids": [item.id for item in tags],
+        "feature_tag_names": [item.name for item in tags],
+        "pid": metadata.get("pid"),
+        "description": metadata.get("description"),
+        "age_rating": metadata.get("age_rating") or "all",
+        "original_filename": original_filename,
+        "file_size": os.path.getsize(file_path),
+        "width": width,
+        "height": height,
+    }
+
+
+def _duplicate_response(db, matches: List[dict], token: str, file_path: str, metadata: dict, original_filename: str) -> schemas.UploadImageResponse:
     return schemas.UploadImageResponse(
         image_id="duplicate",
         message=f"Found {len(matches)} visually similar image(s)",
         status="duplicate",
-        duplicates=matches,
+        duplicates=matches[:1],
+        incoming=_incoming_duplicate_match(db, file_path, metadata, original_filename),
         duplicate_algorithm="dhash64",
         duplicate_threshold=min(64, max(0, settings.DUPLICATE_DHASH_DISTANCE)),
         duplicate_token=token,
@@ -313,7 +357,7 @@ def upload_single_image(
                 upload_hash,
                 duplicate_matches,
             )
-            return _duplicate_response(duplicate_matches, token)
+            return _duplicate_response(db, duplicate_matches, token, str(staged_path), metadata, file.filename or f"upload.{file_extension}")
 
         if guest_ip and not check_guest_limit(db, guest_ip):
             try:
@@ -337,7 +381,7 @@ def upload_single_image(
 
                 with ImageService.DUPLICATE_WRITE_LOCK:
                     upload_hash, concurrent_matches = _duplicate_upload_scan(
-                        db, temp_file_path, character_id_list
+                        db, temp_file_path, character_id_list, upload_hash
                     )
                     if concurrent_matches:
                         staged_filename = f"duplicate-{uuid.uuid4().hex}.{file_extension}"
@@ -353,7 +397,7 @@ def upload_single_image(
                             upload_hash,
                             concurrent_matches,
                         )
-                        return _duplicate_response(concurrent_matches, token)
+                        return _duplicate_response(db, concurrent_matches, token, str(staged_path), metadata, file.filename or f"upload.{file_extension}")
                     image = ImageService.create_image(
                         db, image_create, temp_file_path, file.filename, file_extension, store_path
                     )
@@ -449,7 +493,7 @@ def upload_single_image(
 
         with ImageService.DUPLICATE_WRITE_LOCK:
             upload_hash, concurrent_matches = _duplicate_upload_scan(
-                db, temp_file_path, character_id_list
+                db, temp_file_path, character_id_list, upload_hash
             )
             if concurrent_matches:
                 staged_filename = f"duplicate-{uuid.uuid4().hex}.{file_extension}"
@@ -465,7 +509,7 @@ def upload_single_image(
                     upload_hash,
                     concurrent_matches,
                 )
-                return _duplicate_response(concurrent_matches, token)
+                return _duplicate_response(db, concurrent_matches, token, str(staged_path), metadata, file.filename or f"upload.{file_extension}")
             os.replace(temp_file_path, pending_file_path)
 
         # 创建待审核记录
@@ -596,7 +640,7 @@ def upload_temp_image(temp_upload: schemas.TempImageUpload, request: Request):
                     upload_hash,
                     duplicate_matches,
                 )
-                return _duplicate_response(duplicate_matches, token)
+                return _duplicate_response(db, duplicate_matches, token, str(image_path), metadata, temp_upload.filename)
             image = ImageService.create_image(
                 db, image_create, str(image_path), temp_upload.filename, file_extension, settings.STORE_PATH
             )
@@ -672,7 +716,7 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
         group_ids = [int(item) for item in metadata.get("group_ids") or []]
         feature_tag_ids = [int(item) for item in metadata.get("feature_tag_ids") or []]
         _validate_upload_tags(db, character_ids, group_ids, feature_tag_ids)
-        expected_ids = set(payload.get("match_ids") or [])
+        expected_ids = set((payload.get("match_ids") or [])[:1])
 
         if choice.keep == "cancel":
             if source == "upload":
@@ -686,19 +730,50 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
         current_hash, current_matches = _duplicate_upload_scan(db, str(source_path), character_ids)
         if current_hash != payload.get("upload_hash"):
             raise HTTPException(status_code=409, detail="Staged image changed; submit the image again")
-        current_ids = {match["image_id"] for match in current_matches}
-        if current_ids - expected_ids:
+        current_ids = {match["image_id"] for match in current_matches[:1]}
+        if not current_ids or current_ids != expected_ids:
             raise HTTPException(status_code=409, detail="Duplicate set changed; submit the image again")
 
-        if choice.keep.startswith("existing:"):
+        if choice.keep.startswith("merge-existing:"):
             selected_id = choice.keep.partition(":")[2]
             if selected_id not in expected_ids or selected_id not in current_ids:
                 raise HTTPException(status_code=409, detail="Selected image was not offered as a duplicate")
+            if guest_ip and not check_guest_limit(db, guest_ip):
+                raise HTTPException(status_code=429, detail="今日操作次数已用完")
             with ImageService.DUPLICATE_WRITE_LOCK:
-                locked_hash, locked_matches = _duplicate_upload_scan(db, str(source_path), character_ids)
-                locked_ids = {match["image_id"] for match in locked_matches}
+                locked_hash, locked_matches = _duplicate_upload_scan(
+                    db, str(source_path), character_ids, current_hash,
+                )
+                locked_ids = {match["image_id"] for match in locked_matches[:1]}
                 if locked_hash != payload.get("upload_hash") or locked_ids != current_ids:
                     raise HTTPException(status_code=409, detail="Duplicate set changed; submit the image again")
+                if not is_admin:
+                    if source != "upload":
+                        raise HTTPException(status_code=403, detail="Admin permission required")
+                    pending_filename = f"{uuid.uuid4().hex}.{payload.get('file_extension')}"
+                    pending_path = Path(settings.PENDING_PATH) / pending_filename
+                    os.replace(source_path, pending_path)
+                    db.add(PendingRequest(
+                        request_type="add",
+                        user_id=user_id,
+                        guest_ip=guest_ip,
+                        guest_name=guest_name,
+                        image_data=json.dumps({
+                            **metadata,
+                            "duplicate_keep": "merge-existing",
+                            "duplicate_image_ids": [selected_id],
+                            "duplicate_metadata_sources": choice.metadata_sources,
+                            "perceptual_hash": payload.get("upload_hash"),
+                        }),
+                        temp_file_path=str(pending_path),
+                        original_filename=str(payload.get("original_filename") or pending_path.name),
+                    ))
+                    db.commit()
+                    return schemas.UploadImageResponse(
+                        image_id="pending",
+                        message="已提交信息合并请求，等待管理员审核",
+                        status="pending_review",
+                    )
                 existing = db.query(models.Image).filter(
                     models.Image.image_id == selected_id,
                     models.Image.file_status == ImageService.AVAILABLE,
@@ -708,45 +783,25 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                 if not ImageService.image_file_exists(existing):
                     ImageService.mark_file_status(db, existing, exists=False)
                     raise HTTPException(status_code=409, detail="Selected existing image file is missing")
-                redundant_ids = sorted(locked_ids - {selected_id})
-                pending_cleanup = False
-                if redundant_ids:
-                    if is_admin:
-                        ImageService.archive_duplicate_images(db, redundant_ids, keep_image_id=selected_id)
-                        db.commit()
-                    else:
-                        if guest_ip and not check_guest_limit(db, guest_ip):
-                            raise HTTPException(status_code=429, detail="今日操作次数已用完")
-                        for redundant_id in redundant_ids:
-                            db.add(PendingRequest(
-                                request_type="duplicate_archive",
-                                user_id=user_id,
-                                guest_ip=guest_ip,
-                                guest_name=guest_name,
-                                image_id=redundant_id,
-                                image_data=json.dumps({"kept_image_id": selected_id}),
-                            ))
-                        db.commit()
-                        pending_cleanup = True
+                ImageService.merge_incoming_image_metadata(db, selected_id, metadata, choice.metadata_sources)
+                db.commit()
             source_path.unlink(missing_ok=True)
             return schemas.UploadImageResponse(
                 image_id=selected_id,
-                message=(
-                    "已保留所选图片，其余重复图等待管理员审核归档"
-                    if pending_cleanup else
-                    "已保留所选图片，其余重复图已归档"
-                ) if redundant_ids else "已保留现有图片，新图片未入库",
-                status="pending_cleanup" if pending_cleanup else "kept_existing",
+                message="已保留现有图片文件，并同步所选信息",
+                status="merged_existing",
             )
 
-        if choice.keep not in {"new", "all"}:
+        if choice.keep not in {"merge-new", "distinct", "later"}:
             raise HTTPException(status_code=400, detail="Invalid duplicate choice")
         if guest_ip and not check_guest_limit(db, guest_ip):
             raise HTTPException(status_code=429, detail="今日操作次数已用完")
 
         with ImageService.DUPLICATE_WRITE_LOCK:
-            locked_hash, locked_matches = _duplicate_upload_scan(db, str(source_path), character_ids)
-            locked_ids = {match["image_id"] for match in locked_matches}
+            locked_hash, locked_matches = _duplicate_upload_scan(
+                db, str(source_path), character_ids, current_hash,
+            )
+            locked_ids = {match["image_id"] for match in locked_matches[:1]}
             if locked_hash != payload.get("upload_hash") or locked_ids != current_ids:
                 raise HTTPException(status_code=409, detail="Duplicate set changed; submit the image again")
             confirmed_ids = sorted(expected_ids & locked_ids)
@@ -754,8 +809,6 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                 raise HTTPException(status_code=409, detail="Duplicate set changed; submit the image again")
 
             if is_admin:
-                if choice.keep == "new":
-                    ImageService.archive_duplicate_images(db, confirmed_ids)
                 image = ImageService.create_image(
                     db,
                     schemas.ImageCreate(
@@ -771,6 +824,14 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                     str(payload.get("file_extension") or source_path.suffix.lstrip(".")),
                     settings.STORE_PATH,
                 )
+                if choice.keep == "merge-new":
+                    ImageService.merge_duplicate_image_metadata(
+                        db, image.image_id, confirmed_ids[0], choice.metadata_sources,
+                    )
+                elif choice.keep == "distinct":
+                    ImageService.remember_distinct_duplicate_pair(
+                        db, image.image_id, confirmed_ids[0], decided_by=user_id,
+                    )
                 if user_id:
                     db.add(PendingRequest(
                         request_type="add",
@@ -781,8 +842,8 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                             **metadata,
                             **(
                                 {"replaced_duplicate_ids": confirmed_ids}
-                                if choice.keep == "new" else
-                                {"kept_duplicate_ids": confirmed_ids}
+                                if choice.keep == "merge-new" else
+                                {"kept_duplicate_ids": confirmed_ids, "duplicate_decision": choice.keep}
                             ),
                         }),
                         reviewed_at=datetime.utcnow(),
@@ -796,11 +857,11 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                 return schemas.UploadImageResponse(
                     image_id=image.image_id,
                     message=(
-                        "已保留新图片，重复的现有图片已归档"
-                        if choice.keep == "new" else
-                        "新图片和相似的现有图片均已保留"
+                        "已保留新图片文件，合并信息并归档现有图片"
+                        if choice.keep == "merge-new" else
+                        "两张图片均已保留" + ("，后续不再提示这一对" if choice.keep == "distinct" else "，下次仍可处理")
                     ),
-                    status="replaced_duplicates" if choice.keep == "new" else "kept_all",
+                    status="merged_new" if choice.keep == "merge-new" else "kept_distinct" if choice.keep == "distinct" else "deferred",
                 )
 
             if source != "upload":
@@ -817,6 +878,7 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                     **metadata,
                     "duplicate_keep": choice.keep,
                     "duplicate_image_ids": confirmed_ids,
+                    "duplicate_metadata_sources": choice.metadata_sources,
                     "perceptual_hash": payload.get("upload_hash"),
                 }),
                 temp_file_path=str(pending_path),
@@ -826,11 +888,9 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
             return schemas.UploadImageResponse(
                 image_id="pending",
                 message=(
-                    "已提交替换请求，等待管理员审核"
-                    if choice.keep == "new" else
-                    "已提交全部保留请求，等待管理员审核"
+                    "已提交图片，等待管理员审核"
                 ),
-                status="pending_replacement" if choice.keep == "new" else "pending_review",
+                status="pending_review",
             )
 
 

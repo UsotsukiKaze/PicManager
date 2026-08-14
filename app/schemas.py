@@ -259,13 +259,24 @@ class DuplicateImageMatch(BaseModel):
     thumbnail_url: str
     character_names: List[str] = Field(default_factory=list)
     pid: Optional[str] = None
+    description: Optional[str] = None
+    age_rating: str = "all"
     original_filename: Optional[str] = None
+    file_size: Optional[int] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    group_ids: List[int] = Field(default_factory=list)
+    group_names: List[str] = Field(default_factory=list)
+    character_ids: List[int] = Field(default_factory=list)
+    feature_tag_ids: List[int] = Field(default_factory=list)
+    feature_tag_names: List[str] = Field(default_factory=list)
 
 class UploadImageResponse(BaseModel):
     image_id: str
     message: str
     status: str = "success"
     duplicates: List[DuplicateImageMatch] = Field(default_factory=list)
+    incoming: Optional[DuplicateImageMatch] = None
     duplicate_algorithm: Optional[str] = None
     duplicate_threshold: Optional[int] = None
     duplicate_token: Optional[str] = None
@@ -273,18 +284,34 @@ class UploadImageResponse(BaseModel):
 class DuplicateImageResolveRequest(BaseModel):
     token: str = Field(min_length=32, max_length=16384)
     keep: str = Field(min_length=3, max_length=32)
+    metadata_sources: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("metadata_sources")
+    @classmethod
+    def validate_metadata_sources(cls, values: dict[str, str]) -> dict[str, str]:
+        allowed_fields = {"pid", "description", "age_rating", "groups", "characters", "feature_tags"}
+        if set(values) - allowed_fields or any(value not in {"keep", "other", "merge"} for value in values.values()):
+            raise ValueError("Invalid duplicate metadata source")
+        return values
 
 class ExistingDuplicateResolveRequest(BaseModel):
     image_ids: List[str] = Field(min_length=2, max_length=20)
-    keep_image_id: str = Field(min_length=10, max_length=10)
+    action: str = Field(pattern="^(distinct|merge)$")
+    keep_image_id: Optional[str] = Field(default=None, min_length=10, max_length=10)
+    metadata_sources: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("image_ids")
     @classmethod
     def validate_image_ids(cls, values: List[str]) -> List[str]:
         unique = list(dict.fromkeys(values))
-        if len(unique) < 2 or any(len(value) != 10 for value in unique):
-            raise ValueError("At least two valid image IDs are required")
+        if len(unique) != 2 or any(len(value) != 10 for value in unique):
+            raise ValueError("Exactly two valid image IDs are required")
         return unique
+
+    @field_validator("metadata_sources")
+    @classmethod
+    def validate_existing_metadata_sources(cls, values: dict[str, str]) -> dict[str, str]:
+        return DuplicateImageResolveRequest.validate_metadata_sources(values)
 
 class ExistingDuplicateScanRequest(BaseModel):
     excluded_pairs: List[List[str]] = Field(default_factory=list, max_length=500)

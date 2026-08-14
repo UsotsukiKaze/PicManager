@@ -342,33 +342,59 @@ async def handle_pending_request(
                     )
 
                     with ImageService.DUPLICATE_WRITE_LOCK:
-                        if image_data.get("duplicate_keep") in {"new", "all"}:
-                            _, current_matches = ImageService.find_perceptual_duplicates(
+                        duplicate_keep = image_data.get("duplicate_keep")
+                        confirmed_ids = []
+                        if duplicate_keep in {"merge-existing", "merge-new", "distinct", "later"}:
+                            upload_hash, current_matches = ImageService.find_perceptual_duplicates(
                                 db,
                                 pending_req.temp_file_path,
                                 image_data.get("character_ids", []),
                             )
-                            expected_ids = set(image_data.get("duplicate_image_ids") or [])
-                            current_ids = {match["image_id"] for match in current_matches}
-                            if not (expected_ids & current_ids) or current_ids - expected_ids:
+                            if upload_hash != image_data.get("perceptual_hash"):
+                                raise HTTPException(
+                                    status_code=409,
+                                    detail="Staged image changed; ask the requester to submit again",
+                                )
+                            expected_ids = set((image_data.get("duplicate_image_ids") or [])[:1])
+                            current_ids = {match["image_id"] for match in current_matches[:1]}
+                            if current_ids != expected_ids:
                                 raise HTTPException(
                                     status_code=409,
                                     detail="Duplicate set changed; ask the requester to submit again",
                                 )
                             confirmed_ids = [
-                                match["image_id"] for match in current_matches
+                                match["image_id"] for match in current_matches[:1]
                                 if match["image_id"] in expected_ids
                             ]
-                            if image_data.get("duplicate_keep") == "new":
-                                ImageService.archive_duplicate_images(db, confirmed_ids)
 
-                        image = ImageService.create_image(
-                            db, image_create,
-                            pending_req.temp_file_path,
-                            pending_req.original_filename,
-                            file_extension,
-                            store_path
-                        )
+                        if duplicate_keep == "merge-existing":
+                            ImageService.merge_incoming_image_metadata(
+                                db,
+                                confirmed_ids[0],
+                                image_data,
+                                image_data.get("duplicate_metadata_sources") or {},
+                            )
+                            image = db.query(Image).filter(Image.image_id == confirmed_ids[0]).one()
+                        else:
+                            image = ImageService.create_image(
+                                db, image_create,
+                                pending_req.temp_file_path,
+                                pending_req.original_filename,
+                                file_extension,
+                                store_path
+                            )
+                            if duplicate_keep == "merge-new" and confirmed_ids:
+                                ImageService.merge_duplicate_image_metadata(
+                                    db,
+                                    image.image_id,
+                                    confirmed_ids[0],
+                                    image_data.get("duplicate_metadata_sources") or {},
+                                )
+                            elif duplicate_keep == "distinct" and confirmed_ids:
+                                ImageService.remember_distinct_duplicate_pair(
+                                    db, image.image_id, confirmed_ids[0], decided_by=admin_user_id,
+                                )
+                        pending_req.image_id = image.image_id
                     
                     # 删除临时文件
                     try:

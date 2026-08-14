@@ -283,6 +283,23 @@ def apply_migrations():
         if "perceptual_hash" not in image_columns:
             conn.execute(text("ALTER TABLE images ADD COLUMN perceptual_hash VARCHAR(16)"))
 
+        conn.execute(text(
+            """
+            CREATE TABLE IF NOT EXISTS duplicate_pair_decisions (
+                pair_key VARCHAR(21) PRIMARY KEY,
+                left_image_id VARCHAR(10) NOT NULL,
+                right_image_id VARCHAR(10) NOT NULL,
+                decision VARCHAR(20) NOT NULL DEFAULT 'distinct',
+                decided_by INTEGER,
+                created_at DATETIME,
+                updated_at DATETIME,
+                FOREIGN KEY(decided_by) REFERENCES users(id)
+            )
+            """
+        ))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_duplicate_pair_left ON duplicate_pair_decisions (left_image_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_duplicate_pair_right ON duplicate_pair_decisions (right_image_id)"))
+
         auth_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(age_authorization_requests)"))]
         if auth_columns and "authorization_group_id" not in auth_columns:
             conn.execute(text("ALTER TABLE age_authorization_requests ADD COLUMN authorization_group_id VARCHAR(32)"))
@@ -292,6 +309,7 @@ def apply_migrations():
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_file_status_created_id ON images (file_status, created_at, image_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_thumb_status ON images (thumb_status)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_age_rating ON images (age_rating)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_perceptual_hash ON images (perceptual_hash)"))
 
         # guestbook_messages.parent_id
         guestbook_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(guestbook_messages)"))]

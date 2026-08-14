@@ -382,10 +382,10 @@ class API {
             body: JSON.stringify(data),
         });
     }    
-    async resolveDuplicateImage(token, keep) {
+    async resolveDuplicateImage(token, keep, metadataSources = {}) {
         return this.request('/upload/duplicates/resolve', {
             method: 'POST',
-            body: JSON.stringify({ token, keep }),
+            body: JSON.stringify({ token, keep, metadata_sources: metadataSources }),
         });
     }
     async deleteTempImage(filename) {
@@ -437,10 +437,15 @@ class API {
         });
     }
 
-    async resolveExistingDuplicates(imageIds, keepImageId) {
+    async resolveExistingDuplicates(imageIds, action, keepImageId = null, metadataSources = {}) {
         return this.request('/system/duplicates/resolve', {
             method: 'POST',
-            body: JSON.stringify({ image_ids: imageIds, keep_image_id: keepImageId }),
+            body: JSON.stringify({
+                image_ids: imageIds,
+                action,
+                keep_image_id: keepImageId,
+                metadata_sources: metadataSources,
+            }),
         });
     }
 

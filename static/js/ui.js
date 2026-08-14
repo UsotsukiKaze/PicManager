@@ -3142,6 +3142,8 @@ async function scanExistingDuplicates() {
     const button = document.getElementById('scan-duplicates-button');
     if (button?.disabled) return;
     let archived = 0;
+    let distinguished = 0;
+    let deferred = 0;
     let scanned = 0;
     const excludedPairs = [];
     try {
@@ -3157,28 +3159,31 @@ async function scanExistingDuplicates() {
             if (groups.length === 0) break;
 
             for (const group of groups) {
-                const choice = await uploadFeature.resolveDuplicateChoice({
+                const decision = await uploadFeature.resolveDuplicateChoice({
                     duplicates: group.images || [],
                 });
-                if (!choice) {
+                if (!decision) {
                     ui.showToast(`已停止比对；本次已归档 ${archived} 张重复图片`, 'info');
                     return;
                 }
-                if (choice === 'all') {
+                if (decision.action === 'later') {
                     excludedPairs.push(group.image_ids || []);
+                    deferred += 1;
                     continue;
                 }
-                const keepImageId = choice.startsWith('existing:') ? choice.slice('existing:'.length) : '';
-                if (!keepImageId) throw new Error('请选择一张现有图片');
-                const resolved = await api.resolveExistingDuplicates(group.image_ids || [], keepImageId);
+                const resolved = await api.resolveExistingDuplicates(
+                    group.image_ids || [],
+                    decision.action,
+                    decision.keep || null,
+                    decision.metadataSources || {},
+                );
                 archived += Number(resolved.archived || 0);
+                if (decision.action === 'distinct') distinguished += 1;
             }
         }
 
         ui.showToast(
-            archived > 0
-                ? `重复比对完成：扫描 ${scanned} 张，归档 ${archived} 张重复图片`
-                : `重复比对完成：扫描 ${scanned} 张，没有发现重复图片`,
+            `重复比对完成：扫描 ${scanned} 张，归档 ${archived} 张，确认不同 ${distinguished} 对，暂缓 ${deferred} 对`,
             'success'
         );
         ui.loadImages(null);

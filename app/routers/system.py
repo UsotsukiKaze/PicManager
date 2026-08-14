@@ -96,20 +96,32 @@ def scan_existing_duplicates(
 
 @router.post("/duplicates/resolve")
 def resolve_existing_duplicates(choice: schemas.ExistingDuplicateResolveRequest, request: Request):
-    """Revalidate a scanned duplicate group and archive all but the selected image."""
-    require_admin_user_id(request)
+    """Remember an intentional pair or merge a true duplicate after revalidation."""
+    admin_user_id = require_admin_user_id(request)
     try:
         with ImageService.DUPLICATE_WRITE_LOCK:
             with get_db_context() as db:
-                archived = ImageService.resolve_existing_perceptual_duplicates(
-                    db,
-                    choice.image_ids,
-                    choice.keep_image_id,
+                if choice.action == "distinct":
+                    ImageService._validate_existing_duplicate_pair(
+                        db, choice.image_ids[0], choice.image_ids[1],
+                    )
+                    ImageService.remember_distinct_duplicate_pair(
+                        db, choice.image_ids[0], choice.image_ids[1], decided_by=admin_user_id,
+                    )
+                    return {"message": "已标记为两张不同图片，后续不再提示", "action": "distinct", "archived": 0}
+                if not choice.keep_image_id:
+                    raise ValueError("A kept image is required for merging")
+                other_image_id = next(image_id for image_id in choice.image_ids if image_id != choice.keep_image_id)
+                ImageService._validate_existing_duplicate_pair(db, choice.keep_image_id, other_image_id)
+                ImageService.merge_duplicate_image_metadata(
+                    db, choice.keep_image_id, other_image_id, choice.metadata_sources,
                 )
+                archived = 1
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {
-        "message": f"已保留 {choice.keep_image_id}，归档 {archived} 张重复图片",
+        "message": f"已保留 {choice.keep_image_id}，合并信息并归档 {archived} 张重复图片",
+        "action": "merge",
         "kept_image_id": choice.keep_image_id,
         "archived": archived,
     }

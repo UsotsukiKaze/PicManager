@@ -127,7 +127,7 @@ class AuthManager {
                 '/static/js/character-selector.js?v=20260812a',
                 '/static/js/tag-selector.js?v=20260812a',
                 '/static/js/api.js?v=20260814a',
-                '/static/js/ui.js?v=20260814b',
+                '/static/js/ui.js?v=20260814c',
                 '/static/js/main.js?v=20260812c',
             ];
 

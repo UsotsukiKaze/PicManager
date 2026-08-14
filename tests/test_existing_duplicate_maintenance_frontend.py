@@ -18,5 +18,8 @@ def test_duplicate_maintenance_reuses_existing_comparison_dialog():
     assert "/system/duplicates/scan" in api_source
     assert "'/system/duplicates/resolve'" in api_source
     assert "删除" in ui_source
-    for label in ("校验文件", "补缩略图", "整理孤立文件", "查重", "归档缺失图片"):
+    for label in ("校验文件", "补缩略图", "整理孤立文件", "查重", "归档缺失图片", "删除档案"):
         assert label in html
+    assert "async function deleteInvalidRecords()" in ui_source
+    assert "api.cleanupOrphaned('delete')" in ui_source
+    assert "此操作无法恢复" in ui_source

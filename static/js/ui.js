@@ -3088,6 +3088,35 @@ async function cleanupOrphaned() {
     }
 }
 
+async function deleteInvalidRecords() {
+    if (!ui.isAdminView()) {
+        ui.showToast('只有管理员可以执行维护操作', 'warning');
+        return;
+    }
+    try {
+        const preview = await api.cleanupPreview();
+        const count = Number(preview.missing_records || 0);
+        if (count === 0) {
+            ui.showToast('没有可删除的档案', 'info');
+            return;
+        }
+        const message = [
+            `将永久删除 ${count} 条没有原图的档案记录。`,
+            '相关浏览计数和重复比对记录也会删除。',
+            '',
+            '此操作无法恢复，确认继续吗？'
+        ].join('\n');
+        if (!confirm(message)) return;
+
+        const result = await api.cleanupOrphaned('delete');
+        ui.showToast(`已删除 ${result.count} 条档案`, 'success');
+        ui.loadImages(null);
+        ui.loadSystemStatus();
+    } catch (error) {
+        ui.showToast(`删除失败: ${error.message}`, 'error');
+    }
+}
+
 async function syncImageStatus() {
     if (!ui.isAdminView()) {
         ui.showToast('只有管理员可以执行维护操作', 'warning');

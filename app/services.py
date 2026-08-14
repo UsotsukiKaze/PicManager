@@ -1785,13 +1785,25 @@ class ImageService:
         """Archive or delete database records whose image files are missing."""
         count = 0
         images = db.query(models.Image).all()
-        
-        for image in images:
-            if not ImageService.image_file_exists(image):
-                if mode == "delete":
-                    db.delete(image)
-                    count += 1
-                elif image.file_status != ImageService.ARCHIVED:
+
+        missing_images = [image for image in images if not ImageService.image_file_exists(image)]
+        if mode == "delete" and missing_images:
+            missing_ids = [image.image_id for image in missing_images]
+            db.query(models.ImageViewCount).filter(
+                models.ImageViewCount.image_id.in_(missing_ids),
+            ).delete(synchronize_session=False)
+            db.query(models.DuplicatePairDecision).filter(
+                or_(
+                    models.DuplicatePairDecision.left_image_id.in_(missing_ids),
+                    models.DuplicatePairDecision.right_image_id.in_(missing_ids),
+                ),
+            ).delete(synchronize_session=False)
+            for image in missing_images:
+                db.delete(image)
+            count = len(missing_images)
+        else:
+            for image in missing_images:
+                if image.file_status != ImageService.ARCHIVED:
                     image.file_status = ImageService.ARCHIVED
                     image.file_checked_at = datetime.utcnow()
                     image.thumb_status = ImageService.THUMB_MISSING

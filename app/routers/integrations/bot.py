@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from PIL import Image
 import os
 import tempfile
@@ -235,9 +235,13 @@ def get_bot_random_image(
     character_id: int | None = None,
     exclude_group_id: int | None = None,
     feature_tag_id: int | None = None,
+    feature_tag_ids: list[int] | None = Query(None),
+    age_rating: str | None = None,
+    exact_age_rating: bool = False,
     audience: str = "group",
     audience_id: str | None = None,
     requester_id: str | None = None,
+    requester_role: str = "superuser",
     assertion_timestamp: int | None = None,
     assertion_nonce: str | None = None,
     assertion_signature: str | None = None,
@@ -256,13 +260,18 @@ def get_bot_random_image(
             elif resolved["type"] == "group":
                 group_id = resolved["item"]["id"]
 
-        requester_is_superuser = False
-        if requester_id and str(requester_id) in _age_superusers():
+        asserted_role = str(requester_role or "").strip().lower()
+        requester_is_superuser = bool(
+            requester_id and asserted_role == "superuser" and str(requester_id) in _age_superusers()
+        )
+        requester_is_group_admin = bool(
+            requester_id and audience == "group" and asserted_role in {"admin", "owner"}
+        )
+        if requester_is_superuser or requester_is_group_admin:
             _verify_age_assertion(
-                "random", str(requester_id), "superuser", f"{audience}:{audience_id or ''}",
+                "random", str(requester_id), asserted_role, f"{audience}:{audience_id or ''}",
                 int(assertion_timestamp or 0), str(assertion_nonce or ""), str(assertion_signature or ""), db,
             )
-            requester_is_superuser = True
         if requester_is_superuser:
             max_age_rating = "r18"
         elif audience == "private":
@@ -272,9 +281,27 @@ def get_bot_random_image(
                 GroupAgeSetting.group_id == str(audience_id or "")
             ).first()
             max_age_rating = setting.age_rating if setting else "r12"
+            if requester_is_group_admin and max_age_rating != "r18":
+                ratings = ("all", "r12", "r16", "r18")
+                max_age_rating = ratings[min(ratings.index(max_age_rating) + 1, ratings.index("r16"))]
+
+        requested_age_rating = str(age_rating or "").strip().lower() or None
+        if requested_age_rating not in {None, "all", "r12", "r16", "r18"}:
+            raise HTTPException(status_code=400, detail="Invalid age rating")
+        if requested_age_rating:
+            allowed = ImageService.allowed_age_ratings(max_age_rating)
+            if requested_age_rating not in allowed:
+                raise HTTPException(status_code=403, detail="Requested age rating exceeds audience limit")
 
         image = ImageService.get_random_image(
-            db, group_id, character_id, exclude_group_id, feature_tag_id, max_age_rating
+            db,
+            group_id,
+            character_id,
+            exclude_group_id,
+            feature_tag_id,
+            requested_age_rating or max_age_rating,
+            feature_tag_ids=feature_tag_ids,
+            exact_age_rating=requested_age_rating if exact_age_rating else None,
         )
         if not image:
             raise HTTPException(status_code=404, detail="Image not found")

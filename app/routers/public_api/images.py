@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query, Request
 from fastapi.responses import FileResponse
-from typing import List, Optional, Union
+from typing import List, Literal, Optional, Union
 from pathlib import Path
 from urllib.parse import quote
 
@@ -28,6 +28,7 @@ def search_images(
     feature_tag_id: Optional[int] = None,
     pid: Optional[str] = None,
     description: Optional[str] = None,
+    age_rating: Optional[Literal["all", "r12", "r16", "r18"]] = None,
     limit: int = Query(50, ge=1, le=settings.MAX_PAGE_SIZE),
     offset: int = Query(0, ge=0)
 ):
@@ -51,6 +52,7 @@ def search_images(
             feature_tag_id=feature_tag_id,
             pid=pid,
             description=description,
+            age_rating=age_rating,
             limit=limit,
             offset=offset
         )

@@ -238,6 +238,18 @@
                                         </button>
                                     </div>
                                 </div>
+
+                                <div class="age-filter-bar">
+                                    <span class="age-filter-label">年龄分级</span>
+                                    <input type="hidden" id="search-age-rating" value="">
+                                    <div class="age-filter-tabs" role="tablist" aria-label="按年龄分级筛选图片">
+                                        <button type="button" class="age-filter-tab active" role="tab" aria-selected="true" aria-controls="image-grid" data-age-rating="" onclick="setAgeRatingFilter('', this)">全部</button>
+                                        <button type="button" class="age-filter-tab" role="tab" aria-selected="false" aria-controls="image-grid" data-age-rating="all" onclick="setAgeRatingFilter('all', this)">全年龄</button>
+                                        <button type="button" class="age-filter-tab" role="tab" aria-selected="false" aria-controls="image-grid" data-age-rating="r12" onclick="setAgeRatingFilter('r12', this)">R12</button>
+                                        <button type="button" class="age-filter-tab" role="tab" aria-selected="false" aria-controls="image-grid" data-age-rating="r16" onclick="setAgeRatingFilter('r16', this)">R16</button>
+                                        <button type="button" class="age-filter-tab" role="tab" aria-selected="false" aria-controls="image-grid" data-age-rating="r18" onclick="setAgeRatingFilter('r18', this)">R18</button>
+                                    </div>
+                                </div>
                                 
                                 <!-- 高级搜索面板 -->
                                 <div class="advanced-search-panel" id="advanced-search-panel" style="display: none;">

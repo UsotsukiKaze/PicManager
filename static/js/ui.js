@@ -1053,7 +1053,8 @@ class UIManager {
         return {
             group_id: document.getElementById('search-group').value || null,
             character_id: document.getElementById('search-character').value || null,
-            pid: document.getElementById('search-pid').value || null
+            pid: document.getElementById('search-pid').value || null,
+            age_rating: document.getElementById('search-age-rating')?.value || null
         };
     }
 
@@ -2967,6 +2968,17 @@ function searchImages() {
     ui.loadImages(ui.getSearchParams());
 }
 
+function setAgeRatingFilter(rating, activeButton) {
+    const input = document.getElementById('search-age-rating');
+    if (input) input.value = rating || '';
+    document.querySelectorAll('.age-filter-tab').forEach(button => {
+        const active = button === activeButton;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-selected', String(active));
+    });
+    searchImages();
+}
+
 function clearSearch() {
     // 清空所有搜索条件
     document.getElementById('search-group-input').value = '';
@@ -2974,6 +2986,13 @@ function clearSearch() {
     document.getElementById('search-character-input').value = '';
     document.getElementById('search-character').value = '';
     document.getElementById('search-pid').value = '';
+    const ageRatingInput = document.getElementById('search-age-rating');
+    if (ageRatingInput) ageRatingInput.value = '';
+    document.querySelectorAll('.age-filter-tab').forEach(button => {
+        const active = button.dataset.ageRating === '';
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-selected', String(active));
+    });
     
     const imageIdInput = document.getElementById('search-image-id');
     if (imageIdInput) imageIdInput.value = '';

@@ -32,9 +32,9 @@ def test_authenticated_bootstrap_loads_application_only_after_auth_success():
     assert auth_check < auth_guard < application_load
 
     for asset in (
-        "/static/css/style.css?v=20260815a",
+        "/static/css/style.css?v=20260815b",
         "/static/js/api.js?v=20260815a",
-        "/static/js/ui.js?v=20260815a",
+        "/static/js/ui.js?v=20260815b",
         "/static/js/main.js?v=20260812c",
     ):
         assert asset in source

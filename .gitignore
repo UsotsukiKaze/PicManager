@@ -26,4 +26,6 @@ logs/
 *.log
 *.db
 *.db.snapshot
+*.db-shm
+*.db-wal
 data/.secret_key

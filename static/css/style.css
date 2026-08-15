@@ -1154,6 +1154,60 @@ body {
     box-shadow: var(--shadow);
 }
 
+.age-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 4px;
+}
+
+.age-filter-label {
+    flex: 0 0 auto;
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.age-filter-tabs {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-small);
+    background: var(--surface-secondary);
+}
+
+.age-filter-tab {
+    min-width: 58px;
+    padding: 7px 12px;
+    border: 0;
+    border-radius: calc(var(--radius-small) - 2px);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+    transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.age-filter-tab:hover {
+    color: var(--text-primary);
+    background: var(--surface);
+}
+
+.age-filter-tab.active {
+    color: var(--primary-color);
+    background: var(--surface);
+    box-shadow: var(--shadow-small);
+    font-weight: 600;
+}
+
+.age-filter-tab:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 1px;
+}
+
 /* 图片网格样式 */
 .image-grid {
     display: grid;

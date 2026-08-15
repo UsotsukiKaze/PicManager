@@ -21,7 +21,7 @@
         html:not(.app-booting) .app-bootstrap-status { display: none; }
     </style>
     <noscript><meta http-equiv="refresh" content="0; url=/login"></noscript>
-    <script src="/static/js/auth.js?v=20260814c"></script>
+    <script src="/static/js/auth.js?v=20260815a"></script>
 </head>
 <body>
     <div class="app-bootstrap-status" role="status">正在验证登录状态…</div>
@@ -459,6 +459,7 @@
                         <div class="temp-upload-section">
                             <div class="temp-info">
                                 <p>待处理文件夹里有 <span id="temp-image-count">0</span> 张图片</p>
+                                <button class="btn btn-primary btn-sm" id="scan-temp-duplicates-button" onclick="scanTempDuplicates()">扫描重复</button>
                                 <button class="btn btn-secondary btn-sm" onclick="refreshTempImages()">刷新</button>
                             </div>
 

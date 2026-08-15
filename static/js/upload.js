@@ -836,6 +836,179 @@ class UploadManager {
         grid.innerHTML = html;
     }
 
+    async showTempDuplicateEditor(result, catalogs) {
+        const temp = {
+            ...(result.temp || {}),
+            image_id: 'temp',
+            thumbnail_url: `/resource/temp/${encodeURIComponent(result.filename)}`,
+        };
+        const stored = result.stored || {};
+        const statusLabel = stored.file_status === 'archived' ? '已归档' : '已入库';
+        const filename = String(result.filename || '');
+        const filenameStem = String(result.filename_stem || filename.replace(/\.[^.]+$/, ''));
+
+        return new Promise(resolve => {
+            ui.showModal('Temp 重复图片', `
+                <div class="duplicate-review duplicate-review-large temp-duplicate-editor">
+                    <p>dHash 差异 ${stored.distance ?? 0}/64。请选择最终保留的文件，并检查下方信息。</p>
+                    <div class="duplicate-compare-grid">
+                        <article class="duplicate-compare-card">
+                            <header><strong>Temp 图片</strong><span>待处理</span></header>
+                            <img src="${this.escapeHtml(temp.thumbnail_url)}" alt="Temp 图片" loading="lazy">
+                            ${this.duplicateMetadataRows(temp)}
+                            <label class="temp-keep-choice"><input type="radio" name="temp-duplicate-keep" value="temp"> 保留 Temp 图片</label>
+                        </article>
+                        <article class="duplicate-compare-card">
+                            <header><strong>${this.escapeHtml((stored.character_names || []).join('、') || '库内图片')}</strong><span>${statusLabel} · ID ${this.escapeHtml(stored.image_id)}</span></header>
+                            <img src="${this.escapeHtml(stored.thumbnail_url)}" alt="库内图片" loading="lazy">
+                            ${this.duplicateMetadataRows(stored)}
+                            <label class="temp-keep-choice"><input type="radio" name="temp-duplicate-keep" value="existing" checked> 保留库内图片${stored.file_status === 'archived' ? '并恢复显示' : ''}</label>
+                        </article>
+                    </div>
+                    <section class="temp-duplicate-metadata-editor">
+                        <h4>合并后信息</h4>
+                        <div class="form-group">
+                            <label for="temp-duplicate-filename">Temp 文件名</label>
+                            <div class="temp-filename-row">
+                                <input type="text" id="temp-duplicate-filename" class="form-input" value="${this.escapeHtml(filename)}" readonly>
+                                <button type="button" class="btn btn-secondary btn-sm" data-copy-temp-filename>复制</button>
+                                <button type="button" class="btn btn-secondary btn-sm" data-use-temp-pid>填入 PID</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>标签</label>
+                            <div id="temp-duplicate-tag-selector"></div>
+                        </div>
+                        <div class="duplicate-merge-fields">
+                            <label>PID<input type="text" id="temp-duplicate-pid" class="form-input" value="${this.escapeHtml(stored.pid || '')}"></label>
+                            <label>年龄分级
+                                <select id="temp-duplicate-age-rating" class="form-select">
+                                    ${['all', 'r12', 'r16', 'r18'].map(value => `<option value="${value}" ${value === (stored.age_rating || 'all') ? 'selected' : ''}>${value === 'all' ? '全年龄' : value.toUpperCase()}</option>`).join('')}
+                                </select>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label for="temp-duplicate-description">备注</label>
+                            <textarea id="temp-duplicate-description" class="form-textarea">${this.escapeHtml(stored.description || '')}</textarea>
+                        </div>
+                    </section>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" data-temp-duplicate-cancel>停止扫描</button>
+                        <button type="button" class="btn btn-primary" data-temp-duplicate-confirm>确认合并</button>
+                    </div>
+                </div>
+            `);
+
+            const layer = document.getElementById('modal-body')?.lastElementChild;
+            const selector = new ImageTagSelector('temp-duplicate-tag-selector', { title: '编辑合并后标签' });
+            window.imageTagSelectors['temp-duplicate-tag-selector'] = selector;
+            selector.setData(catalogs);
+            selector.setSelected({
+                group_ids: stored.group_ids || [],
+                character_ids: stored.character_ids || [],
+                feature_tag_ids: stored.feature_tag_ids || [],
+            });
+
+            let settled = false;
+            const finish = value => {
+                if (settled) return;
+                settled = true;
+                delete window.imageTagSelectors['temp-duplicate-tag-selector'];
+                if (layer) delete layer._onModalClose;
+                ui.closeModal();
+                resolve(value);
+            };
+            if (layer) {
+                layer._onModalClose = () => {
+                    if (settled) return;
+                    settled = true;
+                    delete window.imageTagSelectors['temp-duplicate-tag-selector'];
+                    resolve(null);
+                };
+            }
+            layer?.querySelector('[data-copy-temp-filename]')?.addEventListener('click', async () => {
+                try {
+                    await navigator.clipboard.writeText(filename);
+                    ui.showToast('文件名已复制', 'success');
+                } catch (_error) {
+                    const input = layer.querySelector('#temp-duplicate-filename');
+                    input?.select();
+                    ui.showToast('请按 Ctrl+C 复制文件名', 'info');
+                }
+            });
+            layer?.querySelector('[data-use-temp-pid]')?.addEventListener('click', () => {
+                const input = layer.querySelector('#temp-duplicate-pid');
+                if (input) input.value = filenameStem;
+            });
+            layer?.querySelector('[data-temp-duplicate-cancel]')?.addEventListener('click', () => finish(null));
+            layer?.querySelector('[data-temp-duplicate-confirm]')?.addEventListener('click', () => {
+                const selected = selector.getValue();
+                if (!(selected.character_ids || []).length || !(selected.group_ids || []).length) {
+                    ui.showToast('请至少保留一个分组和角色', 'error');
+                    return;
+                }
+                finish({
+                    keep: layer.querySelector('input[name="temp-duplicate-keep"]:checked')?.value || 'existing',
+                    metadata: {
+                        character_ids: selected.character_ids || [],
+                        group_ids: selected.group_ids || [],
+                        feature_tag_ids: selected.feature_tag_ids || [],
+                        pid: layer.querySelector('#temp-duplicate-pid')?.value || null,
+                        description: layer.querySelector('#temp-duplicate-description')?.value || null,
+                        age_rating: layer.querySelector('#temp-duplicate-age-rating')?.value || 'all',
+                    },
+                });
+            });
+        });
+    }
+
+    async scanTempDuplicates() {
+        const button = document.getElementById('scan-temp-duplicates-button');
+        if (button?.disabled) return;
+        let handled = 0;
+        try {
+            if (button) {
+                button.disabled = true;
+                button.textContent = '扫描中…';
+            }
+            const [groups, characters, featureTags] = await Promise.all([
+                api.getGroups(), api.getCharacters(), api.getFeatureTags(),
+            ]);
+            const catalogs = { groups, characters, featureTags };
+            while (true) {
+                const scan = await api.scanTempDuplicates(1);
+                const match = (scan.matches || [])[0];
+                if (!match) break;
+                const decision = await this.showTempDuplicateEditor(match, catalogs);
+                if (!decision) {
+                    ui.showToast(`已停止扫描；本次合并 ${handled} 张`, 'info');
+                    return;
+                }
+                const result = await api.resolveTempDuplicate(
+                    match.duplicate_token,
+                    decision.keep,
+                    decision.metadata,
+                );
+                handled += 1;
+                ui.showToast(result.message, 'success');
+                await this.loadTempImages();
+                await ui.updateTempCount();
+            }
+            ui.showToast(handled ? `Temp 查重完成：合并 ${handled} 张` : 'Temp 中没有重复图片', 'success');
+            await this.loadTempImages();
+            await ui.updateTempCount();
+            ui.loadImages(null);
+            ui.loadSystemStatus();
+        } catch (error) {
+            ui.showToast(`Temp 查重失败: ${error.message}`, 'error');
+        } finally {
+            if (button) {
+                button.disabled = false;
+                button.textContent = '扫描重复';
+            }
+        }
+    }
+
     async uploadTempImage(imageNameEncoded) {
         try {
             const imageName = decodeURIComponent(imageNameEncoded);
@@ -1069,6 +1242,10 @@ function clearSingleUpload() {
 
 function refreshTempImages() {
     upload.refreshTempImages();
+}
+
+function scanTempDuplicates() {
+    upload.scanTempDuplicates();
 }
 
 // 创建全局上传管理实例

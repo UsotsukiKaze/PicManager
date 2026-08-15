@@ -802,6 +802,7 @@ class ImageService:
             "file_size": image.file_size,
             "width": image.width,
             "height": image.height,
+            "file_status": image.file_status or ImageService.AVAILABLE,
         }
 
     @staticmethod
@@ -904,6 +905,73 @@ class ImageService:
 
         matches.sort(key=lambda item: (item["distance"], item["image_id"]))
         return upload_hash, matches
+
+    @staticmethod
+    def scan_temp_directory_duplicates(
+        db: Session,
+        temp_path: str,
+        allowed_extensions: set[str],
+        threshold: Optional[int] = None,
+        limit: int = 25,
+    ) -> List[dict]:
+        """Find the closest stored image for duplicate files currently in temp."""
+        threshold = settings.DUPLICATE_DHASH_DISTANCE if threshold is None else threshold
+        threshold = min(64, max(0, int(threshold)))
+        limit = min(100, max(1, int(limit)))
+        if not os.path.isdir(temp_path):
+            return []
+
+        candidates = db.query(models.Image).options(
+            joinedload(models.Image.characters),
+            joinedload(models.Image.groups),
+            joinedload(models.Image.feature_tags),
+        ).filter(
+            models.Image.file_status.in_([ImageService.AVAILABLE, ImageService.ARCHIVED]),
+        ).order_by(models.Image.image_id).all()
+
+        indexed_candidates = []
+        for candidate in candidates:
+            # Archived records created by a previous merge can remain for audit
+            # after their physical file is deleted; those are not selectable.
+            if not ImageService.image_file_exists(candidate):
+                continue
+            candidate_hash = ImageService._perceptual_hash_for_image(db, candidate)
+            if candidate_hash:
+                indexed_candidates.append((candidate, candidate_hash))
+
+        matches = []
+        normalized_extensions = {f".{value.lower().lstrip('.')}" for value in allowed_extensions}
+        for filename in sorted(os.listdir(temp_path), key=str.casefold):
+            file_path = os.path.join(temp_path, filename)
+            if not os.path.isfile(file_path) or os.path.splitext(filename)[1].lower() not in normalized_extensions:
+                continue
+            try:
+                upload_hash = ImageService.compute_dhash(file_path)
+            except (OSError, ValueError):
+                continue
+
+            closest = None
+            for candidate, candidate_hash in indexed_candidates:
+                distance = ImageService.dhash_distance(upload_hash, candidate_hash)
+                if distance > threshold:
+                    continue
+                key = (distance, candidate.image_id)
+                if closest is None or key < closest[0]:
+                    closest = (key, candidate)
+            if closest is None:
+                continue
+
+            distance, candidate = closest[0][0], closest[1]
+            if candidate.thumb_status != ImageService.THUMB_READY:
+                ImageService.ensure_thumbnail(candidate)
+            matches.append({
+                "filename": filename,
+                "upload_hash": upload_hash,
+                "match": ImageService._duplicate_match(candidate, distance),
+            })
+            if len(matches) >= limit:
+                break
+        return matches
 
     @staticmethod
     def scan_existing_perceptual_duplicates(

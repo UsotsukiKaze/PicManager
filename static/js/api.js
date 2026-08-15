@@ -376,6 +376,19 @@ class API {
         return this.request('/upload/temp-images');
     }
 
+    async scanTempDuplicates(limit = 25) {
+        return this.request(`/upload/temp-duplicates/scan?limit=${encodeURIComponent(limit)}`, {
+            method: 'POST',
+        });
+    }
+
+    async resolveTempDuplicate(token, keep, metadata) {
+        return this.request('/upload/temp-duplicates/resolve', {
+            method: 'POST',
+            body: JSON.stringify({ token, keep, metadata }),
+        });
+    }
+
     async uploadTempImage(data) {
         return this.request('/upload/temp', {
             method: 'POST',

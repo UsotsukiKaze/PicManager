@@ -373,6 +373,44 @@ body {
     text-align: center;
 }
 
+.temp-duplicate-metadata-editor {
+    margin-top: 16px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--background);
+}
+
+.temp-duplicate-metadata-editor h4 {
+    margin: 0 0 14px;
+}
+
+.temp-keep-choice {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 14px;
+    border-top: 1px solid var(--border);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.temp-filename-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 8px;
+}
+
+@media (max-width: 640px) {
+    .temp-filename-row {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .temp-filename-row input {
+        grid-column: 1 / -1;
+    }
+}
+
 @media (max-width: 760px) {
     .duplicate-compare-grid,
     .duplicate-merge-fields {

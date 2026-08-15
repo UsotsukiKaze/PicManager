@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Request
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Request, Query
 from typing import List, Optional, Union
 from pathlib import Path
+from sqlalchemy.orm import joinedload
 
 from ...database import get_db_context
 from ...services import GroupService, CharacterService, ImageService
@@ -573,6 +574,150 @@ def get_temp_images(request: Request):
     allowed_extensions = {f".{ext}" for ext in _allowed_image_extensions()}
     images = [f for f in os.listdir(temp_path) if any(f.lower().endswith(ext) for ext in allowed_extensions)]
     return {"images": images}
+
+
+@router.post("/upload/temp-duplicates/scan")
+def scan_temp_duplicates(request: Request, limit: int = Query(25, ge=1, le=100)):
+    """Scan temp files against stored and archived images without requiring temp metadata."""
+    require_admin_user_id(request)
+    with get_db_context() as db:
+        results = ImageService.scan_temp_directory_duplicates(
+            db,
+            settings.TEMP_PATH,
+            _allowed_image_extensions(),
+            limit=limit,
+        )
+        matches = []
+        for result in results:
+            filename = result["filename"]
+            image_path = _safe_temp_image_path(filename)
+            stored = result["match"]
+            token = _encode_duplicate_token({
+                "version": 1,
+                "purpose": "temp-directory-duplicate",
+                "owner": _duplicate_owner(request),
+                "filename": filename,
+                "upload_hash": result["upload_hash"],
+                "match_id": stored["image_id"],
+                "expires_at": int(time.time()) + max(60, settings.DUPLICATE_DECISION_TTL_SECONDS),
+            })
+            matches.append({
+                "filename": filename,
+                "filename_stem": Path(filename).stem,
+                "temp": _incoming_duplicate_match(db, str(image_path), {}, filename),
+                "stored": stored,
+                "duplicate_algorithm": "dhash64",
+                "duplicate_threshold": min(64, max(0, settings.DUPLICATE_DHASH_DISTANCE)),
+                "duplicate_token": token,
+            })
+        return {"matches": matches, "count": len(matches)}
+
+
+@router.post("/upload/temp-duplicates/resolve", response_model=schemas.UploadImageResponse)
+def resolve_temp_duplicate(choice: schemas.TempDuplicateResolveRequest, request: Request):
+    """Keep either the temp file or stored file, applying one final edited metadata set."""
+    admin_user_id = require_admin_user_id(request)
+    payload = _decode_duplicate_token(choice.token)
+    if payload.get("purpose") != "temp-directory-duplicate":
+        raise HTTPException(status_code=400, detail="Invalid temp duplicate decision")
+    if payload.get("owner") != _duplicate_owner(request):
+        raise HTTPException(status_code=403, detail="Duplicate decision belongs to another session")
+
+    filename = str(payload.get("filename") or "")
+    source_path = _safe_temp_image_path(filename)
+    if not source_path.is_file():
+        raise HTTPException(status_code=410, detail="Temp image no longer exists")
+    file_extension = source_path.suffix.lower().lstrip(".")
+    if file_extension not in _allowed_image_extensions():
+        raise HTTPException(status_code=400, detail="Unsupported file type")
+
+    metadata = choice.metadata
+    if not metadata.character_ids or not metadata.group_ids:
+        raise HTTPException(status_code=400, detail="At least one group and character are required")
+
+    with ImageService.DUPLICATE_WRITE_LOCK:
+        with get_db_context() as db:
+            _validate_upload_tags(db, metadata.character_ids, metadata.group_ids, metadata.feature_tag_ids)
+            stored = db.query(models.Image).options(
+                joinedload(models.Image.characters),
+                joinedload(models.Image.groups),
+                joinedload(models.Image.feature_tags),
+            ).filter(
+                models.Image.image_id == str(payload.get("match_id") or ""),
+                models.Image.file_status.in_([ImageService.AVAILABLE, ImageService.ARCHIVED]),
+            ).first()
+            if not stored or not ImageService.image_file_exists(stored):
+                raise HTTPException(status_code=409, detail="Stored duplicate is no longer available")
+
+            try:
+                temp_hash = ImageService.compute_dhash(str(source_path))
+                stored_hash = ImageService._perceptual_hash_for_image(db, stored)
+            except (OSError, ValueError) as exc:
+                raise HTTPException(status_code=409, detail="Duplicate files changed; scan again") from exc
+            threshold = min(64, max(0, settings.DUPLICATE_DHASH_DISTANCE))
+            if (
+                temp_hash != payload.get("upload_hash")
+                or not stored_hash
+                or ImageService.dhash_distance(temp_hash, stored_hash) > threshold
+            ):
+                raise HTTPException(status_code=409, detail="Duplicate files changed; scan again")
+
+            final_metadata = metadata.model_dump()
+            if choice.keep == "existing":
+                stored.pid = metadata.pid
+                stored.description = metadata.description
+                stored.age_rating = metadata.age_rating
+                ImageService._apply_tag_relationships(
+                    db,
+                    stored,
+                    metadata.character_ids,
+                    metadata.group_ids,
+                    metadata.feature_tag_ids,
+                )
+                stored.file_status = ImageService.AVAILABLE
+                stored.file_checked_at = datetime.utcnow()
+                if stored.thumb_status != ImageService.THUMB_READY:
+                    ImageService.ensure_thumbnail(stored)
+                source_path.unlink()
+                kept_image = stored
+                message = "已保留库内图片并删除 Temp 重复文件"
+                status = "merged_existing"
+            else:
+                kept_image = ImageService.create_image(
+                    db,
+                    metadata,
+                    str(source_path),
+                    filename,
+                    file_extension,
+                    settings.STORE_PATH,
+                )
+                stored.file_status = ImageService.ARCHIVED
+                db.flush()
+                ImageService.delete_superseded_image_files(kept_image, stored)
+                source_path.unlink()
+                message = "已保留 Temp 图片并删除库内重复文件"
+                status = "merged_new"
+
+            db.add(PendingRequest(
+                request_type="edit" if choice.keep == "existing" else "add",
+                user_id=admin_user_id,
+                status=RequestStatus.APPROVED.value,
+                image_id=kept_image.image_id,
+                image_data=json.dumps({
+                    **final_metadata,
+                    "temp_duplicate_filename": filename,
+                    "temp_duplicate_keep": choice.keep,
+                    "merged_duplicate_id": stored.image_id,
+                }),
+                reviewed_at=datetime.utcnow(),
+                reviewed_by=admin_user_id,
+            ))
+            db.commit()
+            return schemas.UploadImageResponse(
+                image_id=kept_image.image_id,
+                message=message,
+                status=status,
+            )
 
 
 @router.post("/upload/temp", response_model=schemas.UploadImageResponse)

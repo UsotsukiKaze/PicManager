@@ -265,6 +265,7 @@ class DuplicateImageMatch(BaseModel):
     file_size: Optional[int] = None
     width: Optional[int] = None
     height: Optional[int] = None
+    file_status: str = "available"
     group_ids: List[int] = Field(default_factory=list)
     group_names: List[str] = Field(default_factory=list)
     character_ids: List[int] = Field(default_factory=list)
@@ -340,6 +341,12 @@ class TempImageUpload(BaseModel):
     pid: Optional[str] = None
     description: Optional[str] = None
     age_rating: str = "all"
+
+
+class TempDuplicateResolveRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=16384)
+    keep: str = Field(pattern="^(existing|temp)$")
+    metadata: ImageCreate
 
 # 批量上传
 class BatchUploadImageRequest(BaseModel):

@@ -21,7 +21,7 @@
         html:not(.app-booting) .app-bootstrap-status { display: none; }
     </style>
     <noscript><meta http-equiv="refresh" content="0; url=/login"></noscript>
-    <script src="/static/js/auth.js?v=20260815a"></script>
+    <script src="/static/js/auth.js?v=20260816a"></script>
 </head>
 <body>
     <div class="app-bootstrap-status" role="status">正在验证登录状态…</div>
@@ -597,6 +597,14 @@
                             <button class="btn btn-danger" onclick="cleanupOrphaned()">归档缺失图片</button>
                             <button class="btn btn-danger" onclick="deleteInvalidRecords()">删除档案</button>
                         </div>
+                        <section class="maintenance-progress" id="pixiv-upgrade-progress" hidden aria-live="polite">
+                            <div class="maintenance-progress-header">
+                                <strong id="pixiv-upgrade-progress-label">Pixiv 高清检查</strong>
+                                <span id="pixiv-upgrade-progress-count">准备中…</span>
+                            </div>
+                            <progress id="pixiv-upgrade-progress-bar" max="1"></progress>
+                            <p id="pixiv-upgrade-progress-detail">正在统计待检查图片…</p>
+                        </section>
                     </div>
                 </div>
             </div>

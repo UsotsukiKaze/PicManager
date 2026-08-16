@@ -61,6 +61,7 @@ def test_completed_lookup_without_upgrade_marks_only_the_numeric_pid(tmp_path, m
     result = PixivUpgradeService.scan_next(db)
 
     assert result["status"] == "checked"
+    assert result["remaining"] == 0
     assert eligible.pixiv_checked_at is not None
     assert ignored.pixiv_checked_at is None
 
@@ -200,10 +201,18 @@ def test_frontend_exposes_review_before_pixiv_replace():
     html = (root / "static/index.html").read_text(encoding="utf-8")
     api_source = (root / "static/js/api.js").read_text(encoding="utf-8")
     ui_source = (root / "static/js/ui.js").read_text(encoding="utf-8")
+    auth_source = (root / "static/js/auth.js").read_text(encoding="utf-8")
 
     assert 'id="scan-pixiv-upgrades-button"' in html
+    assert 'id="pixiv-upgrade-progress-bar"' in html
     assert "/system/pixiv-upgrades/next" in api_source
     assert "/system/pixiv-upgrades/resolve" in api_source
     assert "await reviewPixivUpgrade(result)" in ui_source
+    assert "updatePixivUpgradeProgress" in ui_source
+    assert "result.remaining" in ui_source
     assert 'data-pixiv-action="replace"' in ui_source
     assert "await api.resolvePixivUpgrade(result.token, action)" in ui_source
+    assert '/static/js/auth.js?v=20260816a' in html
+    assert '/static/js/api.js?v=20260816a' in auth_source
+    assert '/static/js/ui.js?v=20260816a' in auth_source
+    assert '/static/css/style.css?v=20260816a' in auth_source

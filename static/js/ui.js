@@ -3315,6 +3315,39 @@ function reviewPixivUpgrade(result) {
     });
 }
 
+function updatePixivUpgradeProgress({ checked = 0, total = null, state = 'running', detail = '' } = {}) {
+    const panel = document.getElementById('pixiv-upgrade-progress');
+    const label = document.getElementById('pixiv-upgrade-progress-label');
+    const count = document.getElementById('pixiv-upgrade-progress-count');
+    const bar = document.getElementById('pixiv-upgrade-progress-bar');
+    const detailElement = document.getElementById('pixiv-upgrade-progress-detail');
+    if (!panel || !label || !count || !bar || !detailElement) return;
+
+    const labels = {
+        running: 'Pixiv 高清检查中',
+        review: 'Pixiv 候选图待审核',
+        stopped: 'Pixiv 高清检查已停止',
+        complete: 'Pixiv 高清检查完成',
+        error: 'Pixiv 高清检查失败',
+    };
+    panel.hidden = false;
+    panel.dataset.state = state;
+    label.textContent = labels[state] || labels.running;
+    detailElement.textContent = detail;
+
+    if (total === null) {
+        bar.removeAttribute('value');
+        count.textContent = '正在统计…';
+        return;
+    }
+    const safeTotal = Math.max(0, Number(total) || 0);
+    const safeChecked = Math.min(safeTotal, Math.max(0, Number(checked) || 0));
+    bar.max = Math.max(1, safeTotal);
+    bar.value = safeTotal === 0 ? 1 : safeChecked;
+    const percent = safeTotal === 0 ? 100 : Math.round((safeChecked / safeTotal) * 100);
+    count.textContent = `${safeChecked} / ${safeTotal} · ${percent}%`;
+}
+
 async function scanPixivUpgrades() {
     if (!ui.isAdminView()) {
         ui.showToast('只有管理员可以执行维护操作', 'warning');
@@ -3325,19 +3358,49 @@ async function scanPixivUpgrades() {
     let checked = 0;
     let replaced = 0;
     let skipped = 0;
+    let total = null;
     try {
         if (button) button.disabled = true;
+        updatePixivUpgradeProgress({ detail: '正在统计待检查的纯数字 PID 图片…' });
         while (true) {
             if (button) button.textContent = `Pixiv 检查中… ${checked}`;
+            if (total !== null) {
+                updatePixivUpgradeProgress({ checked, total, detail: '正在检查下一张图片…' });
+            }
             const result = await api.scanNextPixivUpgrade();
-            if (result.status === 'complete') break;
+            const remaining = Math.max(0, Number(result.remaining || 0));
+            if (total === null) total = checked + remaining;
+            else total = Math.max(total, checked + remaining);
+            if (result.status === 'complete') {
+                total = Math.max(checked, total || 0);
+                break;
+            }
             if (result.status === 'checked') {
                 checked += 1;
+                total = Math.max(total, checked + remaining);
+                updatePixivUpgradeProgress({
+                    checked,
+                    total,
+                    detail: `PID ${result.pid}：未找到更高清且内容匹配的原图`,
+                });
                 continue;
             }
             if (result.status !== 'candidate') throw new Error('无效的 Pixiv 扫描响应');
+            total = Math.max(total, checked + remaining);
+            updatePixivUpgradeProgress({
+                checked,
+                total,
+                state: 'review',
+                detail: `PID ${result.current?.pid || '—'}：找到高清候选图，等待审核`,
+            });
             const action = await reviewPixivUpgrade(result);
             if (!action) {
+                updatePixivUpgradeProgress({
+                    checked,
+                    total,
+                    state: 'stopped',
+                    detail: '当前候选图未处理，下次扫描仍会再次检查',
+                });
                 ui.showToast(`已停止：本次检查 ${checked} 张，覆盖 ${replaced} 张`, 'info');
                 return;
             }
@@ -3345,11 +3408,23 @@ async function scanPixivUpgrades() {
             checked += 1;
             if (action === 'replace') replaced += 1;
             if (action === 'skip') skipped += 1;
+            updatePixivUpgradeProgress({
+                checked,
+                total,
+                detail: `PID ${result.current?.pid || '—'}：${action === 'replace' ? '已覆盖为高清原图' : '已保留现图'}`,
+            });
         }
+        updatePixivUpgradeProgress({
+            checked,
+            total: Math.max(checked, total || 0),
+            state: 'complete',
+            detail: `覆盖 ${replaced} 张，保留 ${skipped} 张`,
+        });
         ui.showToast(`Pixiv 检查完成：检查 ${checked} 张，覆盖 ${replaced} 张，保留 ${skipped} 张`, 'success');
         ui.loadImages(null);
         ui.loadSystemStatus();
     } catch (error) {
+        updatePixivUpgradeProgress({ checked, total, state: 'error', detail: error.message });
         ui.showToast(`Pixiv 高清检查失败: ${error.message}`, 'error');
     } finally {
         if (button) {

@@ -1623,6 +1623,50 @@ body {
     gap: 10px;
 }
 
+.maintenance-progress {
+    margin-top: 18px;
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--background);
+}
+
+.maintenance-progress[hidden] {
+    display: none;
+}
+
+.maintenance-progress-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 10px;
+}
+
+.maintenance-progress-header span,
+.maintenance-progress p {
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+.maintenance-progress progress {
+    display: block;
+    width: 100%;
+    height: 10px;
+    accent-color: var(--primary-color);
+}
+
+.maintenance-progress p {
+    margin: 9px 0 0;
+}
+
+.maintenance-progress[data-state="complete"] progress {
+    accent-color: #34a853;
+}
+
+.maintenance-progress[data-state="error"] progress {
+    accent-color: var(--danger-color);
+}
+
 .settings-item {
     display: flex;
     justify-content: space-between;

@@ -233,7 +233,7 @@ class PixivUpgradeService:
         )
 
     @staticmethod
-    def next_image(db: Session) -> models.Image | None:
+    def pending_images(db: Session) -> list[models.Image]:
         from .services import ImageService
 
         candidates = db.query(models.Image).filter(
@@ -241,10 +241,16 @@ class PixivUpgradeService:
             models.Image.file_status == ImageService.AVAILABLE,
             models.Image.pid.isnot(None),
         ).order_by(models.Image.created_at.asc(), models.Image.image_id.asc()).all()
-        for image in candidates:
-            if PixivUpgradeService._ASCII_PID.fullmatch(str(image.pid or "")) and ImageService.image_file_exists(image):
-                return image
-        return None
+        return [
+            image for image in candidates
+            if PixivUpgradeService._ASCII_PID.fullmatch(str(image.pid or ""))
+            and ImageService.image_file_exists(image)
+        ]
+
+    @staticmethod
+    def next_image(db: Session) -> models.Image | None:
+        candidates = PixivUpgradeService.pending_images(db)
+        return candidates[0] if candidates else None
 
     @staticmethod
     def _b64encode(value: bytes) -> str:
@@ -298,9 +304,11 @@ class PixivUpgradeService:
         from .services import ImageService
 
         PixivUpgradeService.cleanup_staged()
-        image = PixivUpgradeService.next_image(db)
+        pending_images = PixivUpgradeService.pending_images(db)
+        remaining_before = len(pending_images)
+        image = pending_images[0] if pending_images else None
         if image is None:
-            return {"status": "complete"}
+            return {"status": "complete", "remaining": 0}
         client = PixivClient()
         try:
             candidate = PixivUpgradeService.find_candidate(image, client)
@@ -308,11 +316,17 @@ class PixivUpgradeService:
             client.close()
         if candidate is None:
             image.pixiv_checked_at = datetime.utcnow()
-            return {"status": "checked", "image_id": image.image_id, "pid": image.pid}
+            return {
+                "status": "checked",
+                "image_id": image.image_id,
+                "pid": image.pid,
+                "remaining": remaining_before - 1,
+            }
         token = PixivUpgradeService.make_token(image, candidate)
         current_width, current_height = PixivUpgradeService._image_dimensions(image)
         return {
             "status": "candidate",
+            "remaining": remaining_before,
             "token": token,
             "artwork_url": PixivClient.ARTWORK_URL.format(pid=image.pid),
             "current": {

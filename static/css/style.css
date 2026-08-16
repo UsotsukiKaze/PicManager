@@ -383,6 +383,75 @@ body {
     align-items: center;
 }
 
+.pixiv-auto-review-toggle {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    margin-top: 16px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--background);
+    cursor: pointer;
+}
+
+.pixiv-auto-review-toggle input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--primary-color);
+}
+
+.pixiv-auto-review-toggle > span {
+    display: grid;
+    gap: 3px;
+}
+
+.pixiv-auto-review-toggle small,
+.pixiv-auto-review-toggle em {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-style: normal;
+}
+
+.pixiv-auto-review-toggle em {
+    color: var(--primary-color);
+    font-weight: 650;
+    white-space: nowrap;
+}
+
+.pixiv-auto-replace {
+    gap: 8px;
+}
+
+.pixiv-auto-spinner {
+    display: none;
+    width: 14px;
+    height: 14px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+}
+
+.pixiv-auto-replace.is-counting .pixiv-auto-spinner {
+    display: inline-block;
+    animation: pixiv-auto-review-spin 0.8s linear infinite;
+}
+
+@keyframes pixiv-auto-review-spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (max-width: 640px) {
+    .pixiv-auto-review-toggle {
+        grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .pixiv-auto-review-toggle em {
+        grid-column: 2;
+    }
+}
+
 .temp-duplicate-metadata-editor {
     margin-top: 16px;
     padding: 16px;

@@ -3259,6 +3259,8 @@ function formatMaintenanceBytes(value) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+let pixivAutoReviewEnabled = false;
+
 function reviewPixivUpgrade(result) {
     const current = result.current || {};
     const candidate = result.candidate || {};
@@ -3285,24 +3287,80 @@ function reviewPixivUpgrade(result) {
                         </dl>
                     </article>
                 </div>
+                <label class="pixiv-auto-review-toggle">
+                    <input type="checkbox" data-pixiv-auto-review ${pixivAutoReviewEnabled ? 'checked' : ''}>
+                    <span>
+                        <strong>自动审核</strong>
+                        <small>10 秒倒计时后自动选择“覆盖原图”，可随时取消</small>
+                    </span>
+                    <em data-pixiv-auto-status aria-live="polite"></em>
+                </label>
                 <div class="duplicate-decision-actions pixiv-upgrade-actions">
                     <a class="btn btn-secondary" href="${safe(result.artwork_url)}" target="_blank" rel="noopener noreferrer">打开 Pixiv 作品页</a>
                     <button type="button" class="btn btn-secondary" data-pixiv-action="skip">保留现图</button>
-                    <button type="button" class="btn btn-primary" data-pixiv-action="replace">覆盖原图</button>
+                    <button type="button" class="btn btn-primary pixiv-auto-replace" data-pixiv-action="replace">
+                        <span class="pixiv-auto-spinner" aria-hidden="true"></span>
+                        <span data-pixiv-replace-label>覆盖原图</span>
+                    </button>
                 </div>
             </section>
         `);
         const layer = document.getElementById('modal-body')?.lastElementChild;
+        const autoToggle = layer?.querySelector('[data-pixiv-auto-review]');
+        const autoStatus = layer?.querySelector('[data-pixiv-auto-status]');
+        const replaceButton = layer?.querySelector('[data-pixiv-action="replace"]');
+        const replaceLabel = layer?.querySelector('[data-pixiv-replace-label]');
         let settled = false;
+        let countdownTimer = null;
+
+        const clearCountdown = () => {
+            if (countdownTimer !== null) {
+                window.clearInterval(countdownTimer);
+                countdownTimer = null;
+            }
+        };
+
+        const stopCountdown = () => {
+            clearCountdown();
+            replaceButton?.classList.remove('is-counting');
+            if (replaceLabel) replaceLabel.textContent = '覆盖原图';
+            if (autoStatus) autoStatus.textContent = '';
+        };
+
         const finish = action => {
             if (settled) return;
             settled = true;
+            clearCountdown();
             if (layer) delete layer._onModalClose;
             ui.closeModal();
             resolve(action);
         };
+
+        const startCountdown = () => {
+            stopCountdown();
+            let seconds = 10;
+            replaceButton?.classList.add('is-counting');
+            const renderCountdown = () => {
+                if (replaceLabel) replaceLabel.textContent = `覆盖原图（${seconds}）`;
+                if (autoStatus) autoStatus.textContent = `${seconds} 秒后自动覆盖`;
+            };
+            renderCountdown();
+            countdownTimer = window.setInterval(() => {
+                seconds -= 1;
+                if (seconds <= 0) {
+                    clearCountdown();
+                    if (replaceLabel) replaceLabel.textContent = '正在自动覆盖…';
+                    if (autoStatus) autoStatus.textContent = '正在执行自动审核';
+                    finish('replace');
+                    return;
+                }
+                renderCountdown();
+            }, 1000);
+        };
+
         if (layer) {
             layer._onModalClose = () => {
+                clearCountdown();
                 if (!settled) {
                     settled = true;
                     resolve(null);
@@ -3312,6 +3370,12 @@ function reviewPixivUpgrade(result) {
         layer?.querySelectorAll('[data-pixiv-action]').forEach(button => {
             button.addEventListener('click', () => finish(button.dataset.pixivAction));
         });
+        autoToggle?.addEventListener('change', () => {
+            pixivAutoReviewEnabled = autoToggle.checked;
+            if (pixivAutoReviewEnabled) startCountdown();
+            else stopCountdown();
+        });
+        if (pixivAutoReviewEnabled) startCountdown();
     });
 }
 

@@ -1,15 +1,24 @@
 from pathlib import Path
 from datetime import datetime
 
+import pytest
 from PIL import Image as PILImage
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app import models
 from app.config import settings
-from app.pixiv import PixivCandidate, PixivUpgradeService
+from app.pixiv import PixivCandidate, PixivClient, PixivLookupError, PixivUpgradeService
 from app.schemas import ImageUpdate
 from app.services import ImageService
+
+
+@pytest.fixture(autouse=True)
+def _reset_shared_pixiv_client():
+    PixivUpgradeService.close_client()
+    PixivUpgradeService._LAST_SCAN_STARTED_AT = 0.0
+    yield
+    PixivUpgradeService.close_client()
 
 
 def _database():
@@ -32,6 +41,81 @@ def _image(tmp_path: Path, image_id: str, pid: str | None, color: str = "red") -
         file_path=str(path),
         file_status="available",
     )
+
+
+def test_pixiv_client_uses_configured_http_proxy_without_logging_it(monkeypatch):
+    captured = {}
+
+    class FakeTransport:
+        def __init__(self, *, proxy, limits):
+            captured["proxy"] = proxy
+            captured["limits"] = limits
+
+    class FakeClient:
+        def __init__(self, **options):
+            captured["options"] = options
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(settings, "PIXIV_PROXY", "http://proxy-user:proxy-pass@127.0.0.1:7890")
+    monkeypatch.setattr("app.pixiv.httpx.HTTPTransport", FakeTransport)
+    monkeypatch.setattr("app.pixiv.httpx.Client", FakeClient)
+
+    client = PixivClient()
+    client.close()
+
+    assert captured["proxy"] == "http://proxy-user:proxy-pass@127.0.0.1:7890"
+    assert "transport" in captured["options"]
+    assert captured["limits"].max_connections == 4
+    assert captured["limits"].max_keepalive_connections == 2
+
+
+def test_scan_reuses_bounded_client_and_throttles_between_images(tmp_path, monkeypatch):
+    db = _database()
+    db.add_all([
+        _image(tmp_path, "1111111111", "123456"),
+        _image(tmp_path, "2222222222", "234567"),
+    ])
+    db.commit()
+    created = []
+    closed = []
+    sleeps = []
+
+    class FakeClient:
+        def __init__(self):
+            created.append(self)
+
+        def close(self):
+            closed.append(self)
+
+    clock = iter((10.0, 10.0, 10.1, 10.5))
+    monkeypatch.setattr(settings, "PIXIV_SCAN_INTERVAL_SECONDS", 0.5)
+    monkeypatch.setattr("app.pixiv.PixivClient", FakeClient)
+    monkeypatch.setattr("app.pixiv.time.monotonic", lambda: next(clock))
+    monkeypatch.setattr("app.pixiv.time.sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr(PixivUpgradeService, "cleanup_staged", lambda: None)
+    monkeypatch.setattr(PixivUpgradeService, "find_candidate", lambda image, client: None)
+
+    PixivUpgradeService.scan_next(db)
+    PixivUpgradeService.scan_next(db)
+
+    assert len(created) == 1
+    assert closed == []
+    assert sleeps == [pytest.approx(0.4)]
+    PixivUpgradeService.close_client()
+    assert closed == created
+
+
+def test_pixiv_proxy_rejects_unsupported_or_malformed_urls(monkeypatch):
+    for proxy in ("socks5://127.0.0.1:7890", "http://127.0.0.1:not-a-port"):
+        monkeypatch.setattr(settings, "PIXIV_PROXY", proxy)
+        try:
+            PixivClient()
+        except PixivLookupError as exc:
+            assert proxy not in str(exc)
+        else:
+            raise AssertionError("invalid Pixiv proxy must be rejected")
 
 
 def test_only_ascii_numeric_pids_are_selected_and_ignored_rows_stay_unmarked(tmp_path):

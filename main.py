@@ -14,6 +14,7 @@ from app.database import get_db_context
 from app.config import settings
 from app.logger import log_http_request, log_info, log_success
 from app.models import Image as ImageModel
+from app.pixiv import PixivUpgradeService
 from app.services import ImageService
 from app.routers.admin_routes import router as admin_router
 from app.routers.auth_routes import router as auth_router
@@ -36,9 +37,11 @@ async def lifespan(app: FastAPI):
     log_info("正在初始化数据库...")
     init_database()
     log_success("数据库初始化完成!")
-    yield
-    # 关闭时执行（如果需要的话）
-    create_db_snapshot()
+    try:
+        yield
+    finally:
+        PixivUpgradeService.close_client()
+        create_db_snapshot()
 
 # 创建FastAPI应用
 app = FastAPI(

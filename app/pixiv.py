@@ -49,6 +49,23 @@ class PixivClient:
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"
     )
 
+    @staticmethod
+    def _configured_proxy() -> str | None:
+        proxy = settings.PIXIV_PROXY.strip()
+        if not proxy:
+            return None
+        try:
+            parsed = urlparse(proxy)
+            # Accessing port also validates malformed values such as :abc.
+            _ = parsed.port
+        except ValueError as exc:
+            raise PixivLookupError("PIXIV_PROXY 格式无效") from exc
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+            raise PixivLookupError("PIXIV_PROXY 只支持完整的 HTTP/HTTPS 代理地址")
+        if parsed.query or parsed.fragment:
+            raise PixivLookupError("PIXIV_PROXY 不能包含查询参数或片段")
+        return proxy
+
     def __init__(self) -> None:
         headers = {
             "Accept": "application/json,text/plain,*/*",
@@ -57,11 +74,27 @@ class PixivClient:
         }
         if settings.PIXIV_COOKIE.strip():
             headers["Cookie"] = settings.PIXIV_COOKIE.strip()
-        self.client = httpx.Client(
-            headers=headers,
-            follow_redirects=True,
-            timeout=max(5, settings.PIXIV_REQUEST_TIMEOUT_SECONDS),
+        proxy = self._configured_proxy()
+        limits = httpx.Limits(
+            max_connections=4,
+            max_keepalive_connections=2,
+            keepalive_expiry=30,
         )
+        options = {
+            "headers": headers,
+            "follow_redirects": True,
+            "timeout": max(5, settings.PIXIV_REQUEST_TIMEOUT_SECONDS),
+        }
+        if proxy:
+            # A dedicated transport ensures both www.pixiv.net and pximg.net
+            # use the same explicit proxy without exposing it in responses.
+            options["transport"] = httpx.HTTPTransport(proxy=proxy, limits=limits)
+        else:
+            options["limits"] = limits
+        try:
+            self.client = httpx.Client(**options)
+        except (TypeError, ValueError, httpx.HTTPError) as exc:
+            raise PixivLookupError("Pixiv 代理配置无效或无法初始化") from exc
 
     def close(self) -> None:
         self.client.close()
@@ -130,6 +163,35 @@ class PixivUpgradeService:
     STAGED_PREFIX = "pixiv-upgrade-"
     _ASCII_PID = re.compile(r"^[0-9]+$")
     LOCK = threading.Lock()
+    _CLIENT_LOCK = threading.Lock()
+    _CLIENT: PixivClient | None = None
+    _LAST_SCAN_STARTED_AT = 0.0
+
+    @classmethod
+    def client(cls) -> PixivClient:
+        """Reuse one bounded pool across the whole maintenance scan."""
+        with cls._CLIENT_LOCK:
+            if cls._CLIENT is None:
+                cls._CLIENT = PixivClient()
+            return cls._CLIENT
+
+    @classmethod
+    def close_client(cls) -> None:
+        """Release pooled sockets during application shutdown and tests."""
+        with cls._CLIENT_LOCK:
+            client = cls._CLIENT
+            cls._CLIENT = None
+        if client is not None:
+            client.close()
+
+    @classmethod
+    def throttle_scan(cls) -> None:
+        """Apply server-side backpressure even when callers bypass the UI."""
+        interval = max(0.0, float(settings.PIXIV_SCAN_INTERVAL_SECONDS))
+        elapsed = time.monotonic() - cls._LAST_SCAN_STARTED_AT
+        if elapsed < interval:
+            time.sleep(interval - elapsed)
+        cls._LAST_SCAN_STARTED_AT = time.monotonic()
 
     @staticmethod
     def _image_dimensions(image: models.Image) -> tuple[int, int]:
@@ -167,7 +229,7 @@ class PixivUpgradeService:
     def find_candidate(image: models.Image, client: PixivClient | None = None) -> PixivCandidate | None:
         from .services import ImageService
 
-        client = client or PixivClient()
+        client = client or PixivUpgradeService.client()
         pid = str(image.pid or "")
         pages = client.pages(pid)
         if not pages:
@@ -309,11 +371,8 @@ class PixivUpgradeService:
         image = pending_images[0] if pending_images else None
         if image is None:
             return {"status": "complete", "remaining": 0}
-        client = PixivClient()
-        try:
-            candidate = PixivUpgradeService.find_candidate(image, client)
-        finally:
-            client.close()
+        PixivUpgradeService.throttle_scan()
+        candidate = PixivUpgradeService.find_candidate(image, PixivUpgradeService.client())
         if candidate is None:
             image.pixiv_checked_at = datetime.utcnow()
             return {

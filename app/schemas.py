@@ -332,6 +332,11 @@ class ExistingDuplicateScanRequest(BaseModel):
                 normalized.append(unique)
         return normalized
 
+
+class PixivUpgradeResolveRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=16384)
+    action: str = Field(pattern="^(replace|skip)$")
+
 # Temp目录上传
 class TempImageUpload(BaseModel):
     filename: str

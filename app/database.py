@@ -282,6 +282,8 @@ def apply_migrations():
             conn.execute(text("ALTER TABLE images ADD COLUMN thumb_status VARCHAR(20) NOT NULL DEFAULT 'pending'"))
         if "perceptual_hash" not in image_columns:
             conn.execute(text("ALTER TABLE images ADD COLUMN perceptual_hash VARCHAR(16)"))
+        if "pixiv_checked_at" not in image_columns:
+            conn.execute(text("ALTER TABLE images ADD COLUMN pixiv_checked_at DATETIME"))
 
         conn.execute(text(
             """
@@ -310,6 +312,7 @@ def apply_migrations():
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_thumb_status ON images (thumb_status)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_age_rating ON images (age_rating)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_perceptual_hash ON images (perceptual_hash)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_pixiv_checked_at ON images (pixiv_checked_at)"))
 
         # guestbook_messages.parent_id
         guestbook_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(guestbook_messages)"))]

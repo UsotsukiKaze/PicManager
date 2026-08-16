@@ -325,6 +325,8 @@ class Image(Base):
     thumb_status = Column(String(20), nullable=False, default="pending", index=True)
     # 64-bit difference hash, stored as 16 lowercase hexadecimal characters.
     perceptual_hash = Column(String(16), nullable=True)
+    # Set only after a numeric Pixiv PID has been checked and resolved.
+    pixiv_checked_at = Column(DateTime, nullable=True, index=True)
     # 创建和更新时间
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -664,6 +664,8 @@ def resolve_temp_duplicate(choice: schemas.TempDuplicateResolveRequest, request:
 
             final_metadata = metadata.model_dump()
             if choice.keep == "existing":
+                if stored.pid != metadata.pid:
+                    stored.pixiv_checked_at = None
                 stored.pid = metadata.pid
                 stored.description = metadata.description
                 stored.age_rating = metadata.age_rating

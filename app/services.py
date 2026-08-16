@@ -1161,7 +1161,10 @@ class ImageService:
                 return max((left_value or "all", right_value or "all"), key=lambda value: ranks.get(value, 0))
             return list(dict.fromkeys([*left_value, *right_value]))
 
+        previous_pid = keep.pid
         keep.pid = source_value("pid", keep.pid, other.pid)
+        if keep.pid != previous_pid:
+            keep.pixiv_checked_at = None
         keep.description = source_value("description", keep.description, other.description)
         keep.age_rating = source_value("age_rating", keep.age_rating, other.age_rating)
         keep.groups = source_value("groups", list(keep.groups), list(other.groups))
@@ -1234,7 +1237,10 @@ class ImageService:
                 return max((keep_value or "all", other_value or "all"), key=lambda value: ranks.get(value, 0))
             return list(dict.fromkeys([*keep_value, *other_value]))
 
+        previous_pid = keep.pid
         keep.pid = selected("pid", keep.pid, incoming.get("pid"))
+        if keep.pid != previous_pid:
+            keep.pixiv_checked_at = None
         keep.description = selected("description", keep.description, incoming.get("description"))
         keep.age_rating = selected("age_rating", keep.age_rating, incoming.get("age_rating") or "all")
         keep.groups = selected("groups", list(keep.groups), incoming_groups)
@@ -1722,6 +1728,8 @@ class ImageService:
         db_image = db.query(models.Image).filter(models.Image.image_id == image_id).first()
         if db_image:
             update_data = image_update.dict(exclude_unset=True, exclude={'character_ids', 'group_ids', 'feature_tag_ids'})
+            if "pid" in update_data and update_data["pid"] != db_image.pid:
+                db_image.pixiv_checked_at = None
             for field, value in update_data.items():
                 setattr(db_image, field, value)
             

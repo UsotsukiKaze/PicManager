@@ -373,6 +373,16 @@ body {
     text-align: center;
 }
 
+.pixiv-upgrade-candidate {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary-color) 22%, transparent);
+}
+
+.pixiv-upgrade-actions {
+    justify-content: flex-end;
+    align-items: center;
+}
+
 .temp-duplicate-metadata-editor {
     margin-top: 16px;
     padding: 16px;

@@ -3246,5 +3246,118 @@ async function scanExistingDuplicates() {
     }
 }
 
+function escapeMaintenanceHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[character]);
+}
+
+function formatMaintenanceBytes(value) {
+    const bytes = Number(value || 0);
+    if (!Number.isFinite(bytes) || bytes <= 0) return '—';
+    if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function reviewPixivUpgrade(result) {
+    const current = result.current || {};
+    const candidate = result.candidate || {};
+    const safe = escapeMaintenanceHtml;
+    return new Promise(resolve => {
+        ui.showModal(`Pixiv 高清原图 · PID ${safe(current.pid)}`, `
+            <section class="duplicate-review duplicate-review-large pixiv-upgrade-review">
+                <p>右侧是 Pixiv 找到的更高分辨率原图。只有选择“覆盖原图”才会替换库内文件。</p>
+                <div class="duplicate-compare-grid">
+                    <article class="duplicate-compare-card">
+                        <header><strong>当前原图</strong><span>ID ${safe(current.image_id)}</span></header>
+                        <img src="${safe(current.preview_url)}" alt="当前原图">
+                        <dl class="duplicate-metadata">
+                            <div><dt>分辨率</dt><dd>${safe(current.width)} × ${safe(current.height)}</dd></div>
+                            <div><dt>大小</dt><dd>${safe(formatMaintenanceBytes(current.file_size))}</dd></div>
+                        </dl>
+                    </article>
+                    <article class="duplicate-compare-card pixiv-upgrade-candidate">
+                        <header><strong>Pixiv 原图</strong><span>第 ${Number(candidate.page_index || 0) + 1} 张</span></header>
+                        <img src="${safe(candidate.preview_url)}" alt="Pixiv 高清候选图">
+                        <dl class="duplicate-metadata">
+                            <div><dt>分辨率</dt><dd>${safe(candidate.width)} × ${safe(candidate.height)}</dd></div>
+                            <div><dt>大小</dt><dd>${safe(formatMaintenanceBytes(candidate.file_size))}</dd></div>
+                        </dl>
+                    </article>
+                </div>
+                <div class="duplicate-decision-actions pixiv-upgrade-actions">
+                    <a class="btn btn-secondary" href="${safe(result.artwork_url)}" target="_blank" rel="noopener noreferrer">打开 Pixiv 作品页</a>
+                    <button type="button" class="btn btn-secondary" data-pixiv-action="skip">保留现图</button>
+                    <button type="button" class="btn btn-primary" data-pixiv-action="replace">覆盖原图</button>
+                </div>
+            </section>
+        `);
+        const layer = document.getElementById('modal-body')?.lastElementChild;
+        let settled = false;
+        const finish = action => {
+            if (settled) return;
+            settled = true;
+            if (layer) delete layer._onModalClose;
+            ui.closeModal();
+            resolve(action);
+        };
+        if (layer) {
+            layer._onModalClose = () => {
+                if (!settled) {
+                    settled = true;
+                    resolve(null);
+                }
+            };
+        }
+        layer?.querySelectorAll('[data-pixiv-action]').forEach(button => {
+            button.addEventListener('click', () => finish(button.dataset.pixivAction));
+        });
+    });
+}
+
+async function scanPixivUpgrades() {
+    if (!ui.isAdminView()) {
+        ui.showToast('只有管理员可以执行维护操作', 'warning');
+        return;
+    }
+    const button = document.getElementById('scan-pixiv-upgrades-button');
+    if (button?.disabled) return;
+    let checked = 0;
+    let replaced = 0;
+    let skipped = 0;
+    try {
+        if (button) button.disabled = true;
+        while (true) {
+            if (button) button.textContent = `Pixiv 检查中… ${checked}`;
+            const result = await api.scanNextPixivUpgrade();
+            if (result.status === 'complete') break;
+            if (result.status === 'checked') {
+                checked += 1;
+                continue;
+            }
+            if (result.status !== 'candidate') throw new Error('无效的 Pixiv 扫描响应');
+            const action = await reviewPixivUpgrade(result);
+            if (!action) {
+                ui.showToast(`已停止：本次检查 ${checked} 张，覆盖 ${replaced} 张`, 'info');
+                return;
+            }
+            await api.resolvePixivUpgrade(result.token, action);
+            checked += 1;
+            if (action === 'replace') replaced += 1;
+            if (action === 'skip') skipped += 1;
+        }
+        ui.showToast(`Pixiv 检查完成：检查 ${checked} 张，覆盖 ${replaced} 张，保留 ${skipped} 张`, 'success');
+        ui.loadImages(null);
+        ui.loadSystemStatus();
+    } catch (error) {
+        ui.showToast(`Pixiv 高清检查失败: ${error.message}`, 'error');
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.textContent = 'Pixiv 高清补全';
+        }
+    }
+}
+
 // 创建全局UI实例
 window.ui = new UIManager();

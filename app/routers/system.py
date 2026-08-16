@@ -5,6 +5,7 @@ from ..config import settings
 from ..database import get_db_context
 from ..security.permissions import require_admin_user_id
 from ..services import ImageService, SystemService
+from ..pixiv import PixivLookupError, PixivUpgradeService
 
 router = APIRouter()
 
@@ -76,6 +77,31 @@ def scan_store_orphans(request: Request):
     with get_db_context() as db:
         moved = ImageService.move_orphaned_files_to_temp(db, settings.STORE_PATH, settings.TEMP_PATH)
         return {"message": f"Moved {moved} orphaned files to temp", "moved": moved}
+
+
+@router.post("/pixiv-upgrades/next")
+def scan_next_pixiv_upgrade(request: Request):
+    """Check the next unmarked numeric PID and stage a better Pixiv original."""
+    require_admin_user_id(request)
+    try:
+        with PixivUpgradeService.LOCK:
+            with get_db_context() as db:
+                return PixivUpgradeService.scan_next(db)
+    except PixivLookupError as exc:
+        # A temporary failure deliberately leaves pixiv_checked_at empty.
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/pixiv-upgrades/resolve")
+def resolve_pixiv_upgrade(choice: schemas.PixivUpgradeResolveRequest, request: Request):
+    """Replace the current original, or keep it, after an administrator preview."""
+    require_admin_user_id(request)
+    try:
+        with PixivUpgradeService.LOCK:
+            with get_db_context() as db:
+                return PixivUpgradeService.resolve(db, choice.token, choice.action)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/duplicates/scan")

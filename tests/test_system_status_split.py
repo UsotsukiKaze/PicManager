@@ -67,3 +67,20 @@ def test_existing_duplicate_maintenance_requires_admin(monkeypatch):
     with pytest.raises(HTTPException) as resolve_error:
         system.resolve_existing_duplicates(choice, object())
     assert resolve_error.value.status_code == 401
+
+
+def test_pixiv_upgrade_maintenance_requires_admin(monkeypatch):
+    monkeypatch.setattr(
+        system,
+        "require_admin_user_id",
+        lambda request: (_ for _ in ()).throw(HTTPException(status_code=401)),
+    )
+
+    with pytest.raises(HTTPException) as scan_error:
+        system.scan_next_pixiv_upgrade(object())
+    assert scan_error.value.status_code == 401
+
+    choice = schemas.PixivUpgradeResolveRequest(token="x" * 32, action="skip")
+    with pytest.raises(HTTPException) as resolve_error:
+        system.resolve_pixiv_upgrade(choice, object())
+    assert resolve_error.value.status_code == 401

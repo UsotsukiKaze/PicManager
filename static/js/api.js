@@ -462,6 +462,19 @@ class API {
         });
     }
 
+    async scanNextPixivUpgrade() {
+        return this.request('/system/pixiv-upgrades/next', {
+            method: 'POST',
+        });
+    }
+
+    async resolvePixivUpgrade(token, action) {
+        return this.request('/system/pixiv-upgrades/resolve', {
+            method: 'POST',
+            body: JSON.stringify({ token, action }),
+        });
+    }
+
     // 榜单
     async getRankings(limit = 10) {
         return this.request(`/rankings?limit=${limit}`);

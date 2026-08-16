@@ -179,6 +179,8 @@ def _describe_operation(method: str, path: str) -> str:
         ("POST", "/api/admin/admins"): "添加管理员",
         ("POST", "/api/system/cleanup"): "清理孤儿数据",
         ("POST", "/api/system/scan-store-orphans"): "扫描未入库图片",
+        ("POST", "/api/system/pixiv-upgrades/next"): "检查 Pixiv 高清原图",
+        ("POST", "/api/system/pixiv-upgrades/resolve"): "处理 Pixiv 高清原图",
         ("GET", "/api/system/status"): "查看系统状态",
     }
     if (method, path) in admin_actions:

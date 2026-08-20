@@ -21,7 +21,7 @@
         html:not(.app-booting) .app-bootstrap-status { display: none; }
     </style>
     <noscript><meta http-equiv="refresh" content="0; url=/login"></noscript>
-    <script src="/static/js/auth.js?v=20260820l"></script>
+    <script src="/static/js/auth.js?v=20260820m"></script>
 </head>
 <body>
     <div class="app-bootstrap-status" role="status">正在验证登录状态…</div>
@@ -107,10 +107,11 @@
                         <div class="home-hero-copy">
                             <div class="home-kicker">PicManager</div>
                             <h2>欢迎来到~ <span class="home-title-name">小 · 爱 · 图 · 库</span></h2>
-                            <p>这里可以快速查看图片数量、处理新上传、整理分组和角色。日常找图、补信息、检查打不开的图，都从这里开始。</p>
-                            <div class="home-actions">
-                                <button class="btn btn-primary" onclick="ui.switchPage('management')">查看图片</button>
-                                <button class="btn btn-secondary" onclick="ui.switchPage('upload')">去上传</button>
+                            <div class="home-hero-spectrum" aria-hidden="true">
+                                <span class="home-spectrum-line"></span>
+                                <span class="home-spectrum-line"></span>
+                                <span class="home-spectrum-line"></span>
+                                <div class="home-spectrum-nodes"><i></i><i></i><i></i></div>
                             </div>
                         </div>
                         <div class="home-orbit" id="home-group-orbit" aria-hidden="true">

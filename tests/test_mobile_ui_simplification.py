@@ -43,6 +43,18 @@ def test_mobile_home_title_breaks_and_stats_stay_in_one_compact_row():
     assert "font-size: clamp(17px, 5vw, 21px)" in mobile
 
 
+def test_home_hero_removes_redundant_copy_and_compacts_decorative_fill_on_mobile():
+    mobile = STYLE.split("/* Mobile-focused simplification", 1)[1]
+    assert "这里可以快速查看图片数量" not in INDEX
+    assert '>查看图片</button>' not in INDEX
+    assert '>去上传</button>' not in INDEX
+    assert 'class="home-hero-spectrum"' in INDEX
+    assert ".home-hero-spectrum" in STYLE
+    mobile_spectrum = mobile.split(".home-hero-spectrum {", 1)[1].split("}", 1)[0]
+    assert "min-height: 52px" in mobile_spectrum
+    assert "padding: 10px 12px" in mobile_spectrum
+
+
 def test_mobile_modals_are_safe_area_aware_bottom_sheets():
     mobile = STYLE.split("/* Mobile-focused simplification", 1)[1]
     assert "max-height: calc(100dvh - 34px)" in mobile

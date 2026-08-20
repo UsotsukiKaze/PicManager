@@ -2997,10 +2997,74 @@ body {
     font-size: 16px;
 }
 
-.home-actions {
-    display: flex;
+.home-hero-spectrum {
+    width: min(560px, 100%);
+    min-height: 96px;
+    position: relative;
+    display: grid;
+    align-content: center;
     gap: 12px;
-    flex-wrap: wrap;
+    padding: 18px 20px;
+    border: 1px solid rgba(0, 122, 255, 0.12);
+    border-radius: 18px;
+    background:
+        radial-gradient(circle at 88% 20%, rgba(32, 201, 151, 0.14), transparent 32%),
+        linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(238, 247, 255, 0.72));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+    overflow: hidden;
+}
+
+.home-spectrum-line {
+    height: 7px;
+    display: block;
+    border-radius: 999px;
+    background: rgba(0, 122, 255, 0.08);
+    overflow: hidden;
+}
+
+.home-spectrum-line::before {
+    content: '';
+    display: block;
+    width: 88%;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #007aff, #5ac8fa 62%, #20c997);
+    box-shadow: 0 0 18px rgba(0, 122, 255, 0.24);
+}
+
+.home-spectrum-line:nth-child(2)::before {
+    width: 64%;
+    background: linear-gradient(90deg, #20c997, #7ce6c4);
+}
+
+.home-spectrum-line:nth-child(3)::before {
+    width: 76%;
+    background: linear-gradient(90deg, #5856d6, #5ac8fa);
+}
+
+.home-spectrum-nodes {
+    position: absolute;
+    top: 10px;
+    right: 14px;
+    display: flex;
+    gap: 5px;
+}
+
+.home-spectrum-nodes i {
+    width: 6px;
+    height: 6px;
+    display: block;
+    border-radius: 50%;
+    background: #007aff;
+    box-shadow: 0 0 10px rgba(0, 122, 255, 0.32);
+}
+
+.home-spectrum-nodes i:nth-child(2) {
+    background: #20c997;
+}
+
+.home-spectrum-nodes i:nth-child(3) {
+    background: #5856d6;
 }
 
 .home-orbit {
@@ -5279,13 +5343,49 @@ body {
         white-space: nowrap;
     }
 
-    .home-actions {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+    .home-hero {
+        padding: 16px;
+        border-radius: 18px;
+        box-shadow: 0 10px 28px rgba(29, 29, 31, 0.07);
     }
 
-    .home-actions .btn {
-        width: 100%;
+    .home-hero-copy {
+        gap: 10px;
+    }
+
+    .home-kicker {
+        padding: 4px 9px;
+        font-size: 11px;
+    }
+
+    .home-hero h2 {
+        font-size: 27px;
+        line-height: 1.16;
+    }
+
+    .home-hero-spectrum {
+        min-height: 52px;
+        gap: 7px;
+        padding: 10px 12px;
+        border-radius: 12px;
+    }
+
+    .home-spectrum-line {
+        height: 4px;
+    }
+
+    .home-spectrum-line:nth-child(3) {
+        display: none;
+    }
+
+    .home-spectrum-nodes {
+        top: 7px;
+        right: 9px;
+    }
+
+    .home-spectrum-nodes i {
+        width: 4px;
+        height: 4px;
     }
 
     .image-detail-card {

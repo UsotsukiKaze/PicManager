@@ -4,7 +4,10 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 INDEX_HTML = (PROJECT_ROOT / "static" / "index.html").read_text(encoding="utf-8")
-UI_JS = (PROJECT_ROOT / "static" / "js" / "ui.js").read_text(encoding="utf-8")
+UI_JS = "\n".join(
+    (PROJECT_ROOT / "static" / "js" / name).read_text(encoding="utf-8")
+    for name in ("entity-cache.js", "search-selector.js", "image-list.js", "modal.js", "ui.js")
+)
 UPLOAD_JS = (PROJECT_ROOT / "static" / "js" / "upload.js").read_text(encoding="utf-8")
 STYLE_CSS = (PROJECT_ROOT / "static" / "css" / "style.css").read_text(encoding="utf-8")
 

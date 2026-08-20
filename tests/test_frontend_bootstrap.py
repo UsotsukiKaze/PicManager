@@ -7,6 +7,14 @@ INDEX_HTML = PROJECT_ROOT / "static" / "index.html"
 AUTH_JS = PROJECT_ROOT / "static" / "js" / "auth.js"
 MAIN_JS = PROJECT_ROOT / "static" / "js" / "main.js"
 UI_JS = PROJECT_ROOT / "static" / "js" / "ui.js"
+UI_MODULES = [
+    PROJECT_ROOT / "static" / "js" / name
+    for name in ("entity-cache.js", "search-selector.js", "image-list.js", "modal.js")
+]
+
+
+def _ui_source() -> str:
+    return "\n".join(path.read_text(encoding="utf-8") for path in [*UI_MODULES, UI_JS])
 SECURITY_JS = PROJECT_ROOT / "static" / "js" / "security.js"
 CHARACTER_SELECTOR_JS = PROJECT_ROOT / "static" / "js" / "character-selector.js"
 TAG_SELECTOR_JS = PROJECT_ROOT / "static" / "js" / "tag-selector.js"
@@ -40,7 +48,11 @@ def test_authenticated_bootstrap_loads_application_only_after_auth_success():
         "/static/js/character-selector.js?v=20260820a",
         "/static/js/tag-selector.js?v=20260820a",
         "/static/js/api.js?v=20260816a",
-        "/static/js/ui.js?v=20260820b",
+        "/static/js/entity-cache.js?v=20260820a",
+        "/static/js/search-selector.js?v=20260820a",
+        "/static/js/image-list.js?v=20260820a",
+        "/static/js/modal.js?v=20260820a",
+        "/static/js/ui.js?v=20260820c",
         "/static/js/main.js?v=20260812c",
     ):
         assert asset in source
@@ -55,7 +67,7 @@ def test_authenticated_bootstrap_loads_application_only_after_auth_success():
 
 def test_user_controlled_entity_names_are_html_escaped_before_rendering():
     security_source = SECURITY_JS.read_text(encoding="utf-8")
-    ui_source = UI_JS.read_text(encoding="utf-8")
+    ui_source = _ui_source()
     character_source = CHARACTER_SELECTOR_JS.read_text(encoding="utf-8")
     tag_source = TAG_SELECTOR_JS.read_text(encoding="utf-8")
 
@@ -68,7 +80,7 @@ def test_user_controlled_entity_names_are_html_escaped_before_rendering():
 
 def test_page_features_are_lazy_loaded_and_deduplicated():
     auth_source = AUTH_JS.read_text(encoding="utf-8")
-    ui_source = UI_JS.read_text(encoding="utf-8")
+    ui_source = _ui_source()
     core_script_block = re.search(
         r"const scripts = \[(.*?)\];", auth_source, flags=re.DOTALL
     )
@@ -97,7 +109,7 @@ def test_page_features_are_lazy_loaded_and_deduplicated():
 
 
 def test_image_search_options_load_on_first_image_tab_visit():
-    ui_source = UI_JS.read_text(encoding="utf-8")
+    ui_source = _ui_source()
     image_tab = ui_source.split("case 'image-list':", 1)[1].split("break;", 1)[0]
     option_loader = ui_source.split("async loadImageSearchOptions()", 1)[1].split(
         "initSearchableSelect(config)", 1
@@ -114,7 +126,7 @@ def test_image_search_options_load_on_first_image_tab_visit():
 
 
 def test_searchable_select_initialization_is_idempotent():
-    ui_source = UI_JS.read_text(encoding="utf-8")
+    ui_source = _ui_source()
     initializer = ui_source.split("initSearchableSelect(config)", 1)[1].split(
         "filterSearchableOptions(config)", 1
     )[0]

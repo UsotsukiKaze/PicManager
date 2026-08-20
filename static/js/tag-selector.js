@@ -8,6 +8,7 @@ class ImageTagSelector {
         this.featureTags = [];
         this.selected = { group_ids: [], character_ids: [], feature_tag_ids: [] };
         this.onChange = options.onChange || null;
+        this.searchTimer = null;
         this.render();
     }
 
@@ -98,12 +99,35 @@ class ImageTagSelector {
         `;
     }
 
-    async refreshData() {
-        const [groups, characters, featureTags] = await Promise.all([
-            api.getGroups(),
-            api.getCharacters(),
-            api.getFeatureTags()
-        ]);
+    hasPickerData() {
+        const sources = {
+            group: this.groups,
+            character: this.characters,
+            feature_tag: this.featureTags,
+        };
+        return this.allowedTypes.every(type => Array.isArray(sources[type]) && sources[type].length > 0);
+    }
+
+    async refreshData({ forceRefresh = false } = {}) {
+        // Upload-page activation already loads these collections. Reusing them
+        // avoids refetching every paginated entity list whenever the picker is
+        // opened. CRUD actions invalidate UIManager's cache explicitly.
+        if (!forceRefresh && this.hasPickerData()) return;
+
+        const loaders = window.ui ? {
+            group: () => ui.loadGroupsData(forceRefresh, true),
+            character: () => ui.loadCharactersData(forceRefresh, true),
+            feature_tag: () => ui.loadFeatureTagsData(forceRefresh, true),
+        } : {
+            group: () => api.getGroups(),
+            character: () => api.getCharacters(),
+            feature_tag: () => api.getFeatureTags(),
+        };
+        const requested = await Promise.all(this.allowedTypes.map(type => loaders[type]()));
+        const byType = Object.fromEntries(this.allowedTypes.map((type, index) => [type, requested[index]]));
+        const groups = byType.group || this.groups;
+        const characters = byType.character || this.characters;
+        const featureTags = byType.feature_tag || this.featureTags;
         this.setData({ groups, characters, featureTags });
     }
 
@@ -169,14 +193,20 @@ class ImageTagSelector {
         ui.showModal(this.title, content, isNested);
         this.renderPicker(modalId);
         const search = document.querySelector(`#${modalId} .tag-picker-search`);
-        search.addEventListener('input', () => this.renderPicker(modalId, search.value));
+        search.addEventListener('input', () => {
+            window.clearTimeout(this.searchTimer);
+            this.searchTimer = window.setTimeout(() => this.renderPicker(modalId, search.value), 90);
+        });
         const groupList = document.querySelector(`#${modalId} [data-type="group"]`);
-        if (groupList) groupList.addEventListener('change', () => this.renderPicker(modalId, search.value));
+        if (groupList) {
+            groupList.addEventListener('change', () => this.renderPicker(modalId, search.value, ['character']));
+        }
     }
 
-    renderPicker(modalId, query = '') {
+    renderPicker(modalId, query = '', sections = null) {
         const root = document.getElementById(modalId);
         if (!root) return;
+        const shouldRender = type => !sections || sections.includes(type);
         const selectedGroupInput = root.querySelector('[data-type="group"] input:checked');
         const selectedGroupId = selectedGroupInput ? Number(selectedGroupInput.value) : null;
         const groups = this.filterItems(this.groups, query);
@@ -186,9 +216,9 @@ class ImageTagSelector {
         const groupList = root.querySelector('[data-type="group"]');
         const characterList = root.querySelector('[data-type="character"]');
         const featureList = root.querySelector('[data-type="feature_tag"]');
-        if (groupList) groupList.innerHTML = groups.map(item => this.option(item, 'group', selectedGroupId ? item.id === selectedGroupId : this.selected.group_ids.includes(item.id))).join('');
-        if (characterList) characterList.innerHTML = characters.map(item => this.option(item, 'character', this.selected.character_ids.includes(item.id))).join('');
-        if (featureList) featureList.innerHTML = featureTags.map(item => this.option(item, 'feature_tag', this.selected.feature_tag_ids.includes(item.id))).join('');
+        if (groupList && shouldRender('group')) groupList.innerHTML = groups.map(item => this.option(item, 'group', selectedGroupId ? item.id === selectedGroupId : this.selected.group_ids.includes(item.id))).join('');
+        if (characterList && shouldRender('character')) characterList.innerHTML = characters.map(item => this.option(item, 'character', this.selected.character_ids.includes(item.id))).join('');
+        if (featureList && shouldRender('feature_tag')) featureList.innerHTML = featureTags.map(item => this.option(item, 'feature_tag', this.selected.feature_tag_ids.includes(item.id))).join('');
     }
 
     confirmPicker(modalId) {

@@ -21,8 +21,21 @@
             this.badge = document.getElementById('upload-queue-badge');
             this.summary = document.getElementById('upload-queue-summary');
 
-            this.toggleButton?.addEventListener('click', () => this.setOpen(!this.open));
-            document.getElementById('upload-queue-close')?.addEventListener('click', () => this.setOpen(false));
+            this.toggleButton?.addEventListener('click', () => {
+                if (this.open) {
+                    this.dismiss();
+                    return;
+                }
+                this.root?.classList.remove('is-hover-dismissed');
+                this.setOpen(true);
+            });
+            document.getElementById('upload-queue-close')?.addEventListener('click', event => {
+                event.stopPropagation();
+                this.dismiss();
+            });
+            this.root.addEventListener('pointerleave', () => {
+                this.root?.classList.remove('is-hover-dismissed');
+            });
             document.getElementById('upload-queue-clear')?.addEventListener('click', () => this.clearFinished());
             this.list?.addEventListener('click', event => {
                 const action = event.target.closest('[data-queue-action]');
@@ -52,6 +65,11 @@
             this.root?.classList.toggle('is-open', this.open);
             this.toggleButton?.setAttribute('aria-expanded', String(this.open));
             if (this.panel) this.panel.setAttribute('aria-hidden', String(!this.open));
+        }
+
+        dismiss() {
+            this.setOpen(false);
+            this.root?.classList.add('is-hover-dismissed');
         }
 
         add({ name, size = 0, status = 'queued', message = '等待上传', retry = null, dispose = null }) {

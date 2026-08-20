@@ -119,7 +119,7 @@ class AuthManager {
         this.applicationLoadPromise = (async () => {
             await this.waitForDocumentBody();
             const stylesReady = Promise.all([
-                this.loadStyle('/static/css/style.css?v=20260820h'),
+                this.loadStyle('/static/css/style.css?v=20260820j'),
                 this.loadStyle('/static/css/icons.css?v=20260812a'),
             ]);
             const scripts = [
@@ -128,7 +128,7 @@ class AuthManager {
                 '/static/js/character-selector.js?v=20260820a',
                 '/static/js/tag-selector.js?v=20260820d',
                 '/static/js/api.js?v=20260820h',
-                '/static/js/upload-queue.js?v=20260820d',
+                '/static/js/upload-queue.js?v=20260820j',
                 '/static/js/query-panel.js?v=20260820d',
                 '/static/js/entity-cache.js?v=20260820a',
                 '/static/js/search-selector.js?v=20260820d',

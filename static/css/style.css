@@ -4697,7 +4697,8 @@ body {
     --queue-progress: 0deg;
     position: fixed;
     z-index: 980;
-    left: calc(240px + 18px);
+    left: auto;
+    right: 22px;
     bottom: 22px;
 }
 
@@ -4797,7 +4798,8 @@ body {
 
 .upload-queue-panel {
     position: absolute;
-    left: 0;
+    left: auto;
+    right: 0;
     bottom: 68px;
     width: min(360px, calc(100vw - 32px));
     max-height: min(540px, calc(100vh - 120px));
@@ -4810,7 +4812,7 @@ body {
     opacity: 0;
     visibility: hidden;
     transform: translateY(10px) scale(0.97);
-    transform-origin: left bottom;
+    transform-origin: right bottom;
     pointer-events: none;
     transition: opacity 160ms ease, transform 160ms ease, visibility 160ms;
     overflow: hidden;
@@ -4824,7 +4826,7 @@ body {
 }
 
 @media (hover: hover) and (pointer: fine) {
-    .upload-queue-dock:hover .upload-queue-panel {
+    .upload-queue-dock:not(.is-hover-dismissed):hover .upload-queue-panel {
         opacity: 1;
         visibility: visible;
         transform: translateY(0) scale(1);
@@ -4869,7 +4871,49 @@ body {
 .upload-queue-panel header button {
     width: 32px;
     height: 32px;
-    font-size: 22px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: transparent;
+    transition: color 150ms ease, background-color 150ms ease, transform 150ms ease;
+}
+
+.upload-queue-panel header button:hover {
+    background: #f0f1f3;
+    color: var(--text-primary);
+    transform: rotate(90deg);
+}
+
+.upload-queue-panel header button:focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--primary-color) 38%, white);
+    outline-offset: 2px;
+}
+
+.upload-queue-close-icon {
+    width: 14px;
+    height: 14px;
+    position: relative;
+    display: block;
+}
+
+.upload-queue-close-icon::before,
+.upload-queue-close-icon::after {
+    content: '';
+    position: absolute;
+    top: 6px;
+    left: 1px;
+    width: 12px;
+    height: 2px;
+    border-radius: 999px;
+    background: currentColor;
+}
+
+.upload-queue-close-icon::before {
+    transform: rotate(45deg);
+}
+
+.upload-queue-close-icon::after {
+    transform: rotate(-45deg);
 }
 
 .upload-queue-panel footer {
@@ -4996,7 +5040,8 @@ body {
 /* Mobile-focused simplification. Kept last so it consistently overrides the
    earlier desktop-first component passes. */
 .upload-queue-dock {
-    left: calc(280px + 18px);
+    left: auto;
+    right: 22px;
 }
 
 @media (max-width: 768px) {

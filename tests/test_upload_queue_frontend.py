@@ -28,9 +28,21 @@ def test_upload_queue_supports_progress_attention_retry_and_unload_protection():
 
 def test_queue_dock_has_hover_desktop_tap_mobile_and_reduced_motion_rules():
     assert "@media (hover: hover) and (pointer: fine)" in STYLE
-    assert ".upload-queue-dock:hover .upload-queue-panel" in STYLE
+    assert ".upload-queue-dock:not(.is-hover-dismissed):hover .upload-queue-panel" in STYLE
     assert "@media (max-width: 768px)" in STYLE
     assert "@media (prefers-reduced-motion: reduce)" in STYLE
+
+
+def test_queue_dock_is_right_aligned_and_close_overrides_hover_preview():
+    dock_rule = STYLE.split(".upload-queue-dock {", 1)[1].split("}", 1)[0]
+    assert "right: 22px" in dock_rule
+    assert "left: auto" in dock_rule
+    assert "transform-origin: right bottom" in STYLE
+    assert "dismiss()" in QUEUE
+    assert "this.root?.classList.add('is-hover-dismissed')" in QUEUE
+    assert "event.stopPropagation()" in QUEUE
+    assert 'aria-label="关闭上传队列"' in INDEX
+    assert 'class="upload-queue-close-icon"' in INDEX
 
 
 def test_single_and_batch_uploads_report_to_the_global_queue():

@@ -21,7 +21,7 @@
         html:not(.app-booting) .app-bootstrap-status { display: none; }
     </style>
     <noscript><meta http-equiv="refresh" content="0; url=/login"></noscript>
-    <script src="/static/js/auth.js?v=20260820i"></script>
+    <script src="/static/js/auth.js?v=20260820j"></script>
 </head>
 <body>
     <div class="app-bootstrap-status" role="status">正在验证登录状态…</div>
@@ -724,7 +724,9 @@
                     <strong>上传队列</strong>
                     <span id="upload-queue-summary">暂无上传任务</span>
                 </div>
-                <button type="button" id="upload-queue-close" aria-label="收起上传队列">×</button>
+                <button type="button" id="upload-queue-close" aria-label="关闭上传队列" title="关闭上传队列">
+                    <span class="upload-queue-close-icon" aria-hidden="true"></span>
+                </button>
             </header>
             <ol class="upload-queue-list" id="upload-queue-list" aria-live="polite"></ol>
             <footer>

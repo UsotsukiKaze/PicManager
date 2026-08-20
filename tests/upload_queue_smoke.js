@@ -4,15 +4,29 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 function element() {
+    const classes = new Set();
+    const handlers = {};
     return {
         hidden: false,
         innerHTML: '',
         textContent: '',
         dataset: {},
+        attributes: {},
         style: { setProperty() {} },
-        classList: { toggle() {} },
-        addEventListener() {},
-        setAttribute() {},
+        classList: {
+            toggle(name, force) {
+                const enabled = force === undefined ? !classes.has(name) : Boolean(force);
+                if (enabled) classes.add(name);
+                else classes.delete(name);
+                return enabled;
+            },
+            add(name) { classes.add(name); },
+            remove(name) { classes.delete(name); },
+            contains(name) { return classes.has(name); },
+        },
+        addEventListener(type, handler) { handlers[type] = handler; },
+        dispatch(type, event = {}) { handlers[type]?.(event); },
+        setAttribute(name, value) { this.attributes[name] = String(value); },
     };
 }
 
@@ -38,6 +52,19 @@ const source = fs.readFileSync(path.join(__dirname, '..', 'static', 'js', 'uploa
 vm.runInContext(source, context, { filename: 'upload-queue.js' });
 
 const queue = context.window.uploadQueue;
+queue.setOpen(true);
+let closePropagationStopped = false;
+ids['upload-queue-close'].dispatch('click', {
+    stopPropagation() { closePropagationStopped = true; },
+});
+assert.equal(closePropagationStopped, true);
+assert.equal(queue.open, false);
+assert.equal(ids['upload-queue-dock'].classList.contains('is-open'), false);
+assert.equal(ids['upload-queue-dock'].classList.contains('is-hover-dismissed'), true);
+assert.equal(ids['upload-queue-panel'].attributes['aria-hidden'], 'true');
+ids['upload-queue-dock'].dispatch('pointerleave');
+assert.equal(ids['upload-queue-dock'].classList.contains('is-hover-dismissed'), false);
+
 const id = queue.add({ name: 'one.png', size: 1024 });
 assert.equal(queue.get(id).status, 'queued');
 queue.update(id, { status: 'uploading', progress: 48 });

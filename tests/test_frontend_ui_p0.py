@@ -76,3 +76,23 @@ def test_image_search_replaces_stale_results_with_busy_and_retryable_error_state
     assert "grid.setAttribute('aria-busy', 'false')" in load_images
     assert "image-grid-error" in load_images
     assert 'onclick="ui.loadImages(null)"' in load_images
+
+
+def test_home_orbit_chips_expand_and_wrap_instead_of_truncating():
+    orbit_rule = STYLE_CSS.split(".orbit-chip {", 1)[1].split("}", 1)[0]
+    label_rule = STYLE_CSS.split(".orbit-chip-label {", 1)[1].split("}", 1)[0]
+
+    assert "width: max-content" in orbit_rule
+    assert "max-width: min(240px, calc(100% - 56px))" in orbit_rule
+    assert "text-overflow: ellipsis" not in orbit_rule
+    assert "white-space: nowrap" not in orbit_rule
+    assert "white-space: normal" in label_rule
+    assert "overflow-wrap: anywhere" in label_rule
+    assert "label.className = 'orbit-chip-label'" in UI_JS
+
+
+def test_image_derivative_urls_change_when_image_content_version_changes():
+    assert "getImageVersion(image)" in UI_JS
+    assert "image.updated_at || image.file_checked_at || image.created_at" in UI_JS
+    assert "?v=${this.getImageVersion(image)}" in UI_JS
+    assert "encodeURIComponent(image.image_id)" in UI_JS

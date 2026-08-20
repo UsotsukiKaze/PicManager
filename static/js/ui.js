@@ -811,12 +811,17 @@ class UIManager {
         }
     }
 
+    getImageVersion(image) {
+        const version = image.updated_at || image.file_checked_at || image.created_at || image.file_size || '1';
+        return encodeURIComponent(String(version));
+    }
+
     getImageUrl(image) {
-        return `/resource/originals/${encodeURIComponent(image.image_id)}`;
+        return `/resource/originals/${encodeURIComponent(image.image_id)}?v=${this.getImageVersion(image)}`;
     }
 
     getThumbnailUrl(image) {
-        return `/resource/thumbs/${image.image_id}.webp`;
+        return `/resource/thumbs/${encodeURIComponent(image.image_id)}.webp?v=${this.getImageVersion(image)}`;
     }
 
     downloadImage(imageId) {

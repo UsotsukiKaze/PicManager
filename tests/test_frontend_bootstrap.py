@@ -40,7 +40,7 @@ def test_authenticated_bootstrap_loads_application_only_after_auth_success():
         "/static/js/character-selector.js?v=20260820a",
         "/static/js/tag-selector.js?v=20260820a",
         "/static/js/api.js?v=20260816a",
-        "/static/js/ui.js?v=20260820a",
+        "/static/js/ui.js?v=20260820b",
         "/static/js/main.js?v=20260812c",
     ):
         assert asset in source

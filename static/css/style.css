@@ -3002,6 +3002,7 @@ body {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
+    margin-top: 12px;
 }
 
 .home-metric-card {
@@ -3063,7 +3064,7 @@ body {
 .home-metric-label {
     color: var(--text-secondary);
     font-size: 12px;
-    font-weight: 700;
+    font-weight: 600;
     white-space: nowrap;
 }
 
@@ -3071,17 +3072,17 @@ body {
     margin-top: auto;
     color: #151517;
     font-family: Inter, "SF Pro Display", "Segoe UI", sans-serif;
-    font-size: clamp(32px, 3.4vw, 48px);
-    font-weight: 800;
+    font-size: clamp(28px, 2.8vw, 40px);
+    font-weight: 700;
     font-variant-numeric: tabular-nums;
     font-feature-settings: "tnum" 1, "ss01" 1;
     line-height: 0.9;
-    letter-spacing: -0.06em;
+    letter-spacing: -0.035em;
 }
 
 .home-metric-card .home-metric-pair {
-    font-size: clamp(26px, 2.8vw, 40px);
-    letter-spacing: -0.07em;
+    font-size: clamp(23px, 2.35vw, 34px);
+    letter-spacing: -0.04em;
 }
 
 .home-metric-separator {
@@ -5324,6 +5325,7 @@ body {
     .home-metrics {
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 6px;
+        margin-top: 0;
     }
 
     .home-metric-card {

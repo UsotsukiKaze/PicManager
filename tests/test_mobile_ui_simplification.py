@@ -54,6 +54,11 @@ def test_home_hero_replaces_decorative_spectrum_with_emphasized_metrics():
     for element_id in ("home-total-images", "home-total-emojis", "home-total-groups", "home-total-characters"):
         assert INDEX.count(f'id="{element_id}"') == 1
     assert "font-variant-numeric: tabular-nums" in STYLE
+    desktop_metrics = STYLE.split(".home-metrics {", 1)[1].split("}", 1)[0]
+    desktop_numbers = STYLE.split(".home-metric-card strong {", 1)[1].split("}", 1)[0]
+    assert "margin-top: 12px" in desktop_metrics
+    assert "font-size: clamp(28px, 2.8vw, 40px)" in desktop_numbers
+    assert "font-weight: 700" in desktop_numbers
     metric = mobile.split(".home-metric-card {", 1)[1].split("}", 1)[0]
     assert "min-height: 92px" in metric
 

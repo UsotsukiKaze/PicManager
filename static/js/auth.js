@@ -119,7 +119,7 @@ class AuthManager {
         this.applicationLoadPromise = (async () => {
             await this.waitForDocumentBody();
             const stylesReady = Promise.all([
-                this.loadStyle('/static/css/style.css?v=20260820o'),
+                this.loadStyle('/static/css/style.css?v=20260820p'),
                 this.loadStyle('/static/css/icons.css?v=20260812a'),
             ]);
             const scripts = [

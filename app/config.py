@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     THUMB_PATH: str = os.path.join(RESOURCE_PATH, "thumbs")
     EMOJI_PATH: str = os.path.join(RESOURCE_PATH, "emojis")
     AVATAR_PATH: str = os.path.join(RESOURCE_PATH, "avatars")
+    STORAGE_BACKEND: str = "local"
+    R2_ACCOUNT_ID: str = ""
+    R2_BUCKET: str = ""
+    R2_ACCESS_KEY_ID: str = ""
+    R2_SECRET_ACCESS_KEY: str = ""
+    R2_PREFIX: str = "images"
     
     # 数据库配置
     DATABASE_URL: str = f"sqlite:///{os.path.join(DATA_PATH, 'picmanager.db')}"

@@ -5,6 +5,7 @@ from datetime import datetime
 from collections import defaultdict, deque
 from . import models, schemas
 from .config import settings
+from .storage import get_image_storage
 import os
 import secrets
 from PIL import Image as PILImage, ImageOps
@@ -1280,7 +1281,14 @@ class ImageService:
 
     @staticmethod
     def image_file_exists(image: models.Image) -> bool:
-        return bool(image.file_path) and os.path.isfile(ImageService.image_full_path(image))
+        raw_path = str(image.file_path or "")
+        if raw_path.startswith("r2://"):
+            object_key = raw_path.split("/", 3)[-1]
+            try:
+                return get_image_storage(settings).exists(object_key)
+            except (OSError, RuntimeError, ValueError):
+                return False
+        return bool(raw_path) and os.path.isfile(ImageService.image_full_path(image))
 
     @staticmethod
     def mark_file_status(db: Session, image: models.Image, exists: Optional[bool] = None) -> str:
@@ -1307,21 +1315,26 @@ class ImageService:
                 image.thumb_status = ImageService.THUMB_READY
                 return True
 
-            with PILImage.open(source) as img:
-                img.thumbnail((settings.THUMBNAIL_SIZE, settings.THUMBNAIL_SIZE))
-                if img.mode not in ("RGB", "RGBA"):
-                    img = img.convert("RGB")
-                img.save(
-                    thumb,
-                    "WEBP",
-                    quality=settings.THUMBNAIL_QUALITY,
-                    method=settings.THUMBNAIL_WEBP_METHOD,
-                )
+            ImageService.write_thumbnail(source, thumb)
             image.thumb_status = ImageService.THUMB_READY
             return True
         except Exception:
             image.thumb_status = ImageService.THUMB_FAILED
             return False
+
+    @staticmethod
+    def write_thumbnail(source: str, target: str) -> None:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with PILImage.open(source) as img:
+            img.thumbnail((settings.THUMBNAIL_SIZE, settings.THUMBNAIL_SIZE))
+            if img.mode not in ("RGB", "RGBA"):
+                img = img.convert("RGB")
+            img.save(
+                target,
+                "WEBP",
+                quality=settings.THUMBNAIL_QUALITY,
+                method=settings.THUMBNAIL_WEBP_METHOD,
+            )
 
     @staticmethod
     def _unique_ints(values: Optional[List[int]]) -> List[int]:
@@ -1494,29 +1507,22 @@ class ImageService:
         return secrets.token_hex(5).upper()  # 生成10位十六进制字符串
     
     @staticmethod
-    def save_image_file(file_path: str, image_id: str, file_extension: str, store_path: str) -> Tuple[str, dict]:
-        """保存图片文件并返回相对路径和图片信息"""
-        # 确保存储目录存在
-        os.makedirs(store_path, exist_ok=True)
-        
-        # 新文件路径
+    def save_image_file(
+        file_path: str,
+        image_id: str,
+        file_extension: str,
+        store_path: str,
+        *,
+        move_source: bool = True,
+    ) -> Tuple[str, dict]:
+        """Store an image through the configured backend and return its opaque locator."""
         new_filename = f"{image_id}.{file_extension.lower()}"
-        new_file_path = os.path.join(store_path, new_filename)
-        relative_path = f"resource/store/{new_filename}"
-        
-        # 复制文件
-        shutil.copy2(file_path, new_file_path)
-        
-        # 获取图片信息
-        image_info = {}
-        try:
-            with PILImage.open(new_file_path) as img:
-                image_info['width'], image_info['height'] = img.size
-            image_info['file_size'] = os.path.getsize(new_file_path)
-        except Exception:
-            pass
-        
-        return relative_path, image_info
+        stored = get_image_storage(settings, local_root=store_path).put_file(
+            file_path,
+            new_filename,
+            move=move_source,
+        )
+        return stored.locator, {"file_size": stored.size}
     
     @staticmethod
     def create_image(db: Session, image: schemas.ImageCreate, file_path: str, original_filename: str, 
@@ -1528,10 +1534,23 @@ class ImageService:
             if not db.query(models.Image).filter(models.Image.image_id == image_id).first():
                 break
         
-        # 保存图片文件
-        relative_path, image_info = ImageService.save_image_file(
+        # Read metadata and generate the first thumbnail before a remote backend
+        # is allowed to consume the staged source file.
+        perceptual_hash = ImageService.compute_dhash(file_path)
+        image_info = {}
+        with PILImage.open(file_path) as source:
+            image_info["width"], image_info["height"] = source.size
+        thumbnail_path = os.path.join(settings.THUMB_PATH, f"{image_id}.webp")
+        try:
+            ImageService.write_thumbnail(file_path, thumbnail_path)
+            thumbnail_status = ImageService.THUMB_READY
+        except Exception:
+            thumbnail_status = ImageService.THUMB_FAILED
+
+        relative_path, stored_info = ImageService.save_image_file(
             file_path, image_id, file_extension, store_path
         )
+        image_info.update(stored_info)
         
         # 创建数据库记录
         db_image = models.Image(
@@ -1544,8 +1563,8 @@ class ImageService:
             file_path=relative_path,
             file_status=ImageService.AVAILABLE,
             file_checked_at=datetime.utcnow(),
-            thumb_status=ImageService.THUMB_PENDING,
-            perceptual_hash=ImageService.compute_dhash(file_path),
+            thumb_status=thumbnail_status,
+            perceptual_hash=perceptual_hash,
             **image_info
         )
         
@@ -1558,8 +1577,6 @@ class ImageService:
             image.feature_tag_ids,
         )
 
-        ImageService.ensure_thumbnail(db_image)
-        
         db.add(db_image)
         db.commit()
         db.refresh(db_image)

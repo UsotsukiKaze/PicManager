@@ -680,7 +680,7 @@ def resolve_temp_duplicate(choice: schemas.TempDuplicateResolveRequest, request:
                 stored.file_checked_at = datetime.utcnow()
                 if stored.thumb_status != ImageService.THUMB_READY:
                     ImageService.ensure_thumbnail(stored)
-                source_path.unlink()
+                source_path.unlink(missing_ok=True)
                 kept_image = stored
                 message = "已保留库内图片并删除 Temp 重复文件"
                 status = "merged_existing"
@@ -696,7 +696,7 @@ def resolve_temp_duplicate(choice: schemas.TempDuplicateResolveRequest, request:
                 stored.file_status = ImageService.ARCHIVED
                 db.flush()
                 ImageService.delete_superseded_image_files(kept_image, stored)
-                source_path.unlink()
+                source_path.unlink(missing_ok=True)
                 message = "已保留 Temp 图片并删除库内重复文件"
                 status = "merged_new"
 

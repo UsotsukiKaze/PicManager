@@ -29,6 +29,7 @@ def test_search_adapter_supports_full_pinyin_initials_aliases_and_ranking():
         assert contract in SEARCH
     assert "binarySearchPinyin" not in SEARCH
     assert "pinyinBoundaries" not in SEARCH
+    assert "engine.match" not in SEARCH
     assert (PROJECT_ROOT / "tests" / "pinyin_search_smoke.js").is_file()
 
 

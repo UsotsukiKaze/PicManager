@@ -99,15 +99,6 @@ const PinyinSearch = {
         if (record.initials.startsWith(q)) return 540;
         if (record.initials.includes(q)) return 500;
 
-        const engine = this.engine;
-        if (engine?.match) {
-            const matched = engine.match(record.source, this.normalize(query), {
-                precision: 'start',
-                continuous: true,
-            });
-            if (matched) return 440;
-        }
-
         return 0;
     },
 

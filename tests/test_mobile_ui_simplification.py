@@ -24,6 +24,14 @@ def test_mobile_hides_decorative_or_desktop_maintenance_surfaces():
     assert ".home-stat-hint," in mobile
 
 
+def test_mobile_active_navigation_keeps_a_visible_colored_icon():
+    mobile = STYLE.split("/* Mobile-focused simplification", 1)[1]
+    assert ".sidebar-menu .menu-indicator" in mobile
+    assert ".sidebar-menu .menu-item.active .menu-icon" in mobile
+    assert "background-color: var(--primary-color)" in mobile
+    assert "background: rgba(0, 122, 255, 0.1)" in mobile
+
+
 def test_mobile_modals_are_safe_area_aware_bottom_sheets():
     mobile = STYLE.split("/* Mobile-focused simplification", 1)[1]
     assert "max-height: calc(100dvh - 34px)" in mobile

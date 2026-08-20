@@ -66,9 +66,14 @@ def test_mobile_modals_are_safe_area_aware_bottom_sheets():
     assert ".tag-picker .form-actions" in mobile
 
 
-def test_small_phone_cards_drop_secondary_metadata_and_use_one_column():
+def test_small_phone_image_management_keeps_two_columns_and_compacts_cards():
     small = STYLE.split("@media (max-width: 420px)", 1)[1]
-    assert "grid-template-columns: 1fr" in small
+    image_grid = small.split(".image-grid {", 1)[1].split("}", 1)[0]
+    temp_grid = small.split(".temp-image-grid {", 1)[1].split("}", 1)[0]
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in image_grid
+    assert "gap: 8px" in image_grid
+    assert "grid-template-columns: 1fr" in temp_grid
+    assert "-webkit-line-clamp: 2" in small
     assert ".image-card-id," in small
     assert ".image-card-pid" in small
 

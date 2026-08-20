@@ -52,5 +52,8 @@ class LocalStorage:
     def local_path(self, key: str) -> Path:
         return self._path(key)
 
+    def download_file(self, key: str, target: str | Path) -> None:
+        shutil.copy2(self._path(key), Path(target))
+
     def signed_download_url(self, key: str, *, expires: int = 300) -> None:
         return None

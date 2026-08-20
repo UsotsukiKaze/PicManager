@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     R2_ACCESS_KEY_ID: str = ""
     R2_SECRET_ACCESS_KEY: str = ""
     R2_PREFIX: str = "images"
+    IMAGE_JOB_POLL_SECONDS: float = 1.0
+    IMAGE_JOB_STALE_SECONDS: int = 900
     
     # 数据库配置
     DATABASE_URL: str = f"sqlite:///{os.path.join(DATA_PATH, 'picmanager.db')}"

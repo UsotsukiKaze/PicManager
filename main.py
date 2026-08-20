@@ -26,6 +26,7 @@ from app.routers.auth import get_session
 from app.security.lan_debug import configured_lan_base_url, configured_lan_hosts, exact_hosts
 from app.security.permissions import require_admin_user_id
 from app.security.image_tokens import sign_bot_image, verify_bot_image
+from app.jobs import image_job_worker
 
 UI_ASSET_VERSION = str(int(time.time()))
 
@@ -36,10 +37,12 @@ async def lifespan(app: FastAPI):
     # 启动时执行
     log_info("正在初始化数据库...")
     init_database()
+    image_job_worker.start()
     log_success("数据库初始化完成!")
     try:
         yield
     finally:
+        image_job_worker.stop()
         PixivUpgradeService.close_client()
         create_db_snapshot()
 

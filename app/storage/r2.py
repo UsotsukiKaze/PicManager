@@ -64,6 +64,9 @@ class R2Storage:
     def local_path(self, key: str) -> None:
         return None
 
+    def download_file(self, key: str, target: str | Path) -> None:
+        self.client.download_file(self.bucket, self._key(key), str(target))
+
     def signed_download_url(self, key: str, *, expires: int = 300) -> str:
         return self.client.generate_presigned_url(
             "get_object",

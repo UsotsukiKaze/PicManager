@@ -340,6 +340,25 @@ class Image(Base):
         return f"<Image(image_id='{self.image_id}', pid='{self.pid}')>"
 
 
+class ImageJob(Base):
+    """Durable background work item for image derivatives and maintenance."""
+    __tablename__ = "image_jobs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_type = Column(String(50), nullable=False, index=True)
+    image_id = Column(String(10), ForeignKey("images.image_id"), nullable=True, index=True)
+    payload = Column(Text, nullable=True)
+    dedupe_key = Column(String(255), nullable=True, index=True)
+    status = Column(String(20), nullable=False, default="queued", index=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    max_attempts = Column(Integer, nullable=False, default=5)
+    available_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    locked_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class DuplicatePairDecision(Base):
     """A durable decision that two visually similar images are intentionally distinct."""
     __tablename__ = "duplicate_pair_decisions"

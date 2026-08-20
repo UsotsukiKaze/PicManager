@@ -32,6 +32,17 @@ def test_mobile_active_navigation_keeps_a_visible_colored_icon():
     assert "background: rgba(0, 122, 255, 0.1)" in mobile
 
 
+def test_mobile_home_title_breaks_and_stats_stay_in_one_compact_row():
+    mobile = STYLE.split("/* Mobile-focused simplification", 1)[1]
+    assert 'class="home-title-name"' in INDEX
+    assert ".home-title-name" in mobile
+    assert "display: block" in mobile.split(".home-title-name", 1)[1].split("}", 1)[0]
+    dashboard = mobile.split(".home-dashboard {", 1)[1].split("}", 1)[0]
+    assert "grid-template-columns: repeat(3, minmax(0, 1fr))" in dashboard
+    assert "min-height: 76px" in mobile
+    assert "font-size: clamp(17px, 5vw, 21px)" in mobile
+
+
 def test_mobile_modals_are_safe_area_aware_bottom_sheets():
     mobile = STYLE.split("/* Mobile-focused simplification", 1)[1]
     assert "max-height: calc(100dvh - 34px)" in mobile

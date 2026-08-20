@@ -2986,6 +2986,10 @@ body {
     letter-spacing: 0;
 }
 
+.home-title-name {
+    display: inline;
+}
+
 .home-hero p,
 .upload-intro p {
     max-width: 660px;
@@ -5243,6 +5247,36 @@ body {
 
     .home-hero-copy {
         max-width: none;
+    }
+
+    .home-title-name {
+        display: block;
+        margin-top: 5px;
+    }
+
+    .home-dashboard {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 10px;
+    }
+
+    .home-stat-tile {
+        min-height: 76px;
+        padding: 10px 8px;
+        border-radius: 12px;
+        box-shadow: 0 5px 16px rgba(29, 29, 31, 0.05);
+    }
+
+    .home-stat-label {
+        font-size: 10px;
+        line-height: 1.2;
+        white-space: nowrap;
+    }
+
+    .home-stat-tile strong {
+        font-size: clamp(17px, 5vw, 21px);
+        line-height: 1;
+        white-space: nowrap;
     }
 
     .home-actions {

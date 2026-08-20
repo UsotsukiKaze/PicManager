@@ -40,6 +40,10 @@ def test_management_and_emoji_queries_are_collapsed_by_default():
     assert '<span>查询</span>' not in INDEX
     assert INDEX.count('class="query-icon"') == 5
     assert INDEX.count('aria-label="打开') >= 5
+    assert INDEX.count('class="entity-query-control"') == 3
+    assert STYLE.count(".entity-query-control .compact-query-panel") >= 2
+    assert "transform: translateX(8px)" in STYLE
+    assert "max-width: 440px" in STYLE
     toolbar_start = INDEX.index('class="query-toolbar image-filter-toolbar"')
     panel_start = INDEX.index('id="image-search-panel"')
     assert toolbar_start < INDEX.index('id="search-age-rating"') < panel_start

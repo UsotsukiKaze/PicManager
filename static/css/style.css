@@ -4349,7 +4349,58 @@ body {
 }
 
 .entity-toolbar {
+    justify-content: space-between;
+}
+
+.entity-query-control {
+    min-width: 40px;
+    max-width: 492px;
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
     justify-content: flex-end;
+    margin-left: auto;
+}
+
+.entity-query-control .compact-query-panel {
+    width: calc(100% - 52px);
+    max-width: 0;
+    max-height: 40px;
+    margin: 0;
+    opacity: 0;
+    visibility: hidden;
+    overflow: hidden;
+    pointer-events: none;
+    transform: translateX(8px);
+    transition: max-width 220ms ease, margin-right 220ms ease, opacity 150ms ease, transform 180ms ease, visibility 220ms;
+}
+
+.entity-query-control .compact-query-panel.is-expanded {
+    max-width: 440px;
+    max-height: 40px;
+    margin: 0 12px 0 0;
+    opacity: 1;
+    visibility: visible;
+    overflow: visible;
+    pointer-events: auto;
+    transform: translateX(0);
+}
+
+.entity-query-control .query-surface {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.entity-query-control .form-group {
+    min-width: 0;
+    margin: 0;
+}
+
+.entity-query-control .form-input {
+    min-width: 0;
 }
 
 .query-toggle {
@@ -4518,7 +4569,15 @@ body {
         margin-left: 0;
     }
 
-    .compact-query-grid,
+    .entity-query-control .compact-query-panel {
+        width: calc(100% - 48px);
+    }
+
+    .entity-query-control .compact-query-panel.is-expanded {
+        max-width: 440px;
+        margin-right: 8px;
+    }
+
     .emoji-query-grid {
         grid-template-columns: 1fr;
     }

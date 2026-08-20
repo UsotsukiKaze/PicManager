@@ -21,7 +21,7 @@
         html:not(.app-booting) .app-bootstrap-status { display: none; }
     </style>
     <noscript><meta http-equiv="refresh" content="0; url=/login"></noscript>
-    <script src="/static/js/auth.js?v=20260820d"></script>
+    <script src="/static/js/auth.js?v=20260820e"></script>
 </head>
 <body>
     <div class="app-bootstrap-status" role="status">正在验证登录状态…</div>
@@ -290,19 +290,20 @@
                     <div class="tab-content" id="tab-group-management" style="display: none;">
                         <div class="entity-toolbar">
                             <button class="btn btn-primary" onclick="showCreateGroupModal()">添加分组</button>
-                            <button type="button" class="query-toggle" data-query-toggle="group-query-panel"
-                                    aria-expanded="false" aria-controls="group-query-panel"
-                                    aria-label="打开分组查询" title="查询分组">
-                                <span class="query-icon" aria-hidden="true"></span>
-                                <b data-query-badge-for="group-query-panel" hidden>0</b>
-                            </button>
-                        </div>
-                        <div class="query-panel compact-query-panel" id="group-query-panel" aria-hidden="true">
-                            <div class="query-panel-inner">
-                                <div class="query-surface compact-query-surface">
-                                    <label for="group-search-input">按分组名称或别称查询</label>
-                                    <input type="search" id="group-search-input" class="form-input" placeholder="输入分组名" data-query-count>
+                            <div class="entity-query-control">
+                                <div class="query-panel compact-query-panel" id="group-query-panel" aria-hidden="true">
+                                    <div class="query-panel-inner">
+                                        <div class="query-surface compact-query-surface">
+                                            <input type="search" id="group-search-input" class="form-input" placeholder="分组名称或别称" aria-label="查询分组名称或别称" data-query-count>
+                                        </div>
+                                    </div>
                                 </div>
+                                <button type="button" class="query-toggle" data-query-toggle="group-query-panel"
+                                        aria-expanded="false" aria-controls="group-query-panel"
+                                        aria-label="打开分组查询" title="查询分组">
+                                    <span class="query-icon" aria-hidden="true"></span>
+                                    <b data-query-badge-for="group-query-panel" hidden>0</b>
+                                </button>
                             </div>
                         </div>
 
@@ -315,29 +316,29 @@
                     <div class="tab-content" id="tab-character-management" style="display: none;">
                         <div class="entity-toolbar">
                             <button class="btn btn-primary" onclick="showCreateCharacterModal()">添加角色</button>
-                            <button type="button" class="query-toggle" data-query-toggle="character-query-panel"
-                                    aria-expanded="false" aria-controls="character-query-panel"
-                                    aria-label="打开角色查询" title="查询角色">
-                                <span class="query-icon" aria-hidden="true"></span>
-                                <b data-query-badge-for="character-query-panel" hidden>0</b>
-                            </button>
-                        </div>
-                        <div class="query-panel compact-query-panel" id="character-query-panel" aria-hidden="true">
-                            <div class="query-panel-inner">
-                                <div class="query-surface compact-query-grid">
-                                <div class="form-group">
-                                    <label for="character-group-filter-input">所属分组</label>
-                                    <div class="searchable-select" id="character-group-filter-container">
-                                        <input type="text" class="form-input searchable-input" id="character-group-filter-input" placeholder="输入分组名..." autocomplete="off">
-                                        <input type="hidden" id="character-group-filter" value="" data-query-count>
-                                        <div class="searchable-dropdown" id="character-group-filter-dropdown"></div>
+                            <div class="entity-query-control">
+                                <div class="query-panel compact-query-panel" id="character-query-panel" aria-hidden="true">
+                                    <div class="query-panel-inner">
+                                        <div class="query-surface compact-query-grid">
+                                            <div class="form-group">
+                                                <div class="searchable-select" id="character-group-filter-container">
+                                                    <input type="text" class="form-input searchable-input" id="character-group-filter-input" placeholder="所属分组" aria-label="按所属分组查询角色" autocomplete="off">
+                                                    <input type="hidden" id="character-group-filter" value="" data-query-count>
+                                                    <div class="searchable-dropdown" id="character-group-filter-dropdown"></div>
+                                                </div>
+                                            </div>
+                                            <div class="form-group">
+                                                <input type="search" id="character-search-input" class="form-input" placeholder="角色名称或昵称" aria-label="查询角色名称或昵称" data-query-count>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                                <div class="form-group">
-                                    <label for="character-search-input">角色名称或昵称</label>
-                                    <input type="search" id="character-search-input" class="form-input" placeholder="输入角色名" data-query-count>
-                                </div>
-                                </div>
+                                <button type="button" class="query-toggle" data-query-toggle="character-query-panel"
+                                        aria-expanded="false" aria-controls="character-query-panel"
+                                        aria-label="打开角色查询" title="查询角色">
+                                    <span class="query-icon" aria-hidden="true"></span>
+                                    <b data-query-badge-for="character-query-panel" hidden>0</b>
+                                </button>
                             </div>
                         </div>
 
@@ -349,19 +350,20 @@
                     <div class="tab-content" id="tab-feature-tag-management" style="display: none;">
                         <div class="entity-toolbar">
                             <button class="btn btn-primary" onclick="ui.showCreateFeatureTagModal()">添加特征标签</button>
-                            <button type="button" class="query-toggle" data-query-toggle="feature-tag-query-panel"
-                                    aria-expanded="false" aria-controls="feature-tag-query-panel"
-                                    aria-label="打开特征标签查询" title="查询特征标签">
-                                <span class="query-icon" aria-hidden="true"></span>
-                                <b data-query-badge-for="feature-tag-query-panel" hidden>0</b>
-                            </button>
-                        </div>
-                        <div class="query-panel compact-query-panel" id="feature-tag-query-panel" aria-hidden="true">
-                            <div class="query-panel-inner">
-                                <div class="query-surface compact-query-surface">
-                                    <label for="feature-tag-search-input">按特征标签名称或别称查询</label>
-                                    <input type="search" id="feature-tag-search-input" class="form-input" placeholder="输入特征标签名" data-query-count>
+                            <div class="entity-query-control">
+                                <div class="query-panel compact-query-panel" id="feature-tag-query-panel" aria-hidden="true">
+                                    <div class="query-panel-inner">
+                                        <div class="query-surface compact-query-surface">
+                                            <input type="search" id="feature-tag-search-input" class="form-input" placeholder="特征标签名称或别称" aria-label="查询特征标签名称或别称" data-query-count>
+                                        </div>
+                                    </div>
                                 </div>
+                                <button type="button" class="query-toggle" data-query-toggle="feature-tag-query-panel"
+                                        aria-expanded="false" aria-controls="feature-tag-query-panel"
+                                        aria-label="打开特征标签查询" title="查询特征标签">
+                                    <span class="query-icon" aria-hidden="true"></span>
+                                    <b data-query-badge-for="feature-tag-query-panel" hidden>0</b>
+                                </button>
                             </div>
                         </div>
 

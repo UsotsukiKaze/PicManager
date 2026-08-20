@@ -55,5 +55,11 @@ class LocalStorage:
     def download_file(self, key: str, target: str | Path) -> None:
         shutil.copy2(self._path(key), Path(target))
 
-    def signed_download_url(self, key: str, *, expires: int = 300) -> None:
+    def move_object(self, source_key: str, target_key: str) -> StoredObject:
+        return self.put_file(self._path(source_key), target_key, move=True)
+
+    def presigned_upload_url(self, key: str, *, content_type: str, expires: int = 900) -> None:
+        return None
+
+    def signed_download_url(self, key: str, *, expires: int = 300, download_name: str | None = None) -> None:
         return None

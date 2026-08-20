@@ -215,6 +215,42 @@ def test_original_route_accepts_valid_bot_signature(monkeypatch, tmp_path):
     assert Path(response.path) == original
 
 
+def test_original_route_redirects_r2_object_to_short_lived_signed_url(monkeypatch):
+    image = SimpleNamespace(
+        image_id="ABCDEF1234",
+        file_path="r2://pictures/images/ABCDEF1234.jpg",
+        file_status=ImageService.AVAILABLE,
+    )
+
+    class FakeQuery:
+        def filter(self, *args):
+            return self
+
+        def first(self):
+            return image
+
+    class FakeDb:
+        def query(self, model):
+            return FakeQuery()
+
+    @contextmanager
+    def fake_db_context():
+        yield FakeDb()
+
+    backend = type("Backend", (), {
+        "signed_download_url": lambda self, key, expires=300: f"https://r2.example/{key}?ttl={expires}"
+    })()
+    monkeypatch.setattr(main, "get_db_context", fake_db_context)
+    monkeypatch.setattr(main, "get_session", lambda db, session_id: {"session_id": session_id})
+    monkeypatch.setattr(main, "get_image_storage", lambda settings: backend)
+
+    response = main.original_image("ABCDEF1234", _request("valid-session"))
+
+    assert response.status_code == 307
+    assert response.headers["location"].endswith("images/ABCDEF1234.jpg?ttl=300")
+    assert response.headers["cloudflare-cdn-cache-control"] == "no-store"
+
+
 def test_original_store_directory_is_not_static_mounted():
     mounts = [
         route.path

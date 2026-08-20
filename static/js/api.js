@@ -2,6 +2,7 @@
 class API {
     constructor(baseURL = '/api') {
         this.baseURL = baseURL;
+        this.directUploadAvailable = null;
     }
 
     async request(endpoint, options = {}) {
@@ -314,6 +315,24 @@ class API {
 
     // 上传相关API
     async uploadSingleImage(file, metadata, onProgress = null) {
+        if (this.directUploadAvailable !== false) {
+            try {
+                const directResult = await this.uploadImageDirect(file, metadata, onProgress);
+                this.directUploadAvailable = true;
+                return directResult;
+            } catch (error) {
+                if ([403, 404, 409].includes(error.status)) {
+                    if (error.message.includes('requires STORAGE_BACKEND') || error.status === 403 || error.status === 404) {
+                        this.directUploadAvailable = false;
+                    }
+                    // Local storage, non-admin users and duplicate review all
+                    // continue through the existing multipart/review path.
+                } else {
+                    throw error;
+                }
+            }
+        }
+
         const formData = new FormData();
         formData.append('file', file);
         formData.append('character_ids', JSON.stringify(metadata.character_ids));
@@ -334,6 +353,47 @@ class API {
             method: 'POST',
             headers: {}, // 让浏览器设置Content-Type
             body: formData,
+        });
+    }
+
+    async uploadImageDirect(file, metadata, onProgress = null) {
+        const prepared = await this.request('/upload/direct/prepare', {
+            method: 'POST',
+            body: JSON.stringify({
+                filename: file.name,
+                content_type: file.type || 'application/octet-stream',
+                size: file.size,
+            }),
+        });
+        await this.putFileWithProgress(prepared.upload_url, file, prepared.headers || {}, onProgress);
+        return this.request('/upload/direct/finalize', {
+            method: 'POST',
+            body: JSON.stringify({ token: prepared.token, ...metadata }),
+        });
+    }
+
+    putFileWithProgress(url, file, headers = {}, onProgress = null) {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('PUT', url);
+            Object.entries(headers).forEach(([name, value]) => xhr.setRequestHeader(name, value));
+            xhr.upload.onprogress = event => {
+                if (event.lengthComputable && typeof onProgress === 'function') {
+                    onProgress(Math.round((event.loaded / event.total) * 100));
+                }
+            };
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) resolve();
+                else {
+                    const error = new Error(`R2 upload failed: HTTP ${xhr.status}`);
+                    error.status = xhr.status;
+                    reject(error);
+                }
+            };
+            xhr.onerror = () => reject(new Error('R2 upload network error'));
+            xhr.timeout = 5 * 60 * 1000;
+            xhr.ontimeout = () => reject(new Error('R2 upload timeout'));
+            xhr.send(file);
         });
     }
 

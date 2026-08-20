@@ -9,6 +9,7 @@ UI_JS = "\n".join(
     for name in ("entity-cache.js", "search-selector.js", "image-list.js", "modal.js", "ui.js")
 )
 UPLOAD_JS = (PROJECT_ROOT / "static" / "js" / "upload.js").read_text(encoding="utf-8")
+API_JS = (PROJECT_ROOT / "static" / "js" / "api.js").read_text(encoding="utf-8")
 STYLE_CSS = (PROJECT_ROOT / "static" / "css" / "style.css").read_text(encoding="utf-8")
 
 
@@ -101,3 +102,11 @@ def test_image_derivative_urls_change_when_image_content_version_changes():
     assert "encodeURIComponent(image.image_id)" in UI_JS
     assert "/resource/previews/${encodeURIComponent(image.image_id)}.webp" in UI_JS
     assert "restricted ? this.getThumbnailUrl(image) : this.getPreviewUrl(image)" in UI_JS
+
+
+def test_r2_direct_upload_uses_presigned_put_and_falls_back_to_review_flow():
+    assert "'/upload/direct/prepare'" in API_JS
+    assert "xhr.open('PUT', url)" in API_JS
+    assert "'/upload/direct/finalize'" in API_JS
+    assert "this.directUploadAvailable = false" in API_JS
+    assert "[403, 404, 409].includes(error.status)" in API_JS

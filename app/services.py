@@ -1543,7 +1543,7 @@ class ImageService:
     
     @staticmethod
     def create_image(db: Session, image: schemas.ImageCreate, file_path: str, original_filename: str, 
-                    file_extension: str, store_path: str) -> models.Image:
+                    file_extension: str, store_path: str, *, storage_source_key: str | None = None) -> models.Image:
         """创建图片记录"""
         # 生成唯一ID
         while True:
@@ -1558,9 +1558,16 @@ class ImageService:
         with PILImage.open(file_path) as source:
             image_info["width"], image_info["height"] = source.size
 
-        relative_path, stored_info = ImageService.save_image_file(
-            file_path, image_id, file_extension, store_path
-        )
+        if storage_source_key:
+            stored = get_image_storage(settings, local_root=store_path).move_object(
+                storage_source_key,
+                f"{image_id}.{file_extension.lower()}",
+            )
+            relative_path, stored_info = stored.locator, {"file_size": stored.size}
+        else:
+            relative_path, stored_info = ImageService.save_image_file(
+                file_path, image_id, file_extension, store_path
+            )
         image_info.update(stored_info)
         
         # 创建数据库记录

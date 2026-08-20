@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -27,6 +27,7 @@ from app.security.lan_debug import configured_lan_base_url, configured_lan_hosts
 from app.security.permissions import require_admin_user_id
 from app.security.image_tokens import sign_bot_image, verify_bot_image
 from app.jobs import image_job_worker
+from app.storage import get_image_storage
 
 UI_ASSET_VERSION = str(int(time.time()))
 
@@ -329,6 +330,16 @@ def original_image(
         ).first()
         if not image:
             raise HTTPException(status_code=404, detail="Image not found")
+
+        if str(image.file_path or "").startswith("r2://"):
+            object_key = image.file_path.split("/", 3)[-1]
+            url = get_image_storage(settings).signed_download_url(object_key, expires=300)
+            if not url:
+                raise HTTPException(status_code=404, detail="Image not found")
+            response = RedirectResponse(url, status_code=307)
+            response.headers["Cache-Control"] = "private, no-store"
+            response.headers["Cloudflare-CDN-Cache-Control"] = "no-store"
+            return response
 
         try:
             path = _safe_store_resource_path(image.file_path)

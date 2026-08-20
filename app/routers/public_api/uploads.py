@@ -10,6 +10,7 @@ from ... import models, schemas
 from ...config import settings
 from ...logger import log_error
 from ...security.permissions import require_admin_user_id
+from ...storage import get_image_storage
 from ..auth import get_current_session, check_guest_limit
 from PIL import Image, UnidentifiedImageError
 import tempfile
@@ -135,6 +136,103 @@ def _decode_duplicate_token(token: str) -> dict:
         raise
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid duplicate decision token") from exc
+
+
+@router.post("/upload/direct/prepare")
+def prepare_direct_upload(data: schemas.DirectUploadPrepare, request: Request):
+    """Create a short-lived R2 PUT URL for an authenticated administrator."""
+    require_admin_user_id(request)
+    if str(settings.STORAGE_BACKEND or "local").lower() != "r2":
+        raise HTTPException(status_code=409, detail="Direct upload requires STORAGE_BACKEND=r2")
+    safe_name = Path(data.filename).name
+    extension = Path(safe_name).suffix.lower().lstrip(".")
+    if extension not in _allowed_image_extensions():
+        raise HTTPException(status_code=400, detail="Unsupported file type")
+    if data.size > settings.MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail="File too large")
+    content_type = str(data.content_type or "").lower()
+    if not content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Invalid image content type")
+
+    object_key = f"incoming/{uuid.uuid4().hex}.{extension}"
+    expires_at = int(time.time()) + 900
+    backend = get_image_storage(settings)
+    upload_url = backend.presigned_upload_url(object_key, content_type=content_type, expires=900)
+    if not upload_url:
+        raise HTTPException(status_code=409, detail="Storage backend does not support direct upload")
+    token = _encode_duplicate_token({
+        "kind": "direct-upload",
+        "owner": _duplicate_owner(request),
+        "object_key": object_key,
+        "filename": safe_name,
+        "file_extension": extension,
+        "size": data.size,
+        "expires_at": expires_at,
+    })
+    return {
+        "upload_url": upload_url,
+        "token": token,
+        "expires_at": expires_at,
+        "headers": {"Content-Type": content_type},
+    }
+
+
+@router.post("/upload/direct/finalize", response_model=schemas.UploadImageResponse)
+def finalize_direct_upload(data: schemas.DirectUploadFinalize, request: Request):
+    """Verify a completed R2 upload and atomically publish it into the image library."""
+    require_admin_user_id(request)
+    payload = _decode_duplicate_token(data.token)
+    if payload.get("kind") != "direct-upload" or payload.get("owner") != _duplicate_owner(request):
+        raise HTTPException(status_code=403, detail="Direct upload token owner mismatch")
+    if str(settings.STORAGE_BACKEND or "local").lower() != "r2":
+        raise HTTPException(status_code=409, detail="Direct upload requires STORAGE_BACKEND=r2")
+    if not data.character_ids or not data.group_ids:
+        raise HTTPException(status_code=400, detail="At least one group and character are required")
+
+    backend = get_image_storage(settings)
+    object_key = str(payload.get("object_key") or "")
+    if not object_key.startswith("incoming/") or not backend.exists(object_key):
+        raise HTTPException(status_code=409, detail="Uploaded object is missing")
+
+    os.makedirs(settings.TEMP_PATH, exist_ok=True)
+    staged_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=f".{payload['file_extension']}",
+            dir=settings.TEMP_PATH,
+        ) as staged:
+            staged_path = staged.name
+        backend.download_file(object_key, staged_path)
+        actual_size = os.path.getsize(staged_path)
+        if actual_size > settings.MAX_FILE_SIZE or actual_size != int(payload.get("size") or 0):
+            backend.delete(object_key)
+            raise HTTPException(status_code=400, detail="Uploaded object size mismatch")
+        _verify_image_file(staged_path)
+
+        with get_db_context() as db:
+            _validate_upload_tags(db, data.character_ids, data.group_ids, data.feature_tag_ids)
+            _, matches = _duplicate_upload_scan(db, staged_path, data.character_ids)
+            if matches:
+                backend.delete(object_key)
+                raise HTTPException(status_code=409, detail="Direct upload matched an existing image; use the review upload flow")
+            image = ImageService.create_image(
+                db,
+                schemas.ImageCreate(**data.model_dump(exclude={"token"})),
+                staged_path,
+                str(payload.get("filename") or f"upload.{payload['file_extension']}"),
+                str(payload["file_extension"]),
+                settings.STORE_PATH,
+                storage_source_key=object_key,
+            )
+            return schemas.UploadImageResponse(
+                image_id=image.image_id,
+                message="R2 direct upload completed",
+                status="success",
+            )
+    finally:
+        if staged_path:
+            Path(staged_path).unlink(missing_ok=True)
 
 
 def _incoming_duplicate_match(db, file_path: str, metadata: dict, original_filename: str) -> dict:

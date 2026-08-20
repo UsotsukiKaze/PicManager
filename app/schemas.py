@@ -129,6 +129,16 @@ class ImageCreate(ImageBase):
     group_ids: List[int] = []
     feature_tag_ids: List[int] = []
 
+
+class DirectUploadPrepare(BaseModel):
+    filename: str
+    content_type: str
+    size: int = Field(gt=0)
+
+
+class DirectUploadFinalize(ImageCreate):
+    token: str
+
 class ImageUpdate(BaseModel):
     pid: Optional[str] = None
     description: Optional[str] = None

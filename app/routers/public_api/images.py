@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from typing import List, Literal, Optional, Union
 from pathlib import Path
 from urllib.parse import quote
@@ -11,6 +11,7 @@ from ... import models, schemas
 from ...config import settings
 from ...logger import log_error
 from ...review_changes import changed_update_data
+from ...storage import get_image_storage
 from ..auth import get_current_session, check_guest_limit
 import tempfile
 import os
@@ -112,6 +113,21 @@ def download_image(image_id: str, request: Request):
             db.commit()
             raise HTTPException(status_code=404, detail="Image not found")
 
+        original_name = db_image.original_filename or f"{db_image.image_id}.{db_image.file_extension}"
+        safe_name = Path(original_name).name or f"{db_image.image_id}.{db_image.file_extension}"
+        if str(db_image.file_path or "").startswith("r2://"):
+            object_key = db_image.file_path.split("/", 3)[-1]
+            url = get_image_storage(settings).signed_download_url(
+                object_key,
+                expires=300,
+                download_name=safe_name,
+            )
+            if not url:
+                raise HTTPException(status_code=404, detail="Image not found")
+            response = RedirectResponse(url, status_code=307)
+            response.headers["Cache-Control"] = "private, no-store"
+            return response
+
         full_path = Path(ImageService.image_full_path(db_image)).resolve()
         store_root = Path(settings.STORE_PATH).resolve()
         try:
@@ -119,8 +135,6 @@ def download_image(image_id: str, request: Request):
         except ValueError as exc:
             raise HTTPException(status_code=404, detail="Image not found") from exc
 
-        original_name = db_image.original_filename or f"{db_image.image_id}.{db_image.file_extension}"
-        safe_name = Path(original_name).name or f"{db_image.image_id}.{db_image.file_extension}"
         encoded_name = quote(safe_name)
         response = FileResponse(
             full_path,

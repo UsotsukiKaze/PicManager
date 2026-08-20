@@ -49,6 +49,9 @@ class FakeR2Client:
     def delete_object(self, **kwargs):
         self.deleted.append(kwargs)
 
+    def copy_object(self, **kwargs):
+        self.copied = kwargs
+
     def generate_presigned_url(self, operation, Params, ExpiresIn):
         return f"https://r2.example/{Params['Key']}?expires={ExpiresIn}"
 
@@ -72,6 +75,12 @@ def test_r2_backend_keeps_object_keys_opaque_and_removes_source_only_after_uploa
     assert stored.locator == "r2://pictures/images/ABCDEF1234.jpg"
     assert client.uploads == [(b"r2-image", "pictures", "images/ABCDEF1234.jpg")]
     assert backend.signed_download_url(stored.key, expires=60).endswith("expires=60")
+
+    upload_url = backend.presigned_upload_url("incoming/new.jpg", content_type="image/jpeg", expires=90)
+    assert upload_url.endswith("expires=90")
+    moved = backend.move_object(stored.key, "published.jpg")
+    assert moved.locator == "r2://pictures/images/published.jpg"
+    assert client.copied["CopySource"]["Key"] == "images/ABCDEF1234.jpg"
 
 
 def test_image_service_moves_local_staged_file_instead_of_copying(monkeypatch, tmp_path):

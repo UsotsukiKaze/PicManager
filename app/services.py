@@ -648,6 +648,26 @@ class EmojiService:
         return [EmojiService.emoji_to_dict(item) for item in emojis], total
 
     @staticmethod
+    def get_available_character_facets(db: Session) -> List[dict]:
+        rows = (
+            db.query(
+                models.Character.id,
+                models.Character.name,
+                func.count(models.Emoji.emoji_id).label("emoji_count"),
+            )
+            .join(models.emoji_character_association, models.Character.id == models.emoji_character_association.c.character_id)
+            .join(models.Emoji, models.Emoji.emoji_id == models.emoji_character_association.c.emoji_id)
+            .filter(models.Emoji.file_status == EmojiService.AVAILABLE)
+            .group_by(models.Character.id, models.Character.name)
+            .order_by(func.count(models.Emoji.emoji_id).desc(), models.Character.name.asc())
+            .all()
+        )
+        return [
+            {"id": row.id, "name": row.name, "emoji_count": int(row.emoji_count or 0)}
+            for row in rows
+        ]
+
+    @staticmethod
     def get_random_emoji(db: Session, group_id: Optional[int] = None, character_id: Optional[int] = None, emotion_id: Optional[int] = None) -> Optional[dict]:
         query = db.query(models.Emoji).filter(models.Emoji.file_status == EmojiService.AVAILABLE)
         if group_id:

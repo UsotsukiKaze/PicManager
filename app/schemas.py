@@ -254,6 +254,12 @@ class EmojiSearchResult(BaseModel):
     offset: int
     limit: int
 
+
+class EmojiCharacterFacet(BaseModel):
+    id: int
+    name: str
+    emoji_count: int
+
 # 上传相关模型
 class UploadImageRequest(BaseModel):
     character_ids: List[int]

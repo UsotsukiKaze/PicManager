@@ -4343,6 +4343,32 @@ body {
     justify-content: space-between;
 }
 
+.emoji-filter-toolbar {
+    justify-content: space-between;
+}
+
+.emoji-character-filter-bar {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.emoji-character-tabs {
+    flex-wrap: nowrap;
+    max-width: min(68vw, 920px);
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.emoji-character-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+.emoji-character-tabs .age-filter-tab {
+    min-width: max-content;
+}
+
 .image-filter-toolbar .age-filter-bar {
     min-width: 0;
     margin-top: 0;
@@ -4588,6 +4614,23 @@ body {
 
     .image-filter-toolbar {
         align-items: flex-start;
+    }
+
+    .emoji-filter-toolbar {
+        align-items: flex-start;
+    }
+
+    .emoji-character-filter-bar {
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .emoji-character-filter-bar .age-filter-label {
+        padding-top: 8px;
+    }
+
+    .emoji-character-tabs {
+        max-width: calc(100vw - 150px);
     }
 
     .image-filter-toolbar .age-filter-bar {

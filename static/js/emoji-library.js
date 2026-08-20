@@ -2,6 +2,7 @@ class EmojiLibrary {
     constructor() {
         this.groups = [];
         this.characters = [];
+        this.emojiCharacters = [];
         this.emotions = [];
         this.initialized = false;
         this.uploadTags = { group_id: null, character_id: null, emotion_id: null };
@@ -39,14 +40,16 @@ class EmojiLibrary {
             character: document.getElementById('emoji-character-filter')?.value || '',
             emotion: document.getElementById('emoji-emotion-filter')?.value || '',
         };
-        const [groups, characters, emotions] = await Promise.all([
+        const [groups, characters, emotions, emojiCharacters] = await Promise.all([
             api.getGroups(),
             api.getCharacters(),
             api.getEmotionTags(),
+            api.getEmojiCharacters(),
         ]);
         this.groups = groups || [];
         this.characters = characters || [];
         this.emotions = emotions || [];
+        this.emojiCharacters = emojiCharacters || [];
 
         const groupFilter = document.getElementById('emoji-group-filter');
         const characterFilter = document.getElementById('emoji-character-filter');
@@ -58,8 +61,37 @@ class EmojiLibrary {
         if (characterFilter) characterFilter.value = selectedFilters.character;
         if (emotionFilter) emotionFilter.value = selectedFilters.emotion;
         window.queryPanels?.update('emoji-query-panel');
+        this.renderCharacterTabs();
 
         this.renderUploadTagControls();
+    }
+
+    renderCharacterTabs() {
+        const tabs = document.getElementById('emoji-character-tabs');
+        if (!tabs) return;
+        const selected = document.getElementById('emoji-character-filter')?.value || '';
+        const button = (id, name, count = null) => {
+            const value = String(id || '');
+            const active = value === String(selected);
+            const countTitle = count === null ? '' : `，${count} 个表情包`;
+            return `
+                <button type="button" class="age-filter-tab ${active ? 'active' : ''}"
+                        role="tab" aria-selected="${active}" title="${this.escape(name)}${countTitle}"
+                        onclick="emojiLibrary.selectCharacter('${this.escape(value)}')">${this.escape(name)}</button>
+            `;
+        };
+        tabs.innerHTML = button('', '全部') + this.emojiCharacters.map(character => (
+            button(character.id, character.name, character.emoji_count)
+        )).join('');
+    }
+
+    selectCharacter(characterId) {
+        const filter = document.getElementById('emoji-character-filter');
+        if (filter) filter.value = String(characterId || '');
+        this.renderCharacterTabs();
+        window.queryPanels?.update('emoji-query-panel');
+        this.pagination.currentPage = 1;
+        return this.load();
     }
 
     getById(items, id) {
@@ -250,6 +282,7 @@ class EmojiLibrary {
 
     applyFilters() {
         this.pagination.currentPage = 1;
+        this.renderCharacterTabs();
         return this.load();
     }
 

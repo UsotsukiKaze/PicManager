@@ -150,6 +150,12 @@ def random_emoji(group_id: Optional[int] = None, character_id: Optional[int] = N
         return emoji
 
 
+@router.get("/emojis/characters", response_model=list[schemas.EmojiCharacterFacet])
+def list_emoji_characters():
+    with get_db_context() as db:
+        return EmojiService.get_available_character_facets(db)
+
+
 @router.get("/emojis/{emoji_id}", response_model=schemas.EmojiWithTags)
 def get_emoji(emoji_id: str):
     with get_db_context() as db:

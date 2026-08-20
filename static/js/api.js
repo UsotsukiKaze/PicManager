@@ -247,6 +247,10 @@ class API {
         return this.request(`/emojis/search?${queryString}`);
     }
 
+    async getEmojiCharacters() {
+        return this.request('/emojis/characters');
+    }
+
     async getEmoji(id) {
         return this.request(`/emojis/${encodeURIComponent(id)}`);
     }

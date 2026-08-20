@@ -21,7 +21,7 @@
         html:not(.app-booting) .app-bootstrap-status { display: none; }
     </style>
     <noscript><meta http-equiv="refresh" content="0; url=/login"></noscript>
-    <script src="/static/js/auth.js?v=20260820f"></script>
+    <script src="/static/js/auth.js?v=20260820g"></script>
 </head>
 <body>
     <div class="app-bootstrap-status" role="status">正在验证登录状态…</div>
@@ -530,7 +530,14 @@
                     </div>
 
                     <div class="tab-content" id="tab-emoji-list">
-                        <div class="query-toolbar">
+                        <div class="query-toolbar emoji-filter-toolbar">
+                            <div class="emoji-character-filter-bar">
+                                <span class="age-filter-label">角色</span>
+                                <div class="age-filter-tabs emoji-character-tabs" id="emoji-character-tabs"
+                                     role="tablist" aria-label="按角色筛选表情包">
+                                    <button type="button" class="age-filter-tab active" role="tab" aria-selected="true">全部</button>
+                                </div>
+                            </div>
                             <button type="button" class="query-toggle" data-query-toggle="emoji-query-panel"
                                     aria-expanded="false" aria-controls="emoji-query-panel"
                                     aria-label="打开表情查询" title="查询表情">

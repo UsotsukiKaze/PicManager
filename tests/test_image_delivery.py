@@ -9,6 +9,11 @@ import main
 from app.services import ImageService
 
 
+def _request(session_id=None):
+    cookies = {"session_id": session_id} if session_id else {}
+    return type("Request", (), {"cookies": cookies})()
+
+
 @pytest.mark.asyncio
 async def test_thumbnail_route_never_falls_back_to_original(monkeypatch, tmp_path):
     thumb_root = tmp_path / "thumbs"
@@ -21,7 +26,7 @@ async def test_thumbnail_route_never_falls_back_to_original(monkeypatch, tmp_pat
     monkeypatch.setattr(main.settings, "THUMB_PATH", str(thumb_root))
     monkeypatch.setattr(main.settings, "STORE_PATH", str(store_root))
 
-    response = await main.thumbnail_file("ABCDEF1234.webp")
+    response = await main.thumbnail_file("ABCDEF1234.webp", _request())
 
     assert Path(response.path).name == "placeholder.png"
     assert Path(response.path) != original
@@ -37,11 +42,49 @@ async def test_thumbnail_route_serves_cached_webp(monkeypatch, tmp_path):
     thumbnail.write_bytes(b"small-webp")
     monkeypatch.setattr(main.settings, "THUMB_PATH", str(thumb_root))
 
-    response = await main.thumbnail_file("ABCDEF1234.webp")
+    response = await main.thumbnail_file("ABCDEF1234.webp", _request())
 
     assert Path(response.path) == thumbnail
     assert response.media_type == "image/webp"
     assert response.headers["cache-control"] == "public, max-age=604800, immutable"
+
+
+@pytest.mark.asyncio
+async def test_restricted_thumbnail_requires_session_and_disables_shared_cache(monkeypatch, tmp_path):
+    thumb_root = tmp_path / "thumbs"
+    thumb_root.mkdir()
+    thumbnail = thumb_root / "ABCDEF1234.webp"
+    thumbnail.write_bytes(b"restricted-webp")
+    image = SimpleNamespace(image_id="ABCDEF1234", age_rating="r18")
+
+    class FakeQuery:
+        def filter(self, *args):
+            return self
+
+        def first(self):
+            return image
+
+    class FakeDb:
+        def query(self, model):
+            return FakeQuery()
+
+    @contextmanager
+    def fake_db_context():
+        yield FakeDb()
+
+    monkeypatch.setattr(main.settings, "THUMB_PATH", str(thumb_root))
+    monkeypatch.setattr(main, "get_db_context", fake_db_context)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await main.thumbnail_file("ABCDEF1234.webp", _request())
+    assert exc_info.value.status_code == 401
+
+    monkeypatch.setattr(main, "get_session", lambda db, session_id: {"session_id": session_id})
+    response = await main.thumbnail_file("ABCDEF1234.webp", _request("valid-session"))
+
+    assert Path(response.path) == thumbnail
+    assert response.headers["cache-control"] == "private, max-age=300"
+    assert response.headers["cloudflare-cdn-cache-control"] == "no-store"
 
 
 def test_original_route_resolves_published_image_by_id(monkeypatch, tmp_path):

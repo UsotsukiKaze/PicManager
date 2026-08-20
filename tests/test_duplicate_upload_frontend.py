@@ -18,7 +18,10 @@ def test_duplicate_choice_uses_signed_resolve_without_reuploading_file():
 
 def test_duplicate_dialog_serializes_batch_choices_and_handles_modal_close():
     upload_source = (PROJECT_ROOT / "static/js/upload.js").read_text(encoding="utf-8")
-    ui_source = (PROJECT_ROOT / "static/js/ui.js").read_text(encoding="utf-8")
+    ui_source = "\n".join(
+        (PROJECT_ROOT / f"static/js/{name}").read_text(encoding="utf-8")
+        for name in ("modal.js", "ui.js")
+    )
 
     assert "this.duplicateChoiceQueue.then(choose, choose)" in upload_source
     assert "layer._onModalClose" in upload_source

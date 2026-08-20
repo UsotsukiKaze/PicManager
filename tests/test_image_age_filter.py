@@ -35,7 +35,10 @@ def test_image_management_exposes_age_filter_tabs():
 
     project_root = Path(__file__).resolve().parents[1]
     html = (project_root / "static/index.html").read_text(encoding="utf-8")
-    ui_source = (project_root / "static/js/ui.js").read_text(encoding="utf-8")
+    ui_source = "\n".join(
+        (project_root / f"static/js/{name}").read_text(encoding="utf-8")
+        for name in ("image-list.js", "ui.js")
+    )
 
     assert 'id="search-age-rating"' in html
     assert 'data-age-rating="r18"' in html

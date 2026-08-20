@@ -11,7 +11,7 @@ class AuthManager {
                 resolve: () => window.upload,
             },
             emoji: {
-                src: '/static/js/emoji-library.js?v=20260820g',
+                src: '/static/js/emoji-library.js?v=20260820h',
                 resolve: () => window.emojiLibrary,
             },
         };
@@ -119,7 +119,7 @@ class AuthManager {
         this.applicationLoadPromise = (async () => {
             await this.waitForDocumentBody();
             const stylesReady = Promise.all([
-                this.loadStyle('/static/css/style.css?v=20260820g'),
+                this.loadStyle('/static/css/style.css?v=20260820h'),
                 this.loadStyle('/static/css/icons.css?v=20260812a'),
             ]);
             const scripts = [
@@ -127,7 +127,7 @@ class AuthManager {
                 '/static/js/pinyin-search.js?v=20260812a',
                 '/static/js/character-selector.js?v=20260820a',
                 '/static/js/tag-selector.js?v=20260820d',
-                '/static/js/api.js?v=20260820g',
+                '/static/js/api.js?v=20260820h',
                 '/static/js/upload-queue.js?v=20260820d',
                 '/static/js/query-panel.js?v=20260820d',
                 '/static/js/entity-cache.js?v=20260820a',

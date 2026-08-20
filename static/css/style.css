@@ -2676,18 +2676,37 @@ body {
 }
 
 .emoji-card {
-    cursor: default;
+    cursor: pointer;
 }
 
 .emoji-card-img {
     object-fit: contain;
 }
 
-.emoji-card-actions {
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
-    margin-top: 8px;
+.emoji-card .image-card-open {
+    cursor: pointer;
+}
+
+.emoji-detail-media img {
+    object-fit: contain;
+}
+
+.emoji-detail-media.is-gif {
+    min-height: 320px;
+    padding: 24px;
+}
+
+.emoji-detail-media.is-gif img {
+    width: auto;
+    height: auto;
+    max-width: min(100%, 420px);
+    max-height: min(52vh, 420px);
+}
+
+.detail-chip-emotion {
+    background: #fff0f5;
+    border-color: rgba(255, 45, 85, 0.24);
+    color: #b01f48;
 }
 
 .image-card-info {

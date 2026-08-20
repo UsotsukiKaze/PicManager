@@ -94,6 +94,15 @@ class EmojiLibrary {
         return this.load();
     }
 
+    async refreshCharacterFacets() {
+        this.emojiCharacters = await api.getEmojiCharacters() || [];
+        const filter = document.getElementById('emoji-character-filter');
+        if (filter?.value && !this.emojiCharacters.some(item => String(item.id) === String(filter.value))) {
+            filter.value = '';
+        }
+        this.renderCharacterTabs();
+    }
+
     getById(items, id) {
         return items.find(item => Number(item.id) === Number(id)) || null;
     }
@@ -330,6 +339,39 @@ class EmojiLibrary {
         return [group?.name, character?.name].filter(Boolean).join('-') || '未添加分组或角色';
     }
 
+    formatBytes(bytes) {
+        const value = Number(bytes);
+        if (!Number.isFinite(value) || value < 0) return '未知';
+        if (value < 1024) return `${value} B`;
+        if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+        return `${(value / 1024 / 1024).toFixed(2)} MB`;
+    }
+
+    formatDate(value) {
+        if (!value) return '未知';
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? '未知' : date.toLocaleString('zh-CN');
+    }
+
+    renderDetailChips(items, type) {
+        if (!Array.isArray(items) || !items.length) {
+            return '<span class="detail-chip detail-chip-muted">无</span>';
+        }
+        return items.map(item => (
+            `<span class="detail-chip detail-chip-${type}">${this.escape(item.name || '')}</span>`
+        )).join('');
+    }
+
+    downloadEmoji(id) {
+        const link = document.createElement('a');
+        link.href = api.getEmojiDownloadUrl(id);
+        link.download = '';
+        link.rel = 'noopener';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+    }
+
     renderGrid(emojis) {
         const grid = document.getElementById('emoji-grid');
         if (!grid) return;
@@ -340,26 +382,71 @@ class EmojiLibrary {
         grid.innerHTML = emojis.map(emoji => {
             const emotion = (emoji.emotions || [])[0]?.name || '未标情绪';
             return `
-                <div class="image-card emoji-card" data-emoji-id="${this.escape(emoji.emoji_id)}">
-                    <div class="image-card-media">
-                        <img class="image-card-img emoji-card-img"
-                             src="/${this.escape(emoji.file_path)}"
-                             loading="lazy"
-                             decoding="async"
-                             alt="emoji ${this.escape(emoji.emoji_id)}">
-                    </div>
-                    <div class="image-card-info">
-                        <div class="image-card-id">${this.escape(emoji.emoji_id)}</div>
-                        <div class="image-card-characters">${this.escape(this.formatEmojiTags(emoji))}</div>
-                        <div class="image-card-pid">${this.escape(emotion)}</div>
-                        <div class="emoji-card-actions">
-                            <button class="action-btn edit" onclick="emojiLibrary.showEditEmojiModal('${this.escape(emoji.emoji_id)}')">修改信息</button>
-                            <button class="action-btn delete" onclick="emojiLibrary.deleteEmoji('${this.escape(emoji.emoji_id)}')">删除</button>
+                <article class="image-card emoji-card" data-emoji-id="${this.escape(emoji.emoji_id)}">
+                    <button type="button" class="image-card-open" aria-label="查看表情包 ${this.escape(emoji.emoji_id)} 的详情">
+                        <div class="image-card-media">
+                            <img class="image-card-img emoji-card-img"
+                                 src="/${this.escape(emoji.file_path)}"
+                                 loading="lazy"
+                                 decoding="async"
+                                 alt="表情包 ${this.escape(emoji.emoji_id)}">
                         </div>
-                    </div>
-                </div>
+                        <div class="image-card-info">
+                            <div class="image-card-id">${this.escape(emoji.emoji_id)}</div>
+                            <div class="image-card-characters">${this.escape(this.formatEmojiTags(emoji))}</div>
+                            <div class="image-card-pid">${this.escape(emotion)}</div>
+                        </div>
+                    </button>
+                </article>
             `;
         }).join('');
+        grid.querySelectorAll('.emoji-card').forEach(card => {
+            card.querySelector('.image-card-open')?.addEventListener('click', () => {
+                this.showEmojiDetail(card.dataset.emojiId);
+            });
+        });
+    }
+
+    async showEmojiDetail(id) {
+        try {
+            const emoji = await api.getEmoji(id);
+            const isAdmin = Boolean(window.auth?.isAdmin?.());
+            const adminActions = isAdmin ? `
+                <button class="btn btn-primary" onclick="emojiLibrary.showEditEmojiModal('${this.escape(emoji.emoji_id)}')">修改信息</button>
+                <button class="btn btn-danger" onclick="emojiLibrary.deleteEmoji('${this.escape(emoji.emoji_id)}')">删除</button>
+            ` : '';
+            ui.showModal('表情包详情', `
+                <div class="image-detail-card emoji-detail-card">
+                    <div class="image-detail-media emoji-detail-media ${String(emoji.file_extension || '').toLowerCase() === 'gif' ? 'is-gif' : ''}">
+                        <img src="/${this.escape(emoji.file_path)}" alt="表情包 ${this.escape(emoji.emoji_id)}" loading="eager" decoding="async">
+                    </div>
+                    <div class="image-detail-panel">
+                        <div class="image-detail-head">
+                            <span>表情包名片</span>
+                            <h3>${this.escape(this.formatEmojiTags(emoji))}</h3>
+                        </div>
+                        <div class="detail-meta-grid">
+                            <div class="detail-meta-item"><span>编号</span><strong>${this.escape(emoji.emoji_id)}</strong></div>
+                            <div class="detail-meta-item"><span>原文件名</span><strong>${this.escape(emoji.original_filename || '未记录')}</strong></div>
+                            <div class="detail-meta-item"><span>格式与大小</span><strong>${this.escape(String(emoji.file_extension || '').toUpperCase())} · ${this.formatBytes(emoji.file_size)}</strong></div>
+                            <div class="detail-meta-item"><span>尺寸</span><strong>${emoji.width && emoji.height ? `${emoji.width} × ${emoji.height}` : '未知'}</strong></div>
+                            <div class="detail-meta-item"><span>添加时间</span><strong>${this.escape(this.formatDate(emoji.created_at))}</strong></div>
+                        </div>
+                        <div class="detail-tag-section"><label>分组</label><div class="detail-chip-row">${this.renderDetailChips(emoji.groups, 'group')}</div></div>
+                        <div class="detail-tag-section"><label>角色</label><div class="detail-chip-row">${this.renderDetailChips(emoji.characters, 'character')}</div></div>
+                        <div class="detail-tag-section"><label>情绪</label><div class="detail-chip-row">${this.renderDetailChips(emoji.emotions, 'emotion')}</div></div>
+                        <div class="detail-note"><span>备注</span><p>${this.escape(emoji.description || '无')}</p></div>
+                    </div>
+                    <div class="detail-actions">
+                        <button class="btn btn-secondary" onclick="emojiLibrary.downloadEmoji('${this.escape(emoji.emoji_id)}')">下载表情包</button>
+                        ${adminActions}
+                        <button class="btn btn-secondary" onclick="ui.closeModal()">关闭</button>
+                    </div>
+                </div>
+            `);
+        } catch (error) {
+            ui.showToast(`加载表情包详情失败: ${error.message}`, 'error');
+        }
     }
 
     async showEditEmojiModal(id) {
@@ -409,6 +496,7 @@ class EmojiLibrary {
             });
             ui.closeModal();
             ui.showToast('表情包信息已更新', 'success');
+            await this.refreshCharacterFacets();
             await this.load();
         } catch (error) {
             ui.showToast(`保存失败: ${error.message}`, 'error');
@@ -576,6 +664,7 @@ class EmojiLibrary {
             ui.closeModal();
             ui.showToast('表情包已上传', 'success');
             this.pagination.currentPage = 1;
+            await this.refreshCharacterFacets();
             await this.load();
         } catch (error) {
             ui.showToast(`上传失败: ${error.message}`, 'error');
@@ -645,7 +734,9 @@ class EmojiLibrary {
     async deleteEmoji(id) {
         if (!confirm('确定删除这个表情包吗？')) return;
         await api.deleteEmoji(id);
+        ui.closeModal();
         ui.showToast('表情包已删除', 'success');
+        await this.refreshCharacterFacets();
         await this.load();
     }
 }

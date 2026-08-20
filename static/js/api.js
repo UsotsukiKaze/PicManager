@@ -255,6 +255,10 @@ class API {
         return this.request(`/emojis/${encodeURIComponent(id)}`);
     }
 
+    getEmojiDownloadUrl(id) {
+        return `${this.baseURL}/emojis/${encodeURIComponent(id)}/download`;
+    }
+
     async uploadEmoji(file, metadata) {
         const formData = new FormData();
         formData.append('file', file);

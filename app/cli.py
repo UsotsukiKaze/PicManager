@@ -124,6 +124,14 @@ def cmd_snapshot(_: argparse.Namespace) -> None:
     log_success("数据库快照已创建")
 
 
+def cmd_diagnose(args: argparse.Namespace) -> None:
+    from .config import settings
+    from .diagnostics import diagnose
+
+    paths = args.path or [settings.DATA_PATH, settings.STORE_PATH, settings.THUMB_PATH]
+    _print_json(diagnose(paths, size_mb=args.size_mb))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pic", description="PicManager command line tools")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -160,6 +168,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     snapshot = subparsers.add_parser("snapshot", help="创建数据库快照")
     snapshot.set_defaults(func=cmd_snapshot)
+
+    diagnose_parser = subparsers.add_parser("diagnose", help="检查存储吞吐和服务器网络位置")
+    diagnose_parser.add_argument("--path", action="append", help="要测试的目录，可重复指定")
+    diagnose_parser.add_argument("--size-mb", type=int, default=16, help="每个目录的测试文件大小")
+    diagnose_parser.set_defaults(func=cmd_diagnose)
 
     return parser
 

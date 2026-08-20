@@ -4350,6 +4350,8 @@ body {
 
 .entity-toolbar {
     justify-content: space-between;
+    position: relative;
+    z-index: 30;
 }
 
 .entity-query-control {
@@ -4493,6 +4495,8 @@ body {
 }
 
 .query-panel.is-expanded {
+    position: relative;
+    z-index: 30;
     max-height: 760px;
     margin-bottom: 20px;
     opacity: 1;

@@ -58,6 +58,10 @@ def test_query_controller_tracks_active_filters_mobile_apply_and_keyboard_close(
     assert "window.matchMedia('(max-width: 768px)')" in QUERY
     assert "event.key !== 'Escape'" in QUERY
     assert ".query-panel.is-expanded" in STYLE
+    expanded_rule = STYLE.split(".query-panel.is-expanded", 1)[1].split("}", 1)[0]
+    assert "position: relative" in expanded_rule
+    assert "z-index: 30" in expanded_rule
+    assert ".entity-toolbar {\n    justify-content: space-between;\n    position: relative;\n    z-index: 30;" in STYLE
     assert "prefers-reduced-motion: reduce" in STYLE
 
 

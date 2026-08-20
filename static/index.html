@@ -34,11 +34,11 @@
                 <span class="user-role-small" id="header-role"></span>
             </div>
             <div class="user-actions-compact">
-                <a href="/profile?v=20260622a" class="header-link">
+                <a href="/profile?v=20260622a" class="header-link" aria-label="打开个人资料">
                     <span class="inline-icon icon-user"></span>
                     <span>我的</span>
                 </a>
-                <button class="header-link" id="logout-btn" onclick="handleLogout()">
+                <button class="header-link" id="logout-btn" onclick="handleLogout()" aria-label="退出登录">
                     <span class="inline-icon icon-logout"></span>
                     <span>退出</span>
                 </button>
@@ -184,7 +184,7 @@
                     <div class="page-header">
                         <h2>图片管理</h2>
                         <div class="header-actions">
-                            <button class="btn btn-secondary" onclick="refreshData()">
+                            <button class="btn btn-secondary mobile-hide" onclick="refreshData()">
                             刷新
                         </button>
                     </div>
@@ -522,7 +522,7 @@
                     <h2>表情包库</h2>
                     <div class="header-actions">
                         <button class="btn btn-primary" onclick="emojiLibrary.showUploadModal()">上传表情包</button>
-                        <button class="btn btn-secondary" onclick="emojiLibrary.load()">刷新</button>
+                        <button class="btn btn-secondary mobile-hide" onclick="emojiLibrary.load()">刷新</button>
                     </div>
                 </div>
 
@@ -665,7 +665,7 @@
                 <div class="page-header">
                     <h2>榜上有名</h2>
                     <div class="header-actions">
-                        <button class="btn btn-secondary" onclick="ui.loadRankings()">
+                        <button class="btn btn-secondary mobile-hide" onclick="ui.loadRankings()">
                             刷新
                         </button>
                     </div>

@@ -4867,3 +4867,260 @@ body {
         transition: none;
     }
 }
+
+/* Mobile-focused simplification. Kept last so it consistently overrides the
+   earlier desktop-first component passes. */
+.upload-queue-dock {
+    left: calc(280px + 18px);
+}
+
+@media (max-width: 768px) {
+    body {
+        overscroll-behavior-y: contain;
+    }
+
+    .top-user-bar {
+        min-height: 52px;
+        padding: 8px 12px;
+        flex-wrap: nowrap;
+        gap: 8px;
+    }
+
+    .user-info-compact {
+        min-width: 0;
+        gap: 8px;
+    }
+
+    .user-name-small {
+        max-width: 42vw;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .user-actions-compact {
+        width: auto;
+        margin-left: auto;
+        justify-content: flex-end;
+        flex-wrap: nowrap;
+        gap: 3px;
+    }
+
+    .header-link {
+        width: 36px;
+        height: 36px;
+        display: inline-grid;
+        place-items: center;
+        padding: 0;
+        font-size: 0;
+        border-radius: 10px;
+    }
+
+    .header-link .inline-icon {
+        width: 18px;
+        height: 18px;
+        margin: 0;
+    }
+
+    .page-header {
+        min-height: 42px;
+        margin-bottom: 14px;
+        flex-direction: row;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .page-header h2 {
+        min-width: 0;
+        margin: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .header-actions {
+        width: auto;
+        margin-left: auto;
+        flex-wrap: nowrap;
+    }
+
+    .header-actions .btn {
+        flex: 0 0 auto;
+    }
+
+    .mobile-hide,
+    .admin-maintenance {
+        display: none !important;
+    }
+
+    .tab-container > .tab-header {
+        position: sticky;
+        top: 0;
+        z-index: 8;
+        scrollbar-width: none;
+        scroll-snap-type: x proximity;
+        background: rgba(255, 255, 255, 0.94);
+        backdrop-filter: blur(12px);
+    }
+
+    .tab-container > .tab-header::-webkit-scrollbar {
+        display: none;
+    }
+
+    .tab-container > .tab-header .tab-btn {
+        scroll-snap-align: start;
+    }
+
+    .modal-overlay {
+        align-items: flex-end;
+        padding: 0;
+    }
+
+    .modal {
+        width: 100%;
+        max-width: none;
+        max-height: calc(100dvh - 34px);
+        margin: 0;
+        border-radius: 18px 18px 0 0;
+        animation: mobileSheetIn 180ms ease-out both;
+    }
+
+    .modal-header {
+        position: sticky;
+        top: 0;
+        z-index: 4;
+        min-height: 56px;
+        padding: 12px 14px;
+        background: rgba(255, 255, 255, 0.96);
+        backdrop-filter: blur(12px);
+    }
+
+    .modal-body {
+        max-height: calc(100dvh - 90px);
+        padding: 14px 14px calc(18px + env(safe-area-inset-bottom));
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
+
+    .tag-picker {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .tag-picker-list {
+        max-height: 220px;
+    }
+
+    .tag-picker .form-actions {
+        position: sticky;
+        bottom: calc(-18px - env(safe-area-inset-bottom));
+        z-index: 3;
+        margin: 0 -14px;
+        padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+        border-top: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.97);
+        backdrop-filter: blur(12px);
+    }
+
+    .list-item-actions {
+        width: auto;
+        align-self: flex-end;
+    }
+
+    .settings-section {
+        gap: 16px;
+    }
+
+    .settings-group {
+        padding: 16px;
+    }
+
+    .upload-queue-dock {
+        left: auto;
+    }
+}
+
+@media (max-width: 640px) {
+    .user-role-small,
+    .home-orbit,
+    .home-stat-hint,
+    .home-portal-copy > span {
+        display: none !important;
+    }
+
+    .home-hero {
+        min-height: 0;
+    }
+
+    .home-hero-copy {
+        max-width: none;
+    }
+
+    .home-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .home-actions .btn {
+        width: 100%;
+    }
+
+    .image-detail-card {
+        gap: 14px;
+    }
+
+    .detail-info {
+        padding: 0;
+    }
+}
+
+@media (max-width: 420px) {
+    .image-grid,
+    .temp-image-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .image-card-info {
+        min-height: 60px;
+    }
+
+    .image-card-id,
+    .image-card-pid {
+        display: none;
+    }
+
+    .page-content {
+        padding-left: 9px;
+        padding-right: 9px;
+    }
+
+    .tab-content {
+        padding: 12px;
+    }
+}
+
+@keyframes mobileSheetIn {
+    from { opacity: 0; transform: translateY(18px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    html:focus-within {
+        scroll-behavior: auto;
+    }
+
+    .image-card,
+    .modal,
+    .page-enter,
+    .tab-enter,
+    .home-orbit,
+    .orbit-chip {
+        animation: none !important;
+    }
+
+    *,
+    *::before,
+    *::after {
+        scroll-behavior: auto !important;
+    }
+}

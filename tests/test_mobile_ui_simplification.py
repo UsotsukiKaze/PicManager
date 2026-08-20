@@ -78,13 +78,30 @@ def test_small_phone_image_management_keeps_two_columns_and_compacts_cards():
     assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in image_grid
     assert "gap: 8px" in image_grid
     assert "grid-template-columns: 1fr" in temp_grid
-    assert "-webkit-line-clamp: 2" in small
+    mobile_info = small.split(".image-card-info {", 1)[1].split("}", 1)[0]
+    mobile_characters = small.split(".image-card-characters {", 1)[1].split("}", 1)[0]
+    assert "height: 42px" in mobile_info
+    assert "min-height: 42px" in mobile_info
+    assert "white-space: nowrap" in mobile_characters
+    assert "text-overflow: ellipsis" in mobile_characters
     hidden_id = small.split(".image-card-id {", 1)[1].split("}", 1)[0]
     mobile_pid = small.split(".image-card-pid {", 1)[1].split("}", 1)[0]
     assert "display: none" in hidden_id
     assert "display: block" in mobile_pid
     assert "font-size: 10px" in mobile_pid
     assert "text-overflow: ellipsis" in mobile_pid
+
+
+def test_desktop_image_cards_use_fixed_metadata_height_and_ellipsis():
+    card_refresh = STYLE.split(".emoji-detail-media.is-gif img", 1)[1].split("@media (max-width: 640px)", 1)[0]
+    card_info = card_refresh.split(".image-card-info {", 1)[1].split("}", 1)[0]
+    truncated_text = card_refresh.split(".image-card-id,", 1)[1].split("}", 1)[0]
+    assert "height: 88px" in card_info
+    assert "overflow: hidden" in card_info
+    assert ".image-card-characters" in truncated_text
+    assert ".image-card-pid" in truncated_text
+    assert "white-space: nowrap" in truncated_text
+    assert "text-overflow: ellipsis" in truncated_text
 
 
 def test_motion_reduction_covers_page_card_modal_and_orbit_animations():

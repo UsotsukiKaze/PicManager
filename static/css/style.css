@@ -2710,8 +2710,11 @@ body {
 }
 
 .image-card-info {
+    box-sizing: border-box;
+    height: 88px;
     min-height: 88px;
     padding: 12px;
+    overflow: hidden;
 }
 
 .image-card-id {
@@ -2719,9 +2722,15 @@ body {
     letter-spacing: 0;
 }
 
+.image-card-id,
 .image-card-characters,
 .image-card-pid {
-    word-break: break-word;
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    word-break: normal;
 }
 
 .modal-overlay {
@@ -2832,7 +2841,8 @@ body {
     }
 
     .image-card-info {
-        min-height: 78px;
+        height: 70px;
+        min-height: 70px;
         padding: 10px;
     }
 
@@ -5402,17 +5412,18 @@ body {
     }
 
     .image-card-info {
-        min-height: 72px;
-        padding: 8px;
+        height: 42px;
+        min-height: 42px;
+        padding: 5px 8px;
     }
 
     .image-card-characters {
-        display: -webkit-box;
-        overflow: hidden;
+        display: block;
+        margin-bottom: 2px;
         font-size: 11px;
         line-height: 1.3;
-        -webkit-box-orient: vertical;
-        -webkit-line-clamp: 2;
+        white-space: nowrap;
+        text-overflow: ellipsis;
     }
 
     .age-rating-badge {
@@ -5442,7 +5453,7 @@ body {
     .image-card-pid {
         display: block;
         overflow: hidden;
-        margin-top: 4px;
+        margin-top: 0;
         font-size: 10px;
         line-height: 1.2;
         white-space: nowrap;

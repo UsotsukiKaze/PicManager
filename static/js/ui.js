@@ -392,7 +392,7 @@ class UIManager {
         switch (tab) {
             case 'image-list':
                 this.loadImages();
-                this.initializeSearchSelectors();
+                this.loadImageSearchOptions();
                 break;
             case 'group-management':
                 this.loadGroups();
@@ -516,6 +516,24 @@ class UIManager {
         this.renderCharacterDropdown();
         this.renderCharacterGroupFilterDropdown();
     }
+
+    async loadImageSearchOptions() {
+        // Keep the image list and its filters independent: images can render
+        // immediately while the reusable group/character collections load in
+        // parallel. This also makes the first visit to the image tab complete,
+        // without relying on a prior visit to either management tab.
+        this.initializeSearchSelectors();
+        const [groups, characters] = await Promise.all([
+            this.loadGroupsData(),
+            this.loadCharactersData()
+        ]);
+
+        this.allGroups = groups;
+        this.allCharacters = characters;
+        this.filteredCharacters = characters;
+        this.renderGroupDropdown();
+        this.renderCharacterDropdown();
+    }
     
     /**
      * 初始化可搜索的选择器
@@ -568,16 +586,21 @@ class UIManager {
         
         // 存储配置
         input._config = config;
+
+        // Page/tab switches may initialize the same control repeatedly. Keep
+        // one set of listeners and let them read the latest configuration.
+        if (input._searchableSelectInitialized) return;
+        input._searchableSelectInitialized = true;
         
         // 输入事件：过滤选项
         input.addEventListener('input', () => {
-            this.filterSearchableOptions(config);
+            this.filterSearchableOptions(input._config);
             dropdown.classList.add('show');
         });
         
         // 聚焦事件：显示下拉
         input.addEventListener('focus', () => {
-            this.filterSearchableOptions(config);
+            this.filterSearchableOptions(input._config);
             dropdown.classList.add('show');
         });
         
@@ -597,9 +620,10 @@ class UIManager {
                 hidden.value = value;
                 dropdown.classList.remove('show');
                 
-                if (config.onSelect) {
-                    const item = value ? config.getData().find(i => String(i.id) === value) : null;
-                    config.onSelect(item);
+                const currentConfig = input._config;
+                if (currentConfig.onSelect) {
+                    const item = value ? currentConfig.getData().find(i => String(i.id) === value) : null;
+                    currentConfig.onSelect(item);
                 }
             }
         });
@@ -942,15 +966,18 @@ class UIManager {
         const parts = groups.map(group => {
             const names = characters
                 .filter(character => character.group_id === group.id)
-                .map(character => character.name);
+                .map(character => this.escapeHomeRankingText(character.name));
             usedGroupIds.add(group.id);
-            return [group.name, ...names].join('-');
+            return [this.escapeHomeRankingText(group.name), ...names].join('-');
         });
         characters
             .filter(character => !usedGroupIds.has(character.group_id))
             .forEach(character => {
                 const groupName = character.group_name || (character.group && character.group.name);
-                parts.push([groupName, character.name].filter(Boolean).join('-'));
+                parts.push([groupName, character.name]
+                    .filter(Boolean)
+                    .map(value => this.escapeHomeRankingText(value))
+                    .join('-'));
             });
         return parts.length ? parts.join(' ') : '未添加标签';
     }
@@ -1173,13 +1200,7 @@ class UIManager {
     }
 
     escapeHomeRankingText(value) {
-        return String(value ?? '').replace(/[&<>"']/g, character => ({
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#39;'
-        })[character]);
+        return window.PicManagerSecurity.escapeHTML(value);
     }
 
     getEntityAvatar(item) {
@@ -1706,6 +1727,7 @@ class UIManager {
             avatar.loading = 'lazy';
             avatar.onerror = () => this.handleEntityAvatarFallback(avatar);
             const label = document.createElement('span');
+            label.className = 'orbit-chip-label';
             label.textContent = group.image_count > 0
                 ? `${group.name} · ${group.image_count}张`
                 : group.name;

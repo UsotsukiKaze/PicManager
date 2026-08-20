@@ -7,6 +7,9 @@ INDEX_HTML = PROJECT_ROOT / "static" / "index.html"
 AUTH_JS = PROJECT_ROOT / "static" / "js" / "auth.js"
 MAIN_JS = PROJECT_ROOT / "static" / "js" / "main.js"
 UI_JS = PROJECT_ROOT / "static" / "js" / "ui.js"
+SECURITY_JS = PROJECT_ROOT / "static" / "js" / "security.js"
+CHARACTER_SELECTOR_JS = PROJECT_ROOT / "static" / "js" / "character-selector.js"
+TAG_SELECTOR_JS = PROJECT_ROOT / "static" / "js" / "tag-selector.js"
 
 
 def test_anonymous_shell_only_eagerly_loads_auth_bootstrap():
@@ -32,9 +35,12 @@ def test_authenticated_bootstrap_loads_application_only_after_auth_success():
     assert auth_check < auth_guard < application_load
 
     for asset in (
-        "/static/css/style.css?v=20260816b",
+        "/static/css/style.css?v=20260820a",
+        "/static/js/security.js?v=20260820a",
+        "/static/js/character-selector.js?v=20260820a",
+        "/static/js/tag-selector.js?v=20260820a",
         "/static/js/api.js?v=20260816a",
-        "/static/js/ui.js?v=20260816b",
+        "/static/js/ui.js?v=20260820a",
         "/static/js/main.js?v=20260812c",
     ):
         assert asset in source
@@ -45,6 +51,19 @@ def test_authenticated_bootstrap_loads_application_only_after_auth_success():
     assert "await scriptsReady" in source
     assert "for (const src of scripts)" not in source
     assert "script.async = false" in source
+
+
+def test_user_controlled_entity_names_are_html_escaped_before_rendering():
+    security_source = SECURITY_JS.read_text(encoding="utf-8")
+    ui_source = UI_JS.read_text(encoding="utf-8")
+    character_source = CHARACTER_SELECTOR_JS.read_text(encoding="utf-8")
+    tag_source = TAG_SELECTOR_JS.read_text(encoding="utf-8")
+
+    assert "function escapeHTML(value)" in security_source
+    assert "replace(/[&<>\"']/g" in security_source
+    assert "window.PicManagerSecurity.escapeHTML(value)" in ui_source
+    assert "this.escapeHTML(char.name)" in character_source
+    assert "this.escapeHTML(item.name)" in tag_source
 
 
 def test_page_features_are_lazy_loaded_and_deduplicated():
@@ -75,6 +94,34 @@ def test_page_features_are_lazy_loaded_and_deduplicated():
     assert "pageElement.inert = true" in ui_source
     assert "pageElement.dataset.featureLoadError = featureKey" in ui_source
     assert "retryFailedFeature" in ui_source
+
+
+def test_image_search_options_load_on_first_image_tab_visit():
+    ui_source = UI_JS.read_text(encoding="utf-8")
+    image_tab = ui_source.split("case 'image-list':", 1)[1].split("break;", 1)[0]
+    option_loader = ui_source.split("async loadImageSearchOptions()", 1)[1].split(
+        "initSearchableSelect(config)", 1
+    )[0]
+
+    assert "this.loadImages()" in image_tab
+    assert "this.loadImageSearchOptions()" in image_tab
+    assert "Promise.all([" in option_loader
+    assert "this.loadGroupsData()" in option_loader
+    assert "this.loadCharactersData()" in option_loader
+    assert "this.filteredCharacters = characters" in option_loader
+    assert "this.renderGroupDropdown()" in option_loader
+    assert "this.renderCharacterDropdown()" in option_loader
+
+
+def test_searchable_select_initialization_is_idempotent():
+    ui_source = UI_JS.read_text(encoding="utf-8")
+    initializer = ui_source.split("initSearchableSelect(config)", 1)[1].split(
+        "filterSearchableOptions(config)", 1
+    )[0]
+
+    assert "if (input._searchableSelectInitialized) return" in initializer
+    assert "input._searchableSelectInitialized = true" in initializer
+    assert "this.filterSearchableOptions(input._config)" in initializer
 
 
 def test_script_loader_reuses_existing_nodes_and_removes_failed_nodes():

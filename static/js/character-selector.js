@@ -9,6 +9,10 @@ class CharacterSelector {
         this.render();
         this.initEventListeners();
     }
+
+    escapeHTML(value) {
+        return window.PicManagerSecurity.escapeHTML(value);
+    }
     
     render() {
         this.container.innerHTML = `
@@ -82,8 +86,8 @@ class CharacterSelector {
                     ? `（${char.nicknames.join(' / ')}）`
                     : '';
                 return `
-                    <div class="character-option" data-id="${char.id}" data-name="${char.name}">
-                        ${char.name}${nicknameText}
+                    <div class="character-option" data-id="${char.id}" data-name="${this.escapeHTML(char.name)}">
+                        ${this.escapeHTML(char.name)}${this.escapeHTML(nicknameText)}
                     </div>
                 `;
             }).join('');
@@ -147,7 +151,7 @@ class CharacterSelector {
         
         tagsContainer.innerHTML = this.selectedCharacters.map(char => `
             <div class="character-tag">
-                <span>${char.name}${Array.isArray(char.nicknames) && char.nicknames.length ? `（${char.nicknames.join(' / ')}）` : ''}</span>
+                <span>${this.escapeHTML(char.name)}${Array.isArray(char.nicknames) && char.nicknames.length ? `（${this.escapeHTML(char.nicknames.join(' / '))}）` : ''}</span>
                 <span class="character-tag-remove" onclick="window.characterSelectors['${this.container.id}'].removeCharacter(${char.id})">×</span>
             </div>
         `).join('');

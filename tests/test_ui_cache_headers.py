@@ -36,6 +36,10 @@ async def test_production_app_shell_is_shared_only_at_cloudflare(monkeypatch):
     assert response.headers["cloudflare-cdn-cache-control"] == (
         "public, max-age=60, stale-while-revalidate=30, stale-if-error=86400"
     )
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert "default-src 'self'" in response.headers["content-security-policy"]
+    assert "object-src 'none'" in response.headers["content-security-policy"]
 
 
 @pytest.mark.asyncio

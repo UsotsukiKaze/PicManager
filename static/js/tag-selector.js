@@ -71,11 +71,15 @@ class ImageTagSelector {
         return (source.find(item => item.id === id) || {}).name || id;
     }
 
+    escapeHTML(value) {
+        return window.PicManagerSecurity.escapeHTML(value);
+    }
+
     renderTag(type, id) {
         const labelMap = { group: '分组', character: '角色', feature_tag: '特征' };
         return `
             <button type="button" class="pm-tag pm-tag-${type}" onclick="window.imageTagSelectors['${this.container.id}'].remove('${type}', ${id})">
-                <span>${this.getLabel(type, id)}</span>
+                <span>${this.escapeHTML(this.getLabel(type, id))}</span>
                 <small>${labelMap[type]}</small>
                 <b aria-hidden="true">×</b>
             </button>
@@ -107,7 +111,7 @@ class ImageTagSelector {
         return `
             <label class="tag-picker-option ${selected ? 'selected' : ''}">
                 <input type="${type === 'group' ? 'radio' : 'checkbox'}" name="picker-${this.container.id}-${type}" value="${item.id}" ${selected ? 'checked' : ''}>
-                <span>${item.name}</span>
+                <span>${this.escapeHTML(item.name)}</span>
                 <small>${type === 'group' ? '分组' : type === 'character' ? '角色' : '特征'}</small>
             </label>
         `;

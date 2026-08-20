@@ -113,6 +113,20 @@ def _apply_production_cache_headers(request: Request, response) -> None:
         response.headers["Cloudflare-CDN-Cache-Control"] = policy
 
 
+def _apply_security_headers(response) -> None:
+    """Apply browser-side hardening without changing application behavior."""
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; "
+        "form-action 'self'; script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; "
+        "media-src 'self' blob:; font-src 'self' data:; connect-src 'self'"
+    )
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+
+
 def _safe_resource_file(base_path: str, filename: str) -> Path:
     if "/" in filename or "\\" in filename or "\x00" in filename:
         raise FileNotFoundError
@@ -168,6 +182,7 @@ async def prevent_stale_ui_cache(request: Request, call_next):
         _apply_no_store_headers(response)
     elif not settings.DEBUG:
         _apply_production_cache_headers(request, response)
+    _apply_security_headers(response)
     return response
 
 

@@ -44,6 +44,9 @@ def test_emoji_character_tabs_are_wired_to_immediate_filtering():
     assert 'aria-label="按角色筛选表情包"' in INDEX
     assert "async getEmojiCharacters()" in API
     assert "return this.request('/emojis/characters')" in API
+    assert "async fetchEmojiCharacterFacets()" in EMOJI
+    assert "Emoji character facets are temporarily unavailable" in EMOJI
+    assert "this.fetchEmojiCharacterFacets()" in EMOJI
     assert "renderCharacterTabs()" in EMOJI
     assert "selectCharacter(characterId)" in EMOJI
     assert "this.pagination.currentPage = 1" in EMOJI

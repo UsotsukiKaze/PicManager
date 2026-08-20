@@ -11,7 +11,7 @@ class AuthManager {
                 resolve: () => window.upload,
             },
             emoji: {
-                src: '/static/js/emoji-library.js?v=20260820h',
+                src: '/static/js/emoji-library.js?v=20260820i',
                 resolve: () => window.emojiLibrary,
             },
         };

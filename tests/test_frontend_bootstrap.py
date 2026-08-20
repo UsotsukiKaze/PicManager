@@ -25,7 +25,7 @@ def test_anonymous_shell_only_eagerly_loads_auth_bootstrap():
     html = INDEX_HTML.read_text(encoding="utf-8")
     eager_scripts = re.findall(r'<script\b[^>]*\bsrc="([^"]+)"', html)
 
-    assert eager_scripts == ["/static/js/auth.js?v=20260820h"]
+    assert eager_scripts == ["/static/js/auth.js?v=20260820i"]
     assert 'class="app-booting"' in html
     assert '<noscript><meta http-equiv="refresh" content="0; url=/login"></noscript>' in html
     assert 'rel="stylesheet" href="/static/css/style.css' not in html
@@ -124,7 +124,7 @@ def test_page_features_are_lazy_loaded_and_deduplicated():
     assert "/static/js/upload.js" not in core_scripts
     assert "/static/js/emoji-library.js" not in core_scripts
     assert "/static/js/upload.js?v=20260820d" in auth_source
-    assert "/static/js/emoji-library.js?v=20260820h" in auth_source
+    assert "/static/js/emoji-library.js?v=20260820i" in auth_source
     assert "if (this.featureLoadPromises[name])" in auth_source
     assert "this.featureLoadPromises[name] = loadPromise" in auth_source
     assert "delete this.featureLoadPromises[name]" in auth_source

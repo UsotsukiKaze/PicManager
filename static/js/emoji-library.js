@@ -34,6 +34,15 @@ class EmojiLibrary {
         )).join('');
     }
 
+    async fetchEmojiCharacterFacets() {
+        try {
+            return await api.getEmojiCharacters() || [];
+        } catch (error) {
+            console.warn('Emoji character facets are temporarily unavailable:', error);
+            return [];
+        }
+    }
+
     async loadOptions() {
         const selectedFilters = {
             group: document.getElementById('emoji-group-filter')?.value || '',
@@ -44,7 +53,7 @@ class EmojiLibrary {
             api.getGroups(),
             api.getCharacters(),
             api.getEmotionTags(),
-            api.getEmojiCharacters(),
+            this.fetchEmojiCharacterFacets(),
         ]);
         this.groups = groups || [];
         this.characters = characters || [];
@@ -95,7 +104,7 @@ class EmojiLibrary {
     }
 
     async refreshCharacterFacets() {
-        this.emojiCharacters = await api.getEmojiCharacters() || [];
+        this.emojiCharacters = await this.fetchEmojiCharacterFacets();
         const filter = document.getElementById('emoji-character-filter');
         if (filter?.value && !this.emojiCharacters.some(item => String(item.id) === String(filter.value))) {
             filter.value = '';

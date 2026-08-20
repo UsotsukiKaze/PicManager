@@ -300,7 +300,7 @@ def test_frontend_exposes_review_before_pixiv_replace():
     assert "finish('replace')" in ui_source
     assert "pixivAutoReviewEnabled" in ui_source
     assert "await api.resolvePixivUpgrade(result.token, action)" in ui_source
-    assert '/static/js/auth.js?v=20260820h' in html
+    assert '/static/js/auth.js?v=20260820i' in html
     assert '/static/js/api.js?v=20260820h' in auth_source
     assert '/static/js/ui.js?v=20260820d' in auth_source
     assert '/static/css/style.css?v=20260820h' in auth_source

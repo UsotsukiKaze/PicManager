@@ -483,7 +483,7 @@ class UIManager {
             if (!singleGroupSelect) return;
             singleGroupSelect.innerHTML = '<option value="">先选分组</option>';
             groups.forEach(group => {
-                singleGroupSelect.innerHTML += `<option value="${group.id}">${group.name}</option>`;
+                singleGroupSelect.innerHTML += `<option value="${group.id}">${this.escapeHomeRankingText(group.name)}</option>`;
             });
 
             // 监听分组变化，更新角色选项（覆盖式，避免重复绑定）
@@ -542,10 +542,10 @@ class UIManager {
                 <div class="entity-list-main">
                     <img class="entity-avatar" src="${this.getEntityAvatar(group)}" alt="${this.escapeHomeRankingText(group.name)}的头像" loading="lazy" decoding="async" onerror="ui.handleEntityAvatarFallback(this)">
                     <div class="list-item-info">
-                        <div class="list-item-name">${group.name}</div>
+                        <div class="list-item-name">${this.escapeHomeRankingText(group.name)}</div>
                         <div class="list-item-description">
-                            ${group.description || '无描述'}
-                            ${group.aliases && group.aliases.length ? ` | 别称: ${group.aliases.join(' / ')}` : ''}
+                            ${this.escapeHomeRankingText(group.description || '无描述')}
+                            ${group.aliases && group.aliases.length ? ` | 别称: ${this.escapeHomeRankingText(group.aliases.join(' / '))}` : ''}
                         </div>
                     </div>
                 </div>
@@ -594,14 +594,16 @@ class UIManager {
         }
 
         container.innerHTML = items.map((item, index) => {
-            const avatar = item.avatar_url || `https://q1.qlogo.cn/g?b=qq&nk=${item.qq_number}&s=100`;
+            const avatar = this.getEntityAvatar({
+                avatar_url: item.avatar_url || `https://q1.qlogo.cn/g?b=qq&nk=${encodeURIComponent(item.qq_number)}&s=100`
+            });
             return `
                 <div class="leaderboard-item">
                     <div class="leaderboard-rank">${index + 1}</div>
                     <img class="leaderboard-avatar" src="${avatar}" alt="头像" onerror="this.style.display='none'">
                     <div class="leaderboard-info">
-                        <div class="leaderboard-name">${item.nickname}</div>
-                        <div class="leaderboard-sub">QQ: ${item.qq_number}</div>
+                        <div class="leaderboard-name">${this.escapeHomeRankingText(item.nickname)}</div>
+                        <div class="leaderboard-sub">QQ: ${this.escapeHomeRankingText(item.qq_number)}</div>
                     </div>
                     <div class="leaderboard-score">${item.score}</div>
                 </div>
@@ -922,8 +924,8 @@ class UIManager {
                 <div class="leaderboard-rank">${index + 1}</div>
                 <img class="leaderboard-avatar" src="${this.getEntityAvatar(item)}" alt="" loading="lazy" decoding="async" onerror="ui.handleEntityAvatarFallback(this)">
                 <div class="leaderboard-info">
-                    <div class="leaderboard-name">${item.name}</div>
-                    <div class="leaderboard-sub">${item.group_name || '未分组'}</div>
+                    <div class="leaderboard-name">${this.escapeHomeRankingText(item.name)}</div>
+                    <div class="leaderboard-sub">${this.escapeHomeRankingText(item.group_name || '未分组')}</div>
                 </div>
                 <div class="leaderboard-score">${item.count}</div>
             </div>
@@ -992,7 +994,7 @@ class UIManager {
             hiddenId: 'character-group-filter',
             dropdownId: 'character-group-filter-dropdown',
             getData: () => this.allGroups || [],
-            renderOption: (item) => `<div class="option-main">${item.name}</div>`,
+            renderOption: (item) => `<div class="option-main">${this.escapeHomeRankingText(item.name)}</div>`,
             onSelect: () => {
                 // 分组选择变化时立即更新角色列表
                 this.filterCharacters(document.getElementById('character-search-input').value);
@@ -1026,11 +1028,11 @@ class UIManager {
                 <div class="entity-list-main">
                     <img class="entity-avatar" src="${this.getEntityAvatar(character)}" alt="${this.escapeHomeRankingText(character.name)}的头像" loading="lazy" decoding="async" onerror="ui.handleEntityAvatarFallback(this)">
                     <div class="list-item-info">
-                        <div class="list-item-name">${character.name}</div>
+                        <div class="list-item-name">${this.escapeHomeRankingText(character.name)}</div>
                         <div class="list-item-description">
-                            分组: ${character.group_name}
-                            ${character.nicknames && character.nicknames.length ? ` | 昵称: ${character.nicknames.join(' / ')}` : ''}
-                            ${character.feature_tags && character.feature_tags.length ? ` | 特征: ${character.feature_tags.map(tag => tag.name).join(' / ')}` : ''}
+                            分组: ${this.escapeHomeRankingText(character.group_name || '未分组')}
+                            ${character.nicknames && character.nicknames.length ? ` | 昵称: ${this.escapeHomeRankingText(character.nicknames.join(' / '))}` : ''}
+                            ${character.feature_tags && character.feature_tags.length ? ` | 特征: ${this.escapeHomeRankingText(character.feature_tags.map(tag => tag.name).join(' / '))}` : ''}
                         </div>
                     </div>
                 </div>
@@ -1071,10 +1073,10 @@ class UIManager {
         container.innerHTML = tags.map(tag => `
             <div class="list-item">
                 <div class="list-item-info">
-                    <div class="list-item-name">${tag.name}</div>
+                    <div class="list-item-name">${this.escapeHomeRankingText(tag.name)}</div>
                     <div class="list-item-description">
-                        ${tag.description || '无描述'}
-                        ${tag.aliases && tag.aliases.length ? ` | 别称: ${tag.aliases.join(' / ')}` : ''}
+                        ${this.escapeHomeRankingText(tag.description || '无描述')}
+                        ${tag.aliases && tag.aliases.length ? ` | 别称: ${this.escapeHomeRankingText(tag.aliases.join(' / '))}` : ''}
                     </div>
                 </div>
                 <div class="list-item-actions">
@@ -1351,7 +1353,7 @@ class UIManager {
             const groups = await api.getGroups();
             const featureTags = await api.getFeatureTags();
             const groupOptions = groups.map(group => 
-                `<option value="${group.id}">${group.name}</option>`
+                `<option value="${group.id}">${this.escapeHomeRankingText(group.name)}</option>`
             ).join('');
             
             const content = `
@@ -1532,15 +1534,15 @@ class UIManager {
             <form id="edit-feature-tag-form">
                 <div class="form-group">
                     <label for="edit-feature-tag-name">特征名称</label>
-                    <input type="text" id="edit-feature-tag-name" class="form-input" value="${tag.name}" required>
+                    <input type="text" id="edit-feature-tag-name" class="form-input" value="${this.escapeHomeRankingText(tag.name)}" required>
                 </div>
                 <div class="form-group">
                     <label for="edit-feature-tag-aliases">特征别称</label>
-                    <input type="text" id="edit-feature-tag-aliases" class="form-input" value="${(tag.aliases || []).join(', ')}" placeholder="多个别称用英文逗号分隔">
+                    <input type="text" id="edit-feature-tag-aliases" class="form-input" value="${this.escapeHomeRankingText((tag.aliases || []).join(', '))}" placeholder="多个别称用英文逗号分隔">
                 </div>
                 <div class="form-group">
                     <label for="edit-feature-tag-description">备注</label>
-                    <textarea id="edit-feature-tag-description" class="form-textarea">${tag.description || ''}</textarea>
+                    <textarea id="edit-feature-tag-description" class="form-textarea">${this.escapeHomeRankingText(tag.description || '')}</textarea>
                 </div>
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="ui.closeModal()">取消</button>
@@ -1696,7 +1698,7 @@ class UIManager {
             }
             
             const groupOptions = groups.map(group => 
-                `<option value="${group.id}" ${group.id === currentCharacter.group_id ? 'selected' : ''}>${group.name}</option>`
+                `<option value="${group.id}" ${group.id === currentCharacter.group_id ? 'selected' : ''}>${this.escapeHomeRankingText(group.name)}</option>`
             ).join('');
             const selectedFeatureIds = currentCharacter.feature_tag_ids || (currentCharacter.feature_tags || []).map(tag => tag.id);
             
@@ -1704,7 +1706,7 @@ class UIManager {
                 <form id="edit-character-form" onsubmit="event.preventDefault(); ui.updateCharacter(${characterId});">
                     <div class="form-group">
                         <label for="edit-character-name">角色名称</label>
-                        <input type="text" id="edit-character-name" class="form-input" value="${currentCharacter.name}" required>
+                        <input type="text" id="edit-character-name" class="form-input" value="${this.escapeHomeRankingText(currentCharacter.name)}" required>
                     </div>
                     <div class="form-group">
                         <label for="edit-character-group">所属分组</label>
@@ -1714,7 +1716,7 @@ class UIManager {
                     </div>
                     <div class="form-group">
                         <label for="edit-character-nicknames">角色昵称</label>
-                        <input type="text" id="edit-character-nicknames" class="form-input" value="${(currentCharacter.nicknames || []).join(', ')}" placeholder="多个昵称用英文逗号分隔">
+                        <input type="text" id="edit-character-nicknames" class="form-input" value="${this.escapeHomeRankingText((currentCharacter.nicknames || []).join(', '))}" placeholder="多个昵称用英文逗号分隔">
                     </div>
                     <div class="form-group">
                         <label>角色头像</label>
@@ -1727,7 +1729,7 @@ class UIManager {
                     </div>
                     <div class="form-group">
                         <label for="edit-character-description">备注</label>
-                        <textarea id="edit-character-description" class="form-textarea">${currentCharacter.description || ''}</textarea>
+                        <textarea id="edit-character-description" class="form-textarea">${this.escapeHomeRankingText(currentCharacter.description || '')}</textarea>
                     </div>
                     <div class="form-actions">
                         <button type="button" class="btn btn-secondary" onclick="ui.closeModal()">取消</button>
@@ -1809,8 +1811,8 @@ class UIManager {
         if (!list.length) return `<span class="detail-chip detail-chip-muted">${fallback}</span>`;
         return list.map(item => `
             <span class="detail-chip detail-chip-${type}">
-                <span>${item.name}</span>
-                ${item.group_name && type === 'character' ? `<small>${item.group_name}</small>` : ''}
+                <span>${this.escapeHomeRankingText(item.name)}</span>
+                ${item.group_name && type === 'character' ? `<small>${this.escapeHomeRankingText(item.group_name)}</small>` : ''}
             </span>
         `).join('');
     }
@@ -1829,7 +1831,7 @@ class UIManager {
         ].map(([label, value]) => `
             <div class="detail-meta-item">
                 <span>${label}</span>
-                <strong>${value}</strong>
+                <strong>${this.escapeHomeRankingText(value)}</strong>
             </div>
         `).join('');
     }
@@ -1855,7 +1857,7 @@ class UIManager {
                     </div>
                     <div class="form-group">
                         <label for="edit-image-pid">PID</label>
-                        <input type="text" id="edit-image-pid" class="form-input" value="${image.pid || ''}">
+                        <input type="text" id="edit-image-pid" class="form-input" value="${this.escapeHomeRankingText(image.pid || '')}">
                     </div>
                     <div class="form-group">
                         <label for="edit-image-age-rating">年龄分级</label>
@@ -1865,7 +1867,7 @@ class UIManager {
                     </div>
                     <div class="form-group">
                         <label for="edit-image-description">备注</label>
-                        <textarea id="edit-image-description" class="form-textarea">${image.description || ''}</textarea>
+                        <textarea id="edit-image-description" class="form-textarea">${this.escapeHomeRankingText(image.description || '')}</textarea>
                     </div>
                     <div class="form-actions">
                         <button type="button" class="btn btn-secondary" onclick="ui.closeModal()">取消</button>
@@ -1993,7 +1995,7 @@ class UIManager {
                         </div>
                         <div class="detail-note">
                             <span>备注</span>
-                            <p>${image.description || '无'}</p>
+                            <p>${this.escapeHomeRankingText(image.description || '无')}</p>
                         </div>
                     </div>
                     

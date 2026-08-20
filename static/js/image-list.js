@@ -178,7 +178,7 @@
                         <div class="image-card-characters">
                             ${this.formatImageTags(image)}
                         </div>
-                        ${image.pid ? `<div class="image-card-pid">PID: ${image.pid}</div>` : ''}
+                        ${image.pid ? `<div class="image-card-pid">PID: ${this.escapeHomeRankingText(image.pid)}</div>` : ''}
                     </div>
                 </button>
                 ${restricted ? `<button type="button" class="image-card-reveal" aria-expanded="false" aria-controls="image-card-media-${image.image_id}">揭示 ${ratingLabel}</button>` : ''}

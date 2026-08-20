@@ -819,21 +819,27 @@ class UploadManager {
         // 使用encodeURIComponent处理特殊字符
         const html = images.map(imageName => {
             const encodedName = encodeURIComponent(imageName);
-            const escapedName = imageName.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            const escapedName = this.escapeHtml(imageName);
+            const escapedEncodedName = this.escapeHtml(encodedName);
             return `
-                <div class="temp-image-item">
-                    <img src="/resource/temp/${encodedName}" alt="${escapedName}" loading="lazy" decoding="async"
+                <div class="temp-image-item" data-image-name="${escapedEncodedName}">
+                    <img src="/resource/temp/${escapedEncodedName}" alt="${escapedName}" loading="lazy" decoding="async"
                          style="width: 150px; height: 150px; object-fit: cover; border-radius: 8px;">
-                    <div class="temp-image-name">${imageName}</div>
+                    <div class="temp-image-name">${escapedName}</div>
                     <div class="temp-image-actions">
-                        <button class="btn btn-primary btn-sm" onclick="upload.uploadTempImage('${encodedName}')">提交</button>
-                        <button class="btn btn-danger btn-sm" onclick="upload.deleteTempFile('${encodedName}')">删除</button>
+                        <button type="button" class="btn btn-primary btn-sm temp-image-submit">提交</button>
+                        <button type="button" class="btn btn-danger btn-sm temp-image-delete">删除</button>
                     </div>
                 </div>
             `;
         }).join('');
         
         grid.innerHTML = html;
+        grid.querySelectorAll('.temp-image-item').forEach(item => {
+            const encodedName = item.dataset.imageName;
+            item.querySelector('.temp-image-submit')?.addEventListener('click', () => this.uploadTempImage(encodedName));
+            item.querySelector('.temp-image-delete')?.addEventListener('click', () => this.deleteTempFile(encodedName));
+        });
     }
 
     async showTempDuplicateEditor(result, catalogs) {
@@ -1024,11 +1030,13 @@ class UploadManager {
             }
             
             const groupOptions = '';
+            const safeImageName = this.escapeHtml(imageName);
+            const safeEncodedName = this.escapeHtml(imageNameEncoded);
             
             const content = `
-                <form id="temp-upload-form" data-image-name="${imageNameEncoded}" onsubmit="event.preventDefault(); upload.submitTempUpload('${imageNameEncoded}')">
+                <form id="temp-upload-form" data-image-name="${safeEncodedName}">
                     <div class="temp-image-preview">
-                        <img src="/resource/temp/${imageNameEncoded}" alt="${imageName}" 
+                        <img src="/resource/temp/${safeEncodedName}" alt="${safeImageName}"
                              style="max-width: 100%; max-height: 400px; border-radius: 8px; margin-bottom: 16px;">
                     </div>
                     <div class="form-group">
@@ -1063,7 +1071,7 @@ class UploadManager {
                     </div>
                     <div class="form-actions">
                         <button type="button" class="btn btn-secondary" onclick="ui.closeModal()">取消</button>
-                        <button type="button" class="btn btn-danger" onclick="upload.deleteTempImageFromModal('${imageNameEncoded}')">删除</button>
+                        <button type="button" class="btn btn-danger" id="temp-upload-delete">删除</button>
                         <button type="submit" class="btn btn-primary">提交</button>
                     </div>
                 </form>
@@ -1079,6 +1087,10 @@ class UploadManager {
                     this.submitTempUpload(encoded);
                 };
             }
+            document.getElementById('temp-upload-delete')?.addEventListener('click', () => {
+                const encoded = tempForm?.dataset.imageName || imageNameEncoded;
+                this.deleteTempImageFromModal(encoded);
+            });
             
             // 初始化temp角色选择器
             const tempCharacterSelector = null;

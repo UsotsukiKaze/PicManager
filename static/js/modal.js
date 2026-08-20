@@ -152,7 +152,7 @@
         
         groupSelect.innerHTML = '<option value="">先选分组</option>';
         groups.forEach(group => {
-            groupSelect.innerHTML += `<option value="${group.id}" ${group.id == currentValue ? 'selected' : ''}>${group.name}</option>`;
+            groupSelect.innerHTML += `<option value="${group.id}" ${group.id == currentValue ? 'selected' : ''}>${this.escapeHomeRankingText(group.name)}</option>`;
         });
         
         // 重新初始化角色选择器
@@ -196,7 +196,7 @@
             
             select.innerHTML = '<option value="">先选分组</option>';
             groups.forEach(group => {
-                select.innerHTML += `<option value="${group.id}" ${group.id == currentValue ? 'selected' : ''}>${group.name}</option>`;
+                select.innerHTML += `<option value="${group.id}" ${group.id == currentValue ? 'selected' : ''}>${this.escapeHomeRankingText(group.name)}</option>`;
             });
             
             // 如果已选择分组，刷新角色列表
@@ -207,7 +207,7 @@
                     characterSelect.innerHTML = '';
                     characters.forEach(character => {
                         const selected = currentCharacters.includes(String(character.id));
-                        characterSelect.innerHTML += `<option value="${character.id}" ${selected ? 'selected' : ''}>${character.name}</option>`;
+                        characterSelect.innerHTML += `<option value="${character.id}" ${selected ? 'selected' : ''}>${this.escapeHomeRankingText(character.name)}</option>`;
                     });
                     characterSelect.disabled = false;
                 });
@@ -225,7 +225,7 @@
                     const characters = await api.getCharacters(parseInt(groupId));
                     characterSelect.innerHTML = '';
                     characters.forEach(character => {
-                        characterSelect.innerHTML += `<option value="${character.id}">${character.name}</option>`;
+                        characterSelect.innerHTML += `<option value="${character.id}">${this.escapeHomeRankingText(character.name)}</option>`;
                     });
                     characterSelect.disabled = false;
                 } else {
@@ -273,7 +273,7 @@
                 const groups = await api.getGroups();
                 tempGroupSelect.innerHTML = '<option value="">先选分组</option>';
                 groups.forEach(group => {
-                    tempGroupSelect.innerHTML += `<option value="${group.id}" ${group.id == newItemId ? 'selected' : ''}>${group.name}</option>`;
+                    tempGroupSelect.innerHTML += `<option value="${group.id}" ${group.id == newItemId ? 'selected' : ''}>${this.escapeHomeRankingText(group.name)}</option>`;
                 });
                 
                 // 自动选中并加载角色
@@ -316,7 +316,7 @@
                     // 刷新分组选项
                     select.innerHTML = '<option value="">先选分组</option>';
                     groups.forEach(group => {
-                        select.innerHTML += `<option value="${group.id}" ${group.id == currentValue ? 'selected' : ''}>${group.name}</option>`;
+                        select.innerHTML += `<option value="${group.id}" ${group.id == currentValue ? 'selected' : ''}>${this.escapeHomeRankingText(group.name)}</option>`;
                     });
                 } else if (itemType === 'character' && currentValue == groupId) {
                     // 刷新角色选项
@@ -327,7 +327,7 @@
                     characterSelect.innerHTML = '';
                     characters.forEach(character => {
                         const selected = currentChars.includes(String(character.id)) || character.id == newItemId;
-                        characterSelect.innerHTML += `<option value="${character.id}" ${selected ? 'selected' : ''}>${character.name}</option>`;
+                        characterSelect.innerHTML += `<option value="${character.id}" ${selected ? 'selected' : ''}>${this.escapeHomeRankingText(character.name)}</option>`;
                     });
                 }
             });
@@ -342,7 +342,7 @@
                 
                 singleGroupSelect.innerHTML = '<option value="">先选分组</option>';
                 groups.forEach(group => {
-                    singleGroupSelect.innerHTML += `<option value="${group.id}" ${group.id == currentValue ? 'selected' : ''}>${group.name}</option>`;
+                    singleGroupSelect.innerHTML += `<option value="${group.id}" ${group.id == currentValue ? 'selected' : ''}>${this.escapeHomeRankingText(group.name)}</option>`;
                 });
                 
                 // 选中新分组

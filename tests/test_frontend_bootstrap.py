@@ -18,6 +18,7 @@ def _ui_source() -> str:
 SECURITY_JS = PROJECT_ROOT / "static" / "js" / "security.js"
 CHARACTER_SELECTOR_JS = PROJECT_ROOT / "static" / "js" / "character-selector.js"
 TAG_SELECTOR_JS = PROJECT_ROOT / "static" / "js" / "tag-selector.js"
+UPLOAD_JS = PROJECT_ROOT / "static" / "js" / "upload.js"
 
 
 def test_anonymous_shell_only_eagerly_loads_auth_bootstrap():
@@ -76,6 +77,39 @@ def test_user_controlled_entity_names_are_html_escaped_before_rendering():
     assert "window.PicManagerSecurity.escapeHTML(value)" in ui_source
     assert "this.escapeHTML(char.name)" in character_source
     assert "this.escapeHTML(item.name)" in tag_source
+
+
+def test_all_management_entity_fields_are_escaped_at_html_render_sinks():
+    ui_source = _ui_source()
+
+    for expression in (
+        "this.escapeHomeRankingText(group.name)",
+        "this.escapeHomeRankingText(group.description || '无描述')",
+        "this.escapeHomeRankingText(character.name)",
+        "this.escapeHomeRankingText(tag.name)",
+        "this.escapeHomeRankingText(tag.description || '')",
+        "this.escapeHomeRankingText(image.pid || '')",
+        "this.escapeHomeRankingText(image.description || '无')",
+        "this.escapeHomeRankingText(value)",
+    ):
+        assert expression in ui_source
+
+    assert '<div class="list-item-name">${group.name}</div>' not in ui_source
+    assert '<div class="list-item-name">${character.name}</div>' not in ui_source
+    assert '<div class="list-item-name">${tag.name}</div>' not in ui_source
+    assert '<p>${image.description || \'无\'}</p>' not in ui_source
+
+
+def test_temp_filenames_are_escaped_and_not_embedded_in_inline_handlers():
+    source = UPLOAD_JS.read_text(encoding="utf-8")
+
+    assert "const escapedName = this.escapeHtml(imageName)" in source
+    assert '<div class="temp-image-name">${escapedName}</div>' in source
+    assert "item.querySelector('.temp-image-submit')?.addEventListener" in source
+    assert "document.getElementById('temp-upload-delete')?.addEventListener" in source
+    assert "onclick=\"upload.uploadTempImage('${encodedName}')\"" not in source
+    assert "onclick=\"upload.deleteTempFile('${encodedName}')\"" not in source
+    assert "onclick=\"upload.deleteTempImageFromModal('${imageNameEncoded}')\"" not in source
 
 
 def test_page_features_are_lazy_loaded_and_deduplicated():

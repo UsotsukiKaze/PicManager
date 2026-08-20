@@ -2065,6 +2065,7 @@ function setAgeRatingFilter(rating, activeButton) {
         button.classList.toggle('active', active);
         button.setAttribute('aria-selected', String(active));
     });
+    window.queryPanels?.update('image-search-panel');
     searchImages();
 }
 
@@ -2093,6 +2094,7 @@ function clearSearch() {
     // 重新加载图片
     ui.pagination.currentPage = 1;
     ui.activeImageSearchParams = {};
+    window.queryPanels?.update('image-search-panel');
     ui.loadImages({});
     ui.showToast('已重置查找条件', 'info');
 }

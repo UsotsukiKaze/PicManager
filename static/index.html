@@ -201,15 +201,28 @@
 
                     <!-- 图片列表标签页 -->
                     <div class="tab-content" id="tab-image-list">
-                        <div class="search-section">
-                            <div class="search-form">
+                        <div class="query-toolbar">
+                            <div class="query-toolbar-copy">
+                                <strong>图库查询</strong>
+                                <span data-query-summary-for="image-search-panel">需要时展开，不占用列表空间</span>
+                            </div>
+                            <button type="button" class="query-toggle" data-query-toggle="image-search-panel"
+                                    aria-expanded="false" aria-controls="image-search-panel">
+                                <span class="query-icon" aria-hidden="true"></span>
+                                <span>查询</span>
+                                <b data-query-badge-for="image-search-panel" hidden>0</b>
+                            </button>
+                        </div>
+                        <div class="query-panel" id="image-search-panel" aria-hidden="true">
+                            <div class="query-panel-inner">
+                            <div class="search-form query-surface">
                                 <!-- 基础搜索 -->
                                 <div class="form-row">
                                     <div class="form-group">
                                         <label>按分组找</label>
                                         <div class="searchable-select" id="search-group-container">
                                             <input type="text" class="form-input searchable-input" id="search-group-input" placeholder="输入分组名..." autocomplete="off">
-                                            <input type="hidden" id="search-group" value="">
+                                            <input type="hidden" id="search-group" value="" data-query-count>
                                             <div class="searchable-dropdown" id="search-group-dropdown"></div>
                                         </div>
                                     </div>
@@ -217,16 +230,16 @@
                                         <label>按角色找</label>
                                         <div class="searchable-select" id="search-character-container">
                                             <input type="text" class="form-input searchable-input" id="search-character-input" placeholder="输入角色名..." autocomplete="off">
-                                            <input type="hidden" id="search-character" value="">
+                                            <input type="hidden" id="search-character" value="" data-query-count>
                                             <div class="searchable-dropdown" id="search-character-dropdown"></div>
                                         </div>
                                     </div>
                                     <div class="form-group">
                                         <label for="search-pid">按 PID 找</label>
-                                        <input type="text" id="search-pid" class="form-input" placeholder="输入 PID">
+                                        <input type="text" id="search-pid" class="form-input" placeholder="输入 PID" data-query-count>
                                     </div>
                                     <div class="form-group form-actions-group">
-                                        <button class="btn btn-primary" onclick="searchImages()">
+                                        <button class="btn btn-primary" onclick="searchImages()" data-query-apply="image-search-panel">
                                             查找
                                         </button>
                                         <button class="btn btn-secondary" onclick="clearSearch()">
@@ -241,7 +254,7 @@
 
                                 <div class="age-filter-bar">
                                     <span class="age-filter-label">年龄分级</span>
-                                    <input type="hidden" id="search-age-rating" value="">
+                                    <input type="hidden" id="search-age-rating" value="" data-query-count>
                                     <div class="age-filter-tabs" role="tablist" aria-label="按年龄分级筛选图片">
                                         <button type="button" class="age-filter-tab active" role="tab" aria-selected="true" aria-controls="image-grid" data-age-rating="" onclick="setAgeRatingFilter('', this)">全部</button>
                                         <button type="button" class="age-filter-tab" role="tab" aria-selected="false" aria-controls="image-grid" data-age-rating="all" onclick="setAgeRatingFilter('all', this)">全年龄</button>
@@ -256,7 +269,7 @@
                                     <div class="form-row">
                                         <div class="form-group">
                                             <label for="search-image-id">图片编号</label>
-                                            <input type="text" id="search-image-id" class="form-input" placeholder="输入图片编号">
+                                            <input type="text" id="search-image-id" class="form-input" placeholder="输入图片编号" data-query-count>
                                         </div>
                                         <div class="form-group">
                                             <button class="btn btn-primary" onclick="searchByImageId()">
@@ -266,6 +279,7 @@
                                     </div>
                                 </div>
                             </div>
+                        </div>
                         </div>
 
                         <div class="image-grid" id="image-grid">
@@ -279,15 +293,20 @@
 
                     <!-- 分组管理标签页 -->
                     <div class="tab-content" id="tab-group-management" style="display: none;">
-                        <div class="search-bar" style="margin-bottom: 24px;">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <button class="btn btn-primary" onclick="showCreateGroupModal()">
-                                        添加分组
-                                    </button>
-                                </div>
-                                <div class="form-group" style="flex: 1;">
-                                    <input type="text" id="group-search-input" class="form-input" placeholder="输入分组名">
+                        <div class="entity-toolbar">
+                            <button class="btn btn-primary" onclick="showCreateGroupModal()">添加分组</button>
+                            <button type="button" class="query-toggle" data-query-toggle="group-query-panel"
+                                    aria-expanded="false" aria-controls="group-query-panel">
+                                <span class="query-icon" aria-hidden="true"></span>
+                                <span>查询</span>
+                                <b data-query-badge-for="group-query-panel" hidden>0</b>
+                            </button>
+                        </div>
+                        <div class="query-panel compact-query-panel" id="group-query-panel" aria-hidden="true">
+                            <div class="query-panel-inner">
+                                <div class="query-surface compact-query-surface">
+                                    <label for="group-search-input">按分组名称或别称查询</label>
+                                    <input type="search" id="group-search-input" class="form-input" placeholder="输入分组名" data-query-count>
                                 </div>
                             </div>
                         </div>
@@ -299,22 +318,30 @@
 
                     <!-- 角色管理标签页 -->
                     <div class="tab-content" id="tab-character-management" style="display: none;">
-                        <div class="search-bar" style="margin-bottom: 24px;">
-                            <div class="form-row">
+                        <div class="entity-toolbar">
+                            <button class="btn btn-primary" onclick="showCreateCharacterModal()">添加角色</button>
+                            <button type="button" class="query-toggle" data-query-toggle="character-query-panel"
+                                    aria-expanded="false" aria-controls="character-query-panel">
+                                <span class="query-icon" aria-hidden="true"></span>
+                                <span>查询</span>
+                                <b data-query-badge-for="character-query-panel" hidden>0</b>
+                            </button>
+                        </div>
+                        <div class="query-panel compact-query-panel" id="character-query-panel" aria-hidden="true">
+                            <div class="query-panel-inner">
+                                <div class="query-surface compact-query-grid">
                                 <div class="form-group">
-                                    <button class="btn btn-primary" onclick="showCreateCharacterModal()">
-                                        添加角色
-                                    </button>
-                                </div>
-                                <div class="form-group" style="flex: 1;">
+                                    <label for="character-group-filter-input">所属分组</label>
                                     <div class="searchable-select" id="character-group-filter-container">
                                         <input type="text" class="form-input searchable-input" id="character-group-filter-input" placeholder="输入分组名..." autocomplete="off">
-                                        <input type="hidden" id="character-group-filter" value="">
+                                        <input type="hidden" id="character-group-filter" value="" data-query-count>
                                         <div class="searchable-dropdown" id="character-group-filter-dropdown"></div>
                                     </div>
                                 </div>
-                                <div class="form-group" style="flex: 2;">
-                                    <input type="text" id="character-search-input" class="form-input" placeholder="输入角色名">
+                                <div class="form-group">
+                                    <label for="character-search-input">角色名称或昵称</label>
+                                    <input type="search" id="character-search-input" class="form-input" placeholder="输入角色名" data-query-count>
+                                </div>
                                 </div>
                             </div>
                         </div>
@@ -325,13 +352,20 @@
                     </div>
 
                     <div class="tab-content" id="tab-feature-tag-management" style="display: none;">
-                        <div class="search-bar" style="margin-bottom: 24px;">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <button class="btn btn-primary" onclick="ui.showCreateFeatureTagModal()">添加特征标签</button>
-                                </div>
-                                <div class="form-group" style="flex: 1;">
-                                    <input type="text" id="feature-tag-search-input" class="form-input" placeholder="输入特征标签名">
+                        <div class="entity-toolbar">
+                            <button class="btn btn-primary" onclick="ui.showCreateFeatureTagModal()">添加特征标签</button>
+                            <button type="button" class="query-toggle" data-query-toggle="feature-tag-query-panel"
+                                    aria-expanded="false" aria-controls="feature-tag-query-panel">
+                                <span class="query-icon" aria-hidden="true"></span>
+                                <span>查询</span>
+                                <b data-query-badge-for="feature-tag-query-panel" hidden>0</b>
+                            </button>
+                        </div>
+                        <div class="query-panel compact-query-panel" id="feature-tag-query-panel" aria-hidden="true">
+                            <div class="query-panel-inner">
+                                <div class="query-surface compact-query-surface">
+                                    <label for="feature-tag-search-input">按特征标签名称或别称查询</label>
+                                    <input type="search" id="feature-tag-search-input" class="form-input" placeholder="输入特征标签名" data-query-count>
                                 </div>
                             </div>
                         </div>
@@ -499,20 +533,37 @@
                     </div>
 
                     <div class="tab-content" id="tab-emoji-list">
-                        <div class="search-bar" style="margin-bottom: 24px;">
-                            <div class="form-row">
+                        <div class="query-toolbar">
+                            <div class="query-toolbar-copy">
+                                <strong>表情查询</strong>
+                                <span data-query-summary-for="emoji-query-panel">需要时展开，不占用列表空间</span>
+                            </div>
+                            <button type="button" class="query-toggle" data-query-toggle="emoji-query-panel"
+                                    aria-expanded="false" aria-controls="emoji-query-panel">
+                                <span class="query-icon" aria-hidden="true"></span>
+                                <span>查询</span>
+                                <b data-query-badge-for="emoji-query-panel" hidden>0</b>
+                            </button>
+                        </div>
+                        <div class="query-panel" id="emoji-query-panel" aria-hidden="true">
+                            <div class="query-panel-inner">
+                            <div class="query-surface emoji-query-grid">
                                 <div class="form-group">
-                                    <select id="emoji-group-filter" class="form-input"></select>
+                                    <label for="emoji-group-filter">分组</label>
+                                    <select id="emoji-group-filter" class="form-input" data-query-count></select>
                                 </div>
                                 <div class="form-group">
-                                    <select id="emoji-character-filter" class="form-input"></select>
+                                    <label for="emoji-character-filter">角色</label>
+                                    <select id="emoji-character-filter" class="form-input" data-query-count></select>
                                 </div>
                                 <div class="form-group">
-                                    <select id="emoji-emotion-filter" class="form-input"></select>
+                                    <label for="emoji-emotion-filter">情绪</label>
+                                    <select id="emoji-emotion-filter" class="form-input" data-query-count></select>
                                 </div>
-                                <div class="form-group">
-                                    <button class="btn btn-primary" onclick="emojiLibrary.applyFilters()">筛选</button>
+                                <div class="form-group emoji-query-action">
+                                    <button class="btn btn-primary" onclick="emojiLibrary.applyFilters()" data-query-apply="emoji-query-panel">应用筛选</button>
                                 </div>
+                            </div>
                             </div>
                         </div>
 

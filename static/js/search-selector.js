@@ -121,6 +121,7 @@
                 input.value = text;
                 hidden.value = value;
                 dropdown.classList.remove('show');
+                window.queryPanels?.updateForField(hidden);
                 
                 const currentConfig = input._config;
                 if (currentConfig.onSelect) {

@@ -57,6 +57,7 @@ class EmojiLibrary {
         if (groupFilter) groupFilter.value = selectedFilters.group;
         if (characterFilter) characterFilter.value = selectedFilters.character;
         if (emotionFilter) emotionFilter.value = selectedFilters.emotion;
+        window.queryPanels?.update('emoji-query-panel');
 
         this.renderUploadTagControls();
     }

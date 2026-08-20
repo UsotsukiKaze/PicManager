@@ -21,7 +21,6 @@ def test_mobile_hides_decorative_or_desktop_maintenance_surfaces():
     assert ".mobile-hide," in mobile
     assert ".admin-maintenance" in mobile
     assert ".home-orbit," in mobile
-    assert ".home-stat-hint," in mobile
 
 
 def test_mobile_active_navigation_keeps_a_visible_colored_icon():
@@ -32,27 +31,31 @@ def test_mobile_active_navigation_keeps_a_visible_colored_icon():
     assert "background: rgba(0, 122, 255, 0.1)" in mobile
 
 
-def test_mobile_home_title_breaks_and_stats_stay_in_one_compact_row():
+def test_mobile_home_title_breaks_and_metrics_stay_in_one_compact_row():
     mobile = STYLE.split("/* Mobile-focused simplification", 1)[1]
     assert 'class="home-title-name"' in INDEX
     assert ".home-title-name" in mobile
     assert "display: block" in mobile.split(".home-title-name", 1)[1].split("}", 1)[0]
-    dashboard = mobile.split(".home-dashboard {", 1)[1].split("}", 1)[0]
-    assert "grid-template-columns: repeat(3, minmax(0, 1fr))" in dashboard
-    assert "min-height: 76px" in mobile
-    assert "font-size: clamp(17px, 5vw, 21px)" in mobile
+    metrics = mobile.split(".home-metrics {", 1)[1].split("}", 1)[0]
+    assert "grid-template-columns: repeat(3, minmax(0, 1fr))" in metrics
+    assert "min-height: 92px" in mobile
+    assert "font-size: clamp(20px, 6vw, 26px)" in mobile
 
 
-def test_home_hero_removes_redundant_copy_and_compacts_decorative_fill_on_mobile():
+def test_home_hero_replaces_decorative_spectrum_with_emphasized_metrics():
     mobile = STYLE.split("/* Mobile-focused simplification", 1)[1]
     assert "这里可以快速查看图片数量" not in INDEX
     assert '>查看图片</button>' not in INDEX
     assert '>去上传</button>' not in INDEX
-    assert 'class="home-hero-spectrum"' in INDEX
-    assert ".home-hero-spectrum" in STYLE
-    mobile_spectrum = mobile.split(".home-hero-spectrum {", 1)[1].split("}", 1)[0]
-    assert "min-height: 52px" in mobile_spectrum
-    assert "padding: 10px 12px" in mobile_spectrum
+    assert "home-hero-spectrum" not in INDEX
+    assert "home-spectrum-line" not in STYLE
+    assert 'class="home-metrics"' in INDEX
+    assert INDEX.count("home-metric-card home-metric-") == 3
+    for element_id in ("home-total-images", "home-total-emojis", "home-total-groups", "home-total-characters"):
+        assert INDEX.count(f'id="{element_id}"') == 1
+    assert "font-variant-numeric: tabular-nums" in STYLE
+    metric = mobile.split(".home-metric-card {", 1)[1].split("}", 1)[0]
+    assert "min-height: 92px" in metric
 
 
 def test_mobile_modals_are_safe_area_aware_bottom_sheets():

@@ -21,7 +21,7 @@
         html:not(.app-booting) .app-bootstrap-status { display: none; }
     </style>
     <noscript><meta http-equiv="refresh" content="0; url=/login"></noscript>
-    <script src="/static/js/auth.js?v=20260820m"></script>
+    <script src="/static/js/auth.js?v=20260820n"></script>
 </head>
 <body>
     <div class="app-bootstrap-status" role="status">正在验证登录状态…</div>
@@ -107,11 +107,31 @@
                         <div class="home-hero-copy">
                             <div class="home-kicker">PicManager</div>
                             <h2>欢迎来到~ <span class="home-title-name">小 · 爱 · 图 · 库</span></h2>
-                            <div class="home-hero-spectrum" aria-hidden="true">
-                                <span class="home-spectrum-line"></span>
-                                <span class="home-spectrum-line"></span>
-                                <span class="home-spectrum-line"></span>
-                                <div class="home-spectrum-nodes"><i></i><i></i><i></i></div>
+                            <div class="home-metrics" aria-label="图库统计">
+                                <article class="home-metric-card home-metric-images">
+                                    <div class="home-metric-top">
+                                        <span class="home-metric-index">01</span>
+                                        <span class="home-metric-label">全部图片</span>
+                                    </div>
+                                    <strong id="home-total-images">0</strong>
+                                    <span class="home-metric-caption">数据库总量</span>
+                                </article>
+                                <article class="home-metric-card home-metric-emojis">
+                                    <div class="home-metric-top">
+                                        <span class="home-metric-index">02</span>
+                                        <span class="home-metric-label">表情包库</span>
+                                    </div>
+                                    <strong id="home-total-emojis">0</strong>
+                                    <span class="home-metric-caption">独立收藏数量</span>
+                                </article>
+                                <article class="home-metric-card home-metric-dimensions">
+                                    <div class="home-metric-top">
+                                        <span class="home-metric-index">03</span>
+                                        <span class="home-metric-label">分组和角色</span>
+                                    </div>
+                                    <strong class="home-metric-pair"><span id="home-total-groups">0</span><span class="home-metric-separator">/</span><span id="home-total-characters">0</span></strong>
+                                    <span class="home-metric-caption">检索维度</span>
+                                </article>
                             </div>
                         </div>
                         <div class="home-orbit" id="home-group-orbit" aria-hidden="true">
@@ -119,24 +139,6 @@
                                 <img data-auth-src="/static/icon/Pic.ico" alt="">
                             </div>
                             <span class="orbit-chip chip-one">加载分组...</span>
-                        </div>
-                    </section>
-
-                    <section class="home-dashboard">
-                        <div class="home-stat-tile">
-                            <span class="home-stat-label">全部图片</span>
-                            <strong id="home-total-images">0</strong>
-                            <span class="home-stat-hint">数据库总量</span>
-                        </div>
-                        <div class="home-stat-tile">
-                            <span class="home-stat-label">表情包库</span>
-                            <strong id="home-total-emojis">0</strong>
-                            <span class="home-stat-hint">独立收藏数量</span>
-                        </div>
-                        <div class="home-stat-tile">
-                            <span class="home-stat-label">分组和角色</span>
-                            <strong><span id="home-total-groups">0</span> / <span id="home-total-characters">0</span></strong>
-                            <span class="home-stat-hint">检索维度</span>
                         </div>
                     </section>
 

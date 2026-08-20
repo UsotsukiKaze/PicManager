@@ -661,5 +661,26 @@
     <!-- Toast 通知 -->
     <div class="toast-container" id="toast-container"></div>
 
+    <aside class="upload-queue-dock" id="upload-queue-dock" hidden aria-label="上传队列">
+        <button type="button" class="upload-queue-toggle" id="upload-queue-toggle"
+                aria-expanded="false" aria-controls="upload-queue-panel" aria-label="查看上传队列">
+            <span class="upload-queue-glyph" aria-hidden="true"></span>
+            <span class="upload-queue-badge" id="upload-queue-badge" hidden>0</span>
+        </button>
+        <section class="upload-queue-panel" id="upload-queue-panel" aria-hidden="true">
+            <header>
+                <div>
+                    <strong>上传队列</strong>
+                    <span id="upload-queue-summary">暂无上传任务</span>
+                </div>
+                <button type="button" id="upload-queue-close" aria-label="收起上传队列">×</button>
+            </header>
+            <ol class="upload-queue-list" id="upload-queue-list" aria-live="polite"></ol>
+            <footer>
+                <button type="button" id="upload-queue-clear">清理已完成</button>
+            </footer>
+        </section>
+    </aside>
+
 </body>
 </html>

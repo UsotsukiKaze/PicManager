@@ -536,14 +536,18 @@ class UploadManager {
         return queued;
     }
 
-    async uploadWithDuplicateChoice(file, metadata, onProgress, previewUrl = '') {
+    async uploadWithDuplicateChoice(file, metadata, onProgress, previewUrl = '', onStage = null) {
+        if (onStage) onStage('uploading');
         const firstResult = await api.uploadSingleImage(file, metadata, onProgress);
+        if (onStage) onStage('processing');
         if (firstResult?.status !== 'duplicate') return firstResult;
+        if (onStage) onStage('attention');
         const decision = await this.resolveDuplicateChoice(firstResult, previewUrl);
         if (!decision) {
             await api.resolveDuplicateImage(firstResult.duplicate_token, 'cancel');
             return { status: 'cancelled', message: '已取消提交' };
         }
+        if (onStage) onStage('processing');
         const keep = decision.action === 'merge'
             ? (decision.keep === 'new' ? 'merge-new' : `merge-existing:${decision.keep}`)
             : decision.action;
@@ -560,71 +564,105 @@ class UploadManager {
         };
     }
 
-    async uploadSingleImage() {
-        if (this.singleSubmitting) return;
+    queueStage(taskId, stage) {
+        if (!window.uploadQueue || !taskId) return;
+        const messages = {
+            uploading: '正在发送图片',
+            processing: '校验、查重并入库',
+            attention: '请处理查重结果',
+        };
+        uploadQueue.update(taskId, { status: stage, message: messages[stage] || '' });
+        if (stage === 'attention') uploadQueue.setOpen(true);
+    }
+
+    detachSingleUploadForQueue() {
+        // Transfer ownership of the preview URL to the queued task before the
+        // form resets, so another single image can be submitted immediately.
+        this.singlePreviewUrl = null;
+        this.clearSingleUpload();
+    }
+
+    async uploadSingleImage(queueContext = null) {
+        let context = queueContext;
         try {
-            const fileInput = document.getElementById('single-file-input');
-            const file = this.singleFile || fileInput?.files?.[0];
-            
-            if (!file) {
-                ui.showToast('请选择图片文件', 'error');
-                return;
+            if (!context) {
+                const fileInput = document.getElementById('single-file-input');
+                const file = this.singleFile || fileInput?.files?.[0];
+                if (!file) {
+                    ui.showToast('请选择图片文件', 'error');
+                    return;
+                }
+
+                const selectedTags = this.singleTagSelector ? this.singleTagSelector.getValue() : { group_ids: [], character_ids: [], feature_tag_ids: [] };
+                const selectedCharacters = selectedTags.character_ids || [];
+                if (selectedCharacters.length === 0) {
+                    ui.showToast('请至少选一个角色', 'error');
+                    return;
+                }
+                if ((selectedTags.group_ids || []).length === 0) {
+                    ui.showToast('请至少添加一个分组标签', 'error');
+                    return;
+                }
+
+                context = {
+                    file,
+                    previewUrl: this.singlePreviewUrl || '',
+                    metadata: {
+                        character_ids: selectedCharacters,
+                        group_ids: selectedTags.group_ids || [],
+                        feature_tag_ids: selectedTags.feature_tag_ids || [],
+                        age_rating: document.getElementById('single-age-rating')?.value || 'all',
+                        pid: document.getElementById('single-pid').value || null,
+                        description: document.getElementById('single-description').value || null
+                    },
+                    taskId: null,
+                };
+                if (window.uploadQueue) {
+                    context.taskId = uploadQueue.add({
+                        name: file.name,
+                        size: file.size,
+                        retry: () => this.uploadSingleImage(context),
+                        dispose: () => {
+                            if (context.previewUrl) URL.revokeObjectURL(context.previewUrl);
+                            context.previewUrl = '';
+                            context.file = null;
+                        },
+                    });
+                }
+                this.detachSingleUploadForQueue();
+                ui.showToast('上传任务已收进队列，可以继续选择图片', 'info');
             }
 
-            const selectedTags = this.singleTagSelector ? this.singleTagSelector.getValue() : { group_ids: [], character_ids: [], feature_tag_ids: [] };
-            const selectedCharacters = selectedTags.character_ids || [];
-            
-            if (selectedCharacters.length === 0) {
-                ui.showToast('请至少选一个角色', 'error');
-                return;
-            }
-
-            if ((selectedTags.group_ids || []).length === 0) {
-                ui.showToast('请至少添加一个分组标签', 'error');
-                return;
-            }
-
-            const metadata = {
-                character_ids: selectedCharacters,
-                group_ids: selectedTags.group_ids || [],
-                feature_tag_ids: selectedTags.feature_tag_ids || [],
-                age_rating: document.getElementById('single-age-rating')?.value || 'all',
-                pid: document.getElementById('single-pid').value || null,
-                description: document.getElementById('single-description').value || null
-            };
-
-            this.singleSubmitting = true;
-            const submitButton = document.getElementById('single-upload-submit');
-            if (submitButton) {
-                submitButton.disabled = true;
-                submitButton.textContent = '正在提交…';
-            }
-            ui.showToast('正在上传图片...', 'info');
-            
-            const result = await this.uploadWithDuplicateChoice(file, metadata, (progress) => {
-                ui.showToast(`正在上传图片... ${progress}%`, 'info');
-            }, this.singlePreviewUrl || '');
+            this.queueStage(context.taskId, 'uploading');
+            const result = await this.uploadWithDuplicateChoice(context.file, context.metadata, (progress) => {
+                if (window.uploadQueue && context.taskId) {
+                    uploadQueue.update(context.taskId, { progress, message: progress >= 100 ? '等待服务器处理' : `已上传 ${progress}%` });
+                }
+            }, context.previewUrl || '', stage => this.queueStage(context.taskId, stage));
             if (result.status === 'cancelled') {
+                if (window.uploadQueue && context.taskId) {
+                    uploadQueue.update(context.taskId, { status: 'cancelled', message: result.message, retry: null });
+                }
                 ui.showToast(result.message, 'info');
                 return;
             }
+            if (window.uploadQueue && context.taskId) {
+                uploadQueue.update(context.taskId, { status: 'success', progress: 100, message: result.message, retry: null });
+            }
             ui.showToast(result.message, result.status === 'kept_existing' ? 'info' : 'success');
-            
-            this.clearSingleUpload();
-            
-            // 切换到图片管理页面并刷新
-            ui.switchPage('management');
             ui.loadImages(null);
             ui.loadSystemStatus();
-            
         } catch (error) {
+            if (window.uploadQueue && context?.taskId) {
+                uploadQueue.update(context.taskId, { status: 'failed', message: error.message || '上传失败' });
+                uploadQueue.setOpen(true);
+            }
             ui.showToast(`上传失败: ${error.message}`, 'error');
         } finally {
-            this.singleSubmitting = false;
-            const submitButton = document.getElementById('single-upload-submit');
-            if (submitButton) {
-                submitButton.disabled = false;
-                submitButton.textContent = '提交图片';
+            if (context && ['success', 'cancelled'].includes(window.uploadQueue?.get(context.taskId)?.status)) {
+                if (context.previewUrl) URL.revokeObjectURL(context.previewUrl);
+                context.previewUrl = '';
+                context.file = null;
             }
         }
     }
@@ -649,6 +687,17 @@ class UploadManager {
 
         const processItem = async (item) => {
             this.syncBatchItemFromDom(item);
+            if (window.uploadQueue) {
+                if (!item.queueTaskId) {
+                    item.queueTaskId = uploadQueue.add({
+                        name: item.file.name,
+                        size: item.file.size,
+                        retry: () => this.processBatchUpload([item.id]),
+                    });
+                } else {
+                    uploadQueue.update(item.queueTaskId, { status: 'queued', progress: 0, message: '等待重试' });
+                }
+            }
             try {
                 const selectedTags = item.tags || { group_ids: [], character_ids: [], feature_tag_ids: [] };
                 const selectedCharacters = selectedTags.character_ids || [];
@@ -657,6 +706,7 @@ class UploadManager {
                     item.status = 'failed';
                     item.message = '请至少选择一个角色';
                     failedCount++;
+                    if (window.uploadQueue && item.queueTaskId) uploadQueue.update(item.queueTaskId, { status: 'failed', message: item.message });
                     this.updateBatchItemStatus(item);
                     return;
                 }
@@ -664,6 +714,7 @@ class UploadManager {
                     item.status = 'failed';
                     item.message = '请至少添加一个分组标签';
                     failedCount++;
+                    if (window.uploadQueue && item.queueTaskId) uploadQueue.update(item.queueTaskId, { status: 'failed', message: item.message });
                     this.updateBatchItemStatus(item);
                     return;
                 }
@@ -680,14 +731,22 @@ class UploadManager {
                 item.status = 'uploading';
                 item.progress = 0;
                 item.message = '';
+                const batchElement = this.getBatchElement(item.id);
+                if (batchElement) batchElement.dataset.queueCollapsed = 'true';
                 this.updateBatchItemStatus(item);
+                this.queueStage(item.queueTaskId, 'uploading');
                 const result = await this.uploadWithDuplicateChoice(item.file, metadata, (progress) => {
                     item.progress = progress;
+                    if (window.uploadQueue && item.queueTaskId) {
+                        uploadQueue.update(item.queueTaskId, { progress, message: progress >= 100 ? '等待服务器处理' : `已上传 ${progress}%` });
+                    }
                     this.updateBatchItemStatus(item);
-                }, item.previewUrl || '');
+                }, item.previewUrl || '', stage => this.queueStage(item.queueTaskId, stage));
                 if (result.status === 'cancelled') {
                     item.status = 'ready';
                     item.message = result.message;
+                    if (batchElement) delete batchElement.dataset.queueCollapsed;
+                    if (window.uploadQueue && item.queueTaskId) uploadQueue.update(item.queueTaskId, { status: 'cancelled', message: result.message });
                     this.updateBatchItemStatus(item);
                     return;
                 }
@@ -696,6 +755,9 @@ class UploadManager {
                 item.status = isPending ? 'pending-review' : 'success';
                 item.progress = 100;
                 item.message = message;
+                if (window.uploadQueue && item.queueTaskId) {
+                    uploadQueue.update(item.queueTaskId, { status: 'success', progress: 100, message, retry: null });
+                }
                 this.updateBatchItemStatus(item);
                 if (isPending) {
                     pendingCount++;
@@ -706,6 +768,12 @@ class UploadManager {
                 console.error(`上传 ${item.file.name} 失败:`, error);
                 item.status = 'failed';
                 item.message = error.message || '上传失败，请重试';
+                const batchElement = this.getBatchElement(item.id);
+                if (batchElement) delete batchElement.dataset.queueCollapsed;
+                if (window.uploadQueue && item.queueTaskId) {
+                    uploadQueue.update(item.queueTaskId, { status: 'failed', message: item.message });
+                    uploadQueue.setOpen(true);
+                }
                 failedCount++;
                 this.updateBatchItemStatus(item);
             }

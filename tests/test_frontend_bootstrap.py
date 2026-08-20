@@ -25,7 +25,7 @@ def test_anonymous_shell_only_eagerly_loads_auth_bootstrap():
     html = INDEX_HTML.read_text(encoding="utf-8")
     eager_scripts = re.findall(r'<script\b[^>]*\bsrc="([^"]+)"', html)
 
-    assert eager_scripts == ["/static/js/auth.js?v=20260820r"]
+    assert eager_scripts == ["/static/js/auth.js?v=20260820s"]
     assert 'class="app-booting"' in html
     assert '<noscript><meta http-equiv="refresh" content="0; url=/login"></noscript>' in html
     assert 'rel="stylesheet" href="/static/css/style.css' not in html
@@ -46,6 +46,8 @@ def test_authenticated_bootstrap_loads_application_only_after_auth_success():
     for asset in (
         "/static/css/style.css?v=20260820r",
         "/static/js/security.js?v=20260820a",
+        "/static/vendor/pinyin-pro-3.29.2.min.js?v=3.29.2",
+        "/static/js/pinyin-search.js?v=20260820b",
         "/static/js/character-selector.js?v=20260820a",
         "/static/js/tag-selector.js?v=20260820d",
         "/static/js/api.js?v=20260820h",
@@ -64,6 +66,10 @@ def test_authenticated_bootstrap_loads_application_only_after_auth_success():
     assert "await scriptsReady" in source
     assert "for (const src of scripts)" not in source
     assert "script.async = false" in source
+
+    vendor_position = source.index("/static/vendor/pinyin-pro-3.29.2.min.js")
+    search_position = source.index("/static/js/pinyin-search.js")
+    assert vendor_position < search_position
 
 
 def test_user_controlled_entity_names_are_html_escaped_before_rendering():

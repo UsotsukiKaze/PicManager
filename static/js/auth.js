@@ -124,7 +124,8 @@ class AuthManager {
             ]);
             const scripts = [
                 '/static/js/security.js?v=20260820a',
-                '/static/js/pinyin-search.js?v=20260812a',
+                '/static/vendor/pinyin-pro-3.29.2.min.js?v=3.29.2',
+                '/static/js/pinyin-search.js?v=20260820b',
                 '/static/js/character-selector.js?v=20260820a',
                 '/static/js/tag-selector.js?v=20260820d',
                 '/static/js/api.js?v=20260820h',

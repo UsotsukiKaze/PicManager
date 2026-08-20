@@ -126,8 +126,8 @@ class AuthManager {
                 '/static/js/security.js?v=20260820a',
                 '/static/vendor/pinyin-pro-3.29.2.min.js?v=3.29.2',
                 '/static/js/pinyin-search.js?v=20260820b',
-                '/static/js/character-selector.js?v=20260820a',
-                '/static/js/tag-selector.js?v=20260820d',
+                '/static/js/character-selector.js?v=20260820b',
+                '/static/js/tag-selector.js?v=20260820e',
                 '/static/js/api.js?v=20260820h',
                 '/static/js/upload-queue.js?v=20260820j',
                 '/static/js/query-panel.js?v=20260820d',
@@ -135,7 +135,7 @@ class AuthManager {
                 '/static/js/search-selector.js?v=20260820d',
                 '/static/js/image-list.js?v=20260820b',
                 '/static/js/modal.js?v=20260820a',
-                '/static/js/ui.js?v=20260820d',
+                '/static/js/ui.js?v=20260820e',
                 '/static/js/main.js?v=20260812c',
             ];
 

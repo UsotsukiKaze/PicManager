@@ -143,15 +143,7 @@ class ImageTagSelector {
 
     filterItems(items, query) {
         if (!query) return items;
-        const q = query.toLowerCase();
-        const directMatches = items.filter(item => {
-            const aliases = Array.isArray(item.aliases) ? item.aliases : [];
-            return String(item.name).toLowerCase().includes(q)
-                || aliases.some(alias => String(alias).toLowerCase().includes(q));
-        });
-        if (!window.PinyinSearch) return directMatches;
-        const pinyinMatches = window.PinyinSearch.filter(items, query, 'name');
-        return Array.from(new Map([...directMatches, ...pinyinMatches].map(item => [item.id, item])).values());
+        return window.PinyinSearch.filter(items, query, 'name');
     }
 
     async openPicker() {

@@ -61,17 +61,7 @@ class CharacterSelector {
         
         let filtered = this.availableCharacters;
         if (query) {
-            const q = query.toLowerCase();
-            let nameMatched = this.availableCharacters;
-            if (window.PinyinSearch) {
-                nameMatched = window.PinyinSearch.filter(this.availableCharacters, query, 'name');
-            }
-            const nameIds = new Set(nameMatched.map(item => item.id));
-            filtered = this.availableCharacters.filter(char => {
-                const nicknames = Array.isArray(char.nicknames) ? char.nicknames : [];
-                const nicknameMatched = nicknames.some(item => String(item).toLowerCase().includes(q));
-                return nameIds.has(char.id) || nicknameMatched;
-            });
+            filtered = window.PinyinSearch.filter(this.availableCharacters, query, 'name');
         }
         
         // 过滤掉已选择的角色

@@ -520,12 +520,7 @@ class UIManager {
         const q = String(query || '').trim().toLowerCase();
         const filtered = !q
             ? this.allGroups
-            : this.allGroups.filter(group => {
-                const aliases = Array.isArray(group.aliases) ? group.aliases : [];
-                const textMatched = String(group.name).toLowerCase().includes(q)
-                    || aliases.some(alias => String(alias).toLowerCase().includes(q));
-                return textMatched || (window.PinyinSearch && window.PinyinSearch.filter([group], query, 'name').length > 0);
-            });
+            : window.PinyinSearch.filter(this.allGroups, query, 'name');
         this.renderGroupList(filtered);
     }
 
@@ -969,16 +964,9 @@ class UIManager {
             filtered = this.allCharacters.filter(c => c.group_id == selectedGroupId);
         }
         
-        // 再按名称/昵称筛选
+        // 再按名称、全拼、首字母或昵称筛选
         if (query) {
-            const nameMatched = window.PinyinSearch.filter(filtered, query, 'name');
-            const nameIds = new Set(nameMatched.map(item => item.id));
-            const q = query.toLowerCase();
-            filtered = filtered.filter(item => {
-                const nicknames = Array.isArray(item.nicknames) ? item.nicknames : [];
-                const nicknameMatched = nicknames.some(nick => String(nick).toLowerCase().includes(q));
-                return nameIds.has(item.id) || nicknameMatched;
-            });
+            filtered = window.PinyinSearch.filter(filtered, query, 'name');
         }
         
         this.renderCharacterList(filtered);
@@ -1054,12 +1042,7 @@ class UIManager {
         const q = String(query || '').trim().toLowerCase();
         const filtered = !q
             ? source
-            : source.filter(tag => {
-                const aliases = Array.isArray(tag.aliases) ? tag.aliases : [];
-                const textMatched = String(tag.name).toLowerCase().includes(q)
-                    || aliases.some(alias => String(alias).toLowerCase().includes(q));
-                return textMatched || (window.PinyinSearch && window.PinyinSearch.filter([tag], query, 'name').length > 0);
-            });
+            : window.PinyinSearch.filter(source, query, 'name');
         this.renderFeatureTagList(filtered);
     }
 

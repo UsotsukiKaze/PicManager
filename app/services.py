@@ -1303,6 +1303,11 @@ class ImageService:
         return os.path.join(settings.THUMB_PATH, f"{image.image_id}.webp")
 
     @staticmethod
+    def preview_path(image: models.Image) -> str:
+        os.makedirs(settings.PREVIEW_PATH, exist_ok=True)
+        return os.path.join(settings.PREVIEW_PATH, f"{image.image_id}.webp")
+
+    @staticmethod
     def ensure_thumbnail(image: models.Image) -> bool:
         if not ImageService.image_file_exists(image):
             image.thumb_status = ImageService.THUMB_MISSING
@@ -1335,6 +1340,17 @@ class ImageService:
                 quality=settings.THUMBNAIL_QUALITY,
                 method=settings.THUMBNAIL_WEBP_METHOD,
             )
+
+    @staticmethod
+    def write_preview(source: str, target: str) -> None:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with PILImage.open(source) as original:
+            original.seek(0)
+            image = ImageOps.exif_transpose(original)
+            image.thumbnail((settings.PREVIEW_SIZE, settings.PREVIEW_SIZE), PILImage.Resampling.LANCZOS)
+            if image.mode not in ("RGB", "RGBA"):
+                image = image.convert("RGB")
+            image.save(target, "WEBP", quality=settings.PREVIEW_QUALITY, method=4)
 
     @staticmethod
     def _unique_ints(values: Optional[List[int]]) -> List[int]:
@@ -1397,6 +1413,7 @@ class ImageService:
             "file_path": image.file_path,
             "file_status": image.file_status,
             "thumb_status": image.thumb_status,
+            "preview_status": image.preview_status,
             "created_at": image.created_at,
             "updated_at": image.updated_at,
             "characters": [
@@ -1558,6 +1575,7 @@ class ImageService:
             file_status=ImageService.AVAILABLE,
             file_checked_at=datetime.utcnow(),
             thumb_status=ImageService.THUMB_PENDING,
+            preview_status=ImageService.THUMB_PENDING,
             perceptual_hash=perceptual_hash,
             **image_info
         )
@@ -1579,6 +1597,12 @@ class ImageService:
             "thumbnail",
             image_id=image_id,
             dedupe_key=f"thumbnail:{image_id}",
+        )
+        ImageJobQueue.enqueue(
+            db,
+            "preview",
+            image_id=image_id,
+            dedupe_key=f"preview:{image_id}",
         )
         db.commit()
         db.refresh(db_image)

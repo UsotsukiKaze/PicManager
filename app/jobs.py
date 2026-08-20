@@ -123,13 +123,38 @@ class ImagePipeline:
             raise RuntimeError(f"Thumbnail generation failed for {image.image_id}")
 
     @staticmethod
+    def generate_preview(db, image: models.Image) -> None:
+        locator = str(image.file_path or "")
+        staged: Path | None = None
+        try:
+            if locator.startswith("r2://"):
+                backend = get_image_storage(settings)
+                with tempfile.NamedTemporaryFile(suffix=f".{image.file_extension or 'img'}", delete=False) as temp:
+                    staged = Path(temp.name)
+                backend.download_file(ImagePipeline._r2_object_key(locator), staged)
+                source = str(staged)
+            else:
+                source = ImageService.image_full_path(image)
+            ImageService.write_preview(source, ImageService.preview_path(image))
+            image.preview_status = ImageService.THUMB_READY
+        except Exception:
+            image.preview_status = ImageService.THUMB_FAILED
+            raise
+        finally:
+            if staged is not None:
+                staged.unlink(missing_ok=True)
+
+    @staticmethod
     def handle(db, job: models.ImageJob) -> None:
-        if job.job_type != "thumbnail":
-            raise ValueError(f"Unknown image job: {job.job_type}")
         image = db.query(models.Image).filter(models.Image.image_id == job.image_id).first()
         if not image:
             raise ValueError(f"Image no longer exists: {job.image_id}")
-        ImagePipeline.generate_thumbnail(db, image)
+        if job.job_type == "thumbnail":
+            ImagePipeline.generate_thumbnail(db, image)
+        elif job.job_type == "preview":
+            ImagePipeline.generate_preview(db, image)
+        else:
+            raise ValueError(f"Unknown image job: {job.job_type}")
 
 
 class ImageJobWorker:

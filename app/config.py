@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     TEMP_PATH: str = os.path.join(RESOURCE_PATH, "temp")
     PENDING_PATH: str = os.path.join(RESOURCE_PATH, "pending")
     THUMB_PATH: str = os.path.join(RESOURCE_PATH, "thumbs")
+    PREVIEW_PATH: str = os.path.join(RESOURCE_PATH, "previews")
     EMOJI_PATH: str = os.path.join(RESOURCE_PATH, "emojis")
     AVATAR_PATH: str = os.path.join(RESOURCE_PATH, "avatars")
     STORAGE_BACKEND: str = "local"
@@ -36,6 +37,8 @@ class Settings(BaseSettings):
     THUMBNAIL_SIZE: int = 480
     THUMBNAIL_QUALITY: int = 86
     THUMBNAIL_WEBP_METHOD: int = 4
+    PREVIEW_SIZE: int = 1600
+    PREVIEW_QUALITY: int = 84
     AVATAR_MAX_FILE_SIZE: int = 256 * 1024
     AVATAR_UPLOAD_MAX_FILE_SIZE: int = 10 * 1024 * 1024
     AVATAR_SIZE: int = 512

@@ -99,3 +99,5 @@ def test_image_derivative_urls_change_when_image_content_version_changes():
     assert "image.updated_at || image.file_checked_at || image.created_at" in UI_JS
     assert "?v=${this.getImageVersion(image)}" in UI_JS
     assert "encodeURIComponent(image.image_id)" in UI_JS
+    assert "/resource/previews/${encodeURIComponent(image.image_id)}.webp" in UI_JS
+    assert "restricted ? this.getThumbnailUrl(image) : this.getPreviewUrl(image)" in UI_JS

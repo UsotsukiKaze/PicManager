@@ -87,6 +87,51 @@ async def test_restricted_thumbnail_requires_session_and_disables_shared_cache(m
     assert response.headers["cloudflare-cdn-cache-control"] == "no-store"
 
 
+@pytest.mark.asyncio
+async def test_preview_route_serves_bounded_variant_with_public_cache(monkeypatch, tmp_path):
+    preview_root = tmp_path / "previews"
+    preview_root.mkdir()
+    preview = preview_root / "ABCDEF1234.webp"
+    preview.write_bytes(b"preview-webp")
+    monkeypatch.setattr(main.settings, "PREVIEW_PATH", str(preview_root))
+
+    response = await main.preview_file("ABCDEF1234.webp", _request())
+
+    assert Path(response.path) == preview
+    assert response.media_type == "image/webp"
+    assert response.headers["cache-control"] == "public, max-age=604800, immutable"
+
+
+@pytest.mark.asyncio
+async def test_restricted_preview_requires_session(monkeypatch, tmp_path):
+    preview_root = tmp_path / "previews"
+    preview_root.mkdir()
+    (preview_root / "ABCDEF1234.webp").write_bytes(b"restricted-preview")
+    image = SimpleNamespace(image_id="ABCDEF1234", age_rating="r16")
+
+    class FakeQuery:
+        def filter(self, *args):
+            return self
+
+        def first(self):
+            return image
+
+    class FakeDb:
+        def query(self, model):
+            return FakeQuery()
+
+    @contextmanager
+    def fake_db_context():
+        yield FakeDb()
+
+    monkeypatch.setattr(main.settings, "PREVIEW_PATH", str(preview_root))
+    monkeypatch.setattr(main, "get_db_context", fake_db_context)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await main.preview_file("ABCDEF1234.webp", _request())
+    assert exc_info.value.status_code == 401
+
+
 def test_original_route_resolves_published_image_by_id(monkeypatch, tmp_path):
     store_root = tmp_path / "store"
     store_root.mkdir()

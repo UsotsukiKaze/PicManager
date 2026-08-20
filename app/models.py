@@ -323,6 +323,7 @@ class Image(Base):
     file_status = Column(String(20), nullable=False, default="available", index=True)
     file_checked_at = Column(DateTime, nullable=True)
     thumb_status = Column(String(20), nullable=False, default="pending", index=True)
+    preview_status = Column(String(20), nullable=False, default="pending", index=True)
     # 64-bit difference hash, stored as 16 lowercase hexadecimal characters.
     perceptual_hash = Column(String(16), nullable=True)
     # Set only after a numeric Pixiv PID has been checked and resolved.

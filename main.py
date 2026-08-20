@@ -173,6 +173,29 @@ def _thumbnail_path(resource_path: str) -> Path:
     raise FileNotFoundError
 
 
+def _preview_path(resource_path: str) -> Path:
+    preview_root = Path(settings.PREVIEW_PATH).resolve()
+    preview_root.mkdir(parents=True, exist_ok=True)
+    image_id = Path(resource_path.replace("\\", "/").lstrip("/")).stem
+    preview = (preview_root / f"{image_id}.webp").resolve()
+    preview.relative_to(preview_root)
+    if preview.is_file():
+        return preview
+    raise FileNotFoundError
+
+
+def _restricted_derivative(request: Request, image_id: str) -> bool:
+    with get_db_context() as db:
+        rating_row = db.query(ImageModel.age_rating).filter(ImageModel.image_id == image_id).first()
+        rating = getattr(rating_row, "age_rating", None) if rating_row is not None else None
+        restricted = str(rating or "all").lower() in {"r16", "r18"}
+        if restricted:
+            session_id = request.cookies.get("session_id")
+            if not session_id or not get_session(db, session_id):
+                raise HTTPException(status_code=401, detail="Login required")
+        return restricted
+
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     return await log_http_request(request, call_next)
@@ -208,6 +231,7 @@ os.makedirs(settings.STORE_PATH, exist_ok=True)
 os.makedirs(settings.TEMP_PATH, exist_ok=True)
 os.makedirs(settings.PENDING_PATH, exist_ok=True)  # 待审核文件目录
 os.makedirs(settings.THUMB_PATH, exist_ok=True)
+os.makedirs(settings.PREVIEW_PATH, exist_ok=True)
 os.makedirs(settings.EMOJI_PATH, exist_ok=True)
 os.makedirs(settings.AVATAR_PATH, exist_ok=True)
 
@@ -236,14 +260,7 @@ async def protected_pending_file(filename: str, request: Request):
 async def thumbnail_file(resource_path: str, request: Request):
     """Serve thumbnails while keeping restricted derivatives out of shared caches."""
     image_id = Path(resource_path.replace("\\", "/")).stem
-    restricted = False
-    with get_db_context() as db:
-        image = db.query(ImageModel).filter(ImageModel.image_id == image_id).first()
-        restricted = bool(image and str(image.age_rating or "all").lower() in {"r16", "r18"})
-        if restricted:
-            session_id = request.cookies.get("session_id")
-            if not session_id or not get_session(db, session_id):
-                raise HTTPException(status_code=401, detail="Login required")
+    restricted = _restricted_derivative(request, image_id)
 
     try:
         response = FileResponse(_thumbnail_path(resource_path), media_type="image/webp")
@@ -262,6 +279,28 @@ async def thumbnail_file(resource_path: str, request: Request):
         else:
             response.headers["Cache-Control"] = "public, max-age=60"
         response.headers["X-PicManager-Thumbnail"] = "missing"
+        return response
+
+
+@app.get("/resource/previews/{resource_path:path}")
+async def preview_file(resource_path: str, request: Request):
+    """Serve a bounded detail preview before the original finishes loading."""
+    image_id = Path(resource_path.replace("\\", "/")).stem
+    restricted = _restricted_derivative(request, image_id)
+    try:
+        response = FileResponse(_preview_path(resource_path), media_type="image/webp")
+        if restricted:
+            response.headers["Cache-Control"] = "private, max-age=300"
+            response.headers["Cloudflare-CDN-Cache-Control"] = "no-store"
+        else:
+            response.headers["Cache-Control"] = "public, max-age=604800, immutable"
+        return response
+    except Exception:
+        response = FileResponse(os.path.join(settings.BASE_DIR, "static", "images", "placeholder.png"))
+        response.headers["Cache-Control"] = "private, no-store" if restricted else "public, max-age=60"
+        if restricted:
+            response.headers["Cloudflare-CDN-Cache-Control"] = "no-store"
+        response.headers["X-PicManager-Preview"] = "missing"
         return response
 
 

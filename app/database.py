@@ -280,6 +280,8 @@ def apply_migrations():
             conn.execute(text("ALTER TABLE images ADD COLUMN file_checked_at DATETIME"))
         if "thumb_status" not in image_columns:
             conn.execute(text("ALTER TABLE images ADD COLUMN thumb_status VARCHAR(20) NOT NULL DEFAULT 'pending'"))
+        if "preview_status" not in image_columns:
+            conn.execute(text("ALTER TABLE images ADD COLUMN preview_status VARCHAR(20) NOT NULL DEFAULT 'pending'"))
         if "perceptual_hash" not in image_columns:
             conn.execute(text("ALTER TABLE images ADD COLUMN perceptual_hash VARCHAR(16)"))
         if "pixiv_checked_at" not in image_columns:
@@ -310,6 +312,7 @@ def apply_migrations():
 
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_file_status_created_id ON images (file_status, created_at, image_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_thumb_status ON images (thumb_status)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_preview_status ON images (preview_status)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_age_rating ON images (age_rating)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_perceptual_hash ON images (perceptual_hash)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_pixiv_checked_at ON images (pixiv_checked_at)"))

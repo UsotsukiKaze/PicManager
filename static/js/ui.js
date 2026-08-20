@@ -1954,7 +1954,7 @@ class UIManager {
             const content = `
                 <div class="image-detail-card">
                     <div class="image-detail-media ${restricted ? `is-age-restricted-detail is-${rating}` : ''}" data-age-revealed="false">
-                        <img class="image-detail-preview" src="${this.getThumbnailUrl(image)}" alt="" aria-hidden="true" onerror="ui.handleImageFallback(this)">
+                        <img class="image-detail-preview" src="${restricted ? this.getThumbnailUrl(image) : this.getPreviewUrl(image)}" alt="" aria-hidden="true" onerror="ui.handleImageFallback(this)">
                         <img class="image-detail-original" src="${restricted ? this.getThumbnailUrl(image) : this.getImageUrl(image)}" ${restricted ? `data-sensitive-src="${this.getImageUrl(image)}"` : ''} loading="eager" decoding="async" fetchpriority="high" alt="图片 ${image.image_id}" onload="ui.handleOriginalLoad(this)" onerror="ui.handleOriginalError(this)">
                         <span class="image-detail-loading" role="status">正在加载原图…</span>
                         ${restricted ? `

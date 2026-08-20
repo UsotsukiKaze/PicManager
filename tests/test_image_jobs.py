@@ -63,12 +63,14 @@ def test_create_image_enqueues_thumbnail_and_pipeline_generates_it(monkeypatch, 
     resource = tmp_path / "resource"
     store = resource / "store"
     thumbs = resource / "thumbs"
+    previews = resource / "previews"
     source = resource / "temp" / "staged.png"
     source.parent.mkdir(parents=True)
     Image.new("RGB", (24, 12), "blue").save(source)
     monkeypatch.setattr(settings, "BASE_DIR", str(tmp_path))
     monkeypatch.setattr(settings, "STORE_PATH", str(store))
     monkeypatch.setattr(settings, "THUMB_PATH", str(thumbs))
+    monkeypatch.setattr(settings, "PREVIEW_PATH", str(previews))
     monkeypatch.setattr(settings, "STORAGE_BACKEND", "local")
 
     with Session() as db:
@@ -83,15 +85,19 @@ def test_create_image_enqueues_thumbnail_and_pipeline_generates_it(monkeypatch, 
         image_id = image.image_id
         assert image.thumb_status == ImageService.THUMB_PENDING
         assert not source.exists()
-        job = db.query(models.ImageJob).filter(models.ImageJob.image_id == image_id).one()
-        assert job.status == "queued"
+        jobs = db.query(models.ImageJob).filter(models.ImageJob.image_id == image_id).all()
+        assert {job.job_type for job in jobs} == {"thumbnail", "preview"}
+        assert all(job.status == "queued" for job in jobs)
 
-        claimed = ImageJobQueue.claim(db)
-        ImagePipeline.handle(db, claimed)
-        ImageJobQueue.complete(claimed)
+        for _ in range(2):
+            claimed = ImageJobQueue.claim(db)
+            ImagePipeline.handle(db, claimed)
+            ImageJobQueue.complete(claimed)
         db.commit()
 
     assert (thumbs / f"{image_id}.webp").is_file()
+    assert (previews / f"{image_id}.webp").is_file()
     with Session() as db:
         assert db.get(models.Image, image_id).thumb_status == ImageService.THUMB_READY
-        assert db.query(models.ImageJob).one().status == "completed"
+        assert db.get(models.Image, image_id).preview_status == ImageService.THUMB_READY
+        assert all(job.status == "completed" for job in db.query(models.ImageJob).all())

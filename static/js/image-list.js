@@ -76,6 +76,10 @@
         return `/resource/thumbs/${encodeURIComponent(image.image_id)}.webp?v=${this.getImageVersion(image)}`;
     }
 
+    getPreviewUrl(image) {
+        return `/resource/previews/${encodeURIComponent(image.image_id)}.webp?v=${this.getImageVersion(image)}`;
+    }
+
     downloadImage(imageId) {
         const link = document.createElement('a');
         link.href = api.getImageDownloadUrl(imageId);

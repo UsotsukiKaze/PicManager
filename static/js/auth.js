@@ -7,11 +7,11 @@ class AuthManager {
         this.featureLoadPromises = {};
         this.featureAssets = {
             upload: {
-                src: '/static/js/upload.js?v=20260815a',
+                src: '/static/js/upload.js?v=20260820d',
                 resolve: () => window.upload,
             },
             emoji: {
-                src: '/static/js/emoji-library.js?v=20260812a',
+                src: '/static/js/emoji-library.js?v=20260820d',
                 resolve: () => window.emojiLibrary,
             },
         };
@@ -119,22 +119,22 @@ class AuthManager {
         this.applicationLoadPromise = (async () => {
             await this.waitForDocumentBody();
             const stylesReady = Promise.all([
-                this.loadStyle('/static/css/style.css?v=20260820a'),
+                this.loadStyle('/static/css/style.css?v=20260820d'),
                 this.loadStyle('/static/css/icons.css?v=20260812a'),
             ]);
             const scripts = [
                 '/static/js/security.js?v=20260820a',
                 '/static/js/pinyin-search.js?v=20260812a',
                 '/static/js/character-selector.js?v=20260820a',
-                '/static/js/tag-selector.js?v=20260820a',
+                '/static/js/tag-selector.js?v=20260820d',
                 '/static/js/api.js?v=20260820b',
-                '/static/js/upload-queue.js?v=20260820a',
-                '/static/js/query-panel.js?v=20260820a',
+                '/static/js/upload-queue.js?v=20260820d',
+                '/static/js/query-panel.js?v=20260820d',
                 '/static/js/entity-cache.js?v=20260820a',
-                '/static/js/search-selector.js?v=20260820a',
+                '/static/js/search-selector.js?v=20260820d',
                 '/static/js/image-list.js?v=20260820b',
                 '/static/js/modal.js?v=20260820a',
-                '/static/js/ui.js?v=20260820c',
+                '/static/js/ui.js?v=20260820d',
                 '/static/js/main.js?v=20260812c',
             ];
 

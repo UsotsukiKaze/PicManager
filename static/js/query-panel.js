@@ -73,9 +73,6 @@
                 badge.textContent = String(count);
                 badge.hidden = count === 0;
             });
-            document.querySelectorAll(`[data-query-summary-for="${panelId}"]`).forEach(summary => {
-                summary.textContent = count ? `已启用 ${count} 项条件` : '需要时展开，不占用列表空间';
-            });
             return count;
         }
 

@@ -36,6 +36,14 @@ def test_management_and_emoji_queries_are_collapsed_by_default():
     ):
         assert f'id="{panel_id}" aria-hidden="true"' in INDEX
         assert f'data-query-toggle="{panel_id}"' in INDEX
+    assert "需要时展开，不占用列表空间" not in INDEX
+    assert '<span>查询</span>' not in INDEX
+    assert INDEX.count('class="query-icon"') == 5
+    assert INDEX.count('aria-label="打开') >= 5
+    toolbar_start = INDEX.index('class="query-toolbar image-filter-toolbar"')
+    panel_start = INDEX.index('id="image-search-panel"')
+    assert toolbar_start < INDEX.index('id="search-age-rating"') < panel_start
+    assert ".image-filter-toolbar" in STYLE
     assert "/static/js/query-panel.js" in AUTH
 
 

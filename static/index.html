@@ -21,7 +21,7 @@
         html:not(.app-booting) .app-bootstrap-status { display: none; }
     </style>
     <noscript><meta http-equiv="refresh" content="0; url=/login"></noscript>
-    <script src="/static/js/auth.js?v=20260816b"></script>
+    <script src="/static/js/auth.js?v=20260820d"></script>
 </head>
 <body>
     <div class="app-bootstrap-status" role="status">正在验证登录状态…</div>
@@ -201,15 +201,22 @@
 
                     <!-- 图片列表标签页 -->
                     <div class="tab-content" id="tab-image-list">
-                        <div class="query-toolbar">
-                            <div class="query-toolbar-copy">
-                                <strong>图库查询</strong>
-                                <span data-query-summary-for="image-search-panel">需要时展开，不占用列表空间</span>
+                        <div class="query-toolbar image-filter-toolbar">
+                            <div class="age-filter-bar">
+                                <span class="age-filter-label">年龄分级</span>
+                                <input type="hidden" id="search-age-rating" value="">
+                                <div class="age-filter-tabs" role="tablist" aria-label="按年龄分级筛选图片">
+                                    <button type="button" class="age-filter-tab active" role="tab" aria-selected="true" aria-controls="image-grid" data-age-rating="" onclick="setAgeRatingFilter('', this)">全部</button>
+                                    <button type="button" class="age-filter-tab" role="tab" aria-selected="false" aria-controls="image-grid" data-age-rating="all" onclick="setAgeRatingFilter('all', this)">全年龄</button>
+                                    <button type="button" class="age-filter-tab" role="tab" aria-selected="false" aria-controls="image-grid" data-age-rating="r12" onclick="setAgeRatingFilter('r12', this)">R12</button>
+                                    <button type="button" class="age-filter-tab" role="tab" aria-selected="false" aria-controls="image-grid" data-age-rating="r16" onclick="setAgeRatingFilter('r16', this)">R16</button>
+                                    <button type="button" class="age-filter-tab" role="tab" aria-selected="false" aria-controls="image-grid" data-age-rating="r18" onclick="setAgeRatingFilter('r18', this)">R18</button>
+                                </div>
                             </div>
                             <button type="button" class="query-toggle" data-query-toggle="image-search-panel"
-                                    aria-expanded="false" aria-controls="image-search-panel">
+                                    aria-expanded="false" aria-controls="image-search-panel"
+                                    aria-label="打开图片查询" title="查询图片">
                                 <span class="query-icon" aria-hidden="true"></span>
-                                <span>查询</span>
                                 <b data-query-badge-for="image-search-panel" hidden>0</b>
                             </button>
                         </div>
@@ -252,18 +259,6 @@
                                     </div>
                                 </div>
 
-                                <div class="age-filter-bar">
-                                    <span class="age-filter-label">年龄分级</span>
-                                    <input type="hidden" id="search-age-rating" value="" data-query-count>
-                                    <div class="age-filter-tabs" role="tablist" aria-label="按年龄分级筛选图片">
-                                        <button type="button" class="age-filter-tab active" role="tab" aria-selected="true" aria-controls="image-grid" data-age-rating="" onclick="setAgeRatingFilter('', this)">全部</button>
-                                        <button type="button" class="age-filter-tab" role="tab" aria-selected="false" aria-controls="image-grid" data-age-rating="all" onclick="setAgeRatingFilter('all', this)">全年龄</button>
-                                        <button type="button" class="age-filter-tab" role="tab" aria-selected="false" aria-controls="image-grid" data-age-rating="r12" onclick="setAgeRatingFilter('r12', this)">R12</button>
-                                        <button type="button" class="age-filter-tab" role="tab" aria-selected="false" aria-controls="image-grid" data-age-rating="r16" onclick="setAgeRatingFilter('r16', this)">R16</button>
-                                        <button type="button" class="age-filter-tab" role="tab" aria-selected="false" aria-controls="image-grid" data-age-rating="r18" onclick="setAgeRatingFilter('r18', this)">R18</button>
-                                    </div>
-                                </div>
-                                
                                 <!-- 高级搜索面板 -->
                                 <div class="advanced-search-panel" id="advanced-search-panel" style="display: none;">
                                     <div class="form-row">
@@ -296,9 +291,9 @@
                         <div class="entity-toolbar">
                             <button class="btn btn-primary" onclick="showCreateGroupModal()">添加分组</button>
                             <button type="button" class="query-toggle" data-query-toggle="group-query-panel"
-                                    aria-expanded="false" aria-controls="group-query-panel">
+                                    aria-expanded="false" aria-controls="group-query-panel"
+                                    aria-label="打开分组查询" title="查询分组">
                                 <span class="query-icon" aria-hidden="true"></span>
-                                <span>查询</span>
                                 <b data-query-badge-for="group-query-panel" hidden>0</b>
                             </button>
                         </div>
@@ -321,9 +316,9 @@
                         <div class="entity-toolbar">
                             <button class="btn btn-primary" onclick="showCreateCharacterModal()">添加角色</button>
                             <button type="button" class="query-toggle" data-query-toggle="character-query-panel"
-                                    aria-expanded="false" aria-controls="character-query-panel">
+                                    aria-expanded="false" aria-controls="character-query-panel"
+                                    aria-label="打开角色查询" title="查询角色">
                                 <span class="query-icon" aria-hidden="true"></span>
-                                <span>查询</span>
                                 <b data-query-badge-for="character-query-panel" hidden>0</b>
                             </button>
                         </div>
@@ -355,9 +350,9 @@
                         <div class="entity-toolbar">
                             <button class="btn btn-primary" onclick="ui.showCreateFeatureTagModal()">添加特征标签</button>
                             <button type="button" class="query-toggle" data-query-toggle="feature-tag-query-panel"
-                                    aria-expanded="false" aria-controls="feature-tag-query-panel">
+                                    aria-expanded="false" aria-controls="feature-tag-query-panel"
+                                    aria-label="打开特征标签查询" title="查询特征标签">
                                 <span class="query-icon" aria-hidden="true"></span>
-                                <span>查询</span>
                                 <b data-query-badge-for="feature-tag-query-panel" hidden>0</b>
                             </button>
                         </div>
@@ -534,14 +529,10 @@
 
                     <div class="tab-content" id="tab-emoji-list">
                         <div class="query-toolbar">
-                            <div class="query-toolbar-copy">
-                                <strong>表情查询</strong>
-                                <span data-query-summary-for="emoji-query-panel">需要时展开，不占用列表空间</span>
-                            </div>
                             <button type="button" class="query-toggle" data-query-toggle="emoji-query-panel"
-                                    aria-expanded="false" aria-controls="emoji-query-panel">
+                                    aria-expanded="false" aria-controls="emoji-query-panel"
+                                    aria-label="打开表情查询" title="查询表情">
                                 <span class="query-icon" aria-hidden="true"></span>
-                                <span>查询</span>
                                 <b data-query-badge-for="emoji-query-panel" hidden>0</b>
                             </button>
                         </div>

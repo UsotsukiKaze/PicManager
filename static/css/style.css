@@ -5402,7 +5402,7 @@ body {
     }
 
     .image-card-info {
-        min-height: 58px;
+        min-height: 72px;
         padding: 8px;
     }
 
@@ -5435,9 +5435,18 @@ body {
         font-size: 11px;
     }
 
-    .image-card-id,
-    .image-card-pid {
+    .image-card-id {
         display: none;
+    }
+
+    .image-card-pid {
+        display: block;
+        overflow: hidden;
+        margin-top: 4px;
+        font-size: 10px;
+        line-height: 1.2;
+        white-space: nowrap;
+        text-overflow: ellipsis;
     }
 
     .page-content {

@@ -79,8 +79,12 @@ def test_small_phone_image_management_keeps_two_columns_and_compacts_cards():
     assert "gap: 8px" in image_grid
     assert "grid-template-columns: 1fr" in temp_grid
     assert "-webkit-line-clamp: 2" in small
-    assert ".image-card-id," in small
-    assert ".image-card-pid" in small
+    hidden_id = small.split(".image-card-id {", 1)[1].split("}", 1)[0]
+    mobile_pid = small.split(".image-card-pid {", 1)[1].split("}", 1)[0]
+    assert "display: none" in hidden_id
+    assert "display: block" in mobile_pid
+    assert "font-size: 10px" in mobile_pid
+    assert "text-overflow: ellipsis" in mobile_pid
 
 
 def test_motion_reduction_covers_page_card_modal_and_orbit_animations():

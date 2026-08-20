@@ -3033,13 +3033,19 @@ body {
     border: 1px solid rgba(0, 122, 255, 0.14);
     box-shadow: 0 8px 24px rgba(0, 122, 255, 0.12);
     animation: chipFloat 3.2s ease-in-out infinite;
-    max-width: 150px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    box-sizing: border-box;
+    width: max-content;
+    max-width: min(240px, calc(100% - 56px));
     display: flex;
     align-items: center;
     gap: 7px;
+}
+
+.orbit-chip-label {
+    min-width: 0;
+    line-height: 1.3;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 
 .orbit-chip-avatar {
@@ -3055,7 +3061,7 @@ body {
 .chip-two { right: 34px; top: 82px; animation-delay: 240ms; }
 .chip-three { left: 56px; bottom: 42px; animation-delay: 480ms; }
 .chip-four { right: 42px; bottom: 34px; animation-delay: 720ms; }
-.chip-five { left: 40%; top: 18px; animation-delay: 960ms; }
+.chip-five { right: 28px; top: 18px; animation-delay: 960ms; }
 
 @keyframes chipFloat {
     0%, 100% { transform: translateY(0); }

@@ -6,6 +6,7 @@ import json
 import os
 
 from ... import schemas
+from ...contributions import calculate_contribution_score
 from ...database import get_db_context
 from ...models import PendingRequest, GuestLimit, RequestStatus, User, Group, Character
 from ..auth import GUEST_DAILY_LIMIT, get_current_session, get_session
@@ -189,15 +190,7 @@ async def get_profile_stats(request: Request):
         approved_character_edit = approved_counts.get("character_edit", 0)
         approved_character_delete = approved_counts.get("character_delete", 0)
 
-        weights = {
-            "add": 3,
-            "edit": 1
-        }
-
-        contribution_score = sum(
-            approved_counts.get(key, 0) * weight
-            for key, weight in weights.items()
-        )
+        contribution_score = calculate_contribution_score(req.request_type for req in approved_requests)
         contribution_target = 200
         contribution_percent = int(round(contribution_score / contribution_target * 100)) if contribution_target else 0
 

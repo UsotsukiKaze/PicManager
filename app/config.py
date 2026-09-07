@@ -29,7 +29,6 @@ class Settings(BaseSettings):
     
     # 数据库配置
     DATABASE_URL: str = f"sqlite:///{os.path.join(DATA_PATH, 'picmanager.db')}"
-    HOMEPAGE_HOSTS: str = "usotsuki-kaze.com,www.usotsuki-kaze.com"
     
     # 上传配置
     MAX_FILE_SIZE: int = 50 * 1024 * 1024  # 50MB
@@ -66,6 +65,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "your-secret-key-here"  # 在生产环境中应该设置为随机字符串
     BOT_API_TOKEN: str = ""
     PHROLOVA_SSO_TOKEN: str = ""
+    KAZE_APPS_INTERNAL_TOKEN: str = ""
     PHROLOVA_PUBLIC_BASE_URL: str = ""
     PUBLIC_BASE_URL: str = ""
     LOGIN_TICKET_TTL_SECONDS: int = 300
@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     SESSION_COOKIE_SECURE: bool = False
     SESSION_COOKIE_DOMAIN: str | None = None
     TRUST_PROXY_HEADERS: bool = False
-    TRUSTED_HOSTS: str = "localhost,127.0.0.1,pic.usotsuki-kaze.com,usotsuki-kaze.com,www.usotsuki-kaze.com"
+    TRUSTED_HOSTS: str = "localhost,127.0.0.1,pic.usotsuki-kaze.com"
     LAN_DEBUG_ENABLED: bool = False
     LAN_DEBUG_HOSTS: str = ""
     LAN_DEBUG_BASE_URL: str = ""

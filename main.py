@@ -12,7 +12,7 @@ import uvicorn
 from app.database import init_database, create_db_snapshot
 from app.database import get_db_context
 from app.config import settings
-from app.logger import log_http_request, log_info, log_success
+from app.logger import log_http_request, log_info
 from app.models import Image as ImageModel
 from app.pixiv import PixivUpgradeService
 from app.services import ImageService
@@ -20,6 +20,7 @@ from app.routers.admin_routes import router as admin_router
 from app.routers.auth_routes import router as auth_router
 from app.routers.integrations.bot import router as bot_router
 from app.routers.integrations.sso import router as sso_router
+from app.routers.integrations.kaze_apps import router as kaze_apps_router
 from app.routers.public import router as public_router
 from app.routers.system import router as system_router
 from app.routers.auth import get_session
@@ -39,7 +40,6 @@ async def lifespan(app: FastAPI):
     log_info("正在初始化数据库...")
     init_database()
     image_job_worker.start()
-    log_success("数据库初始化完成!")
     try:
         yield
     finally:
@@ -99,7 +99,7 @@ def _apply_production_cache_headers(request: Request, response) -> None:
         _apply_no_store_headers(response)
         return
 
-    if path in {"/", "/home"}:
+    if path == "/":
         # Browsers revalidate the HTML shell, while Cloudflare may briefly serve
         # the same authentication-independent shell to every visitor.
         response.headers["Cache-Control"] = "no-cache"
@@ -198,11 +198,6 @@ def _restricted_derivative(request: Request, image_id: str) -> bool:
 
 
 @app.middleware("http")
-async def log_requests(request: Request, call_next):
-    return await log_http_request(request, call_next)
-
-
-@app.middleware("http")
 async def prevent_stale_ui_cache(request: Request, call_next):
     response = await call_next(request)
     if settings.DEBUG and _is_ui_cache_sensitive_path(request.url.path):
@@ -223,6 +218,12 @@ app.add_middleware(
 )
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=_trusted_hosts())
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+
+# 最后注册，使请求日志覆盖其他用户中间件直接返回的响应。
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    return await log_http_request(request, call_next)
 
 # 挂载静态文件
 app.mount("/static", StaticFiles(directory=os.path.join(settings.BASE_DIR, "static")), name="static")
@@ -367,27 +368,14 @@ app.include_router(public_router, prefix="/api")
 app.include_router(system_router, prefix="/api/system")
 app.include_router(bot_router, prefix="/api/bot")
 app.include_router(sso_router, prefix="/api/sso")
+app.include_router(kaze_apps_router, prefix="/api/integrations/kaze-apps")
 app.include_router(admin_router, prefix="/api/admin")
 app.include_router(auth_router, prefix="/auth")
 app.include_router(admin_router, prefix="/admin")
 @app.get("/", response_class=HTMLResponse)
-async def root(request: Request):
-    """Serve the personal homepage on its domains, otherwise PicManager."""
-    homepage_hosts = {
-        host.strip().lower()
-        for host in settings.HOMEPAGE_HOSTS.split(",")
-        if host.strip()
-    }
-    request_host = (request.url.hostname or "").lower()
-    if request_host in homepage_hosts:
-        return FileResponse(os.path.join(settings.BASE_DIR, "static", "homepage", "index.html"))
+async def root():
+    """Serve PicManager only; personal domains are handled by KazeApps."""
     return FileResponse(os.path.join(settings.BASE_DIR, "static", "index.html"))
-
-
-@app.get("/home", response_class=HTMLResponse)
-async def homepage_preview():
-    """Direct preview route for the personal homepage."""
-    return FileResponse(os.path.join(settings.BASE_DIR, "static", "homepage", "index.html"))
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -429,7 +417,8 @@ def main():
         port=settings.PORT,
         reload=settings.DEBUG,
         reload_dirs=["app", "static"] if settings.DEBUG else None,
-        log_level="info"
+        log_level="info",
+        access_log=False,
     )
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from sqlalchemy import func
 
 from ... import models
+from ...contributions import calculate_contribution_score
 from ...database import get_db_context
 from ...models import Character, CharacterQueryCount, Group, ImageViewCount, PendingRequest, RequestStatus, User
 from ...services import ImageService
@@ -32,11 +33,6 @@ def get_rankings(limit: int = 10):
             PendingRequest.status == RequestStatus.APPROVED.value
         ).all()
 
-        weights = {
-            "add": 2,
-            "edit": 1
-        }
-
         contribution_map = {}
         for req in approved_requests:
             if not req.user_id:
@@ -45,7 +41,7 @@ def get_rankings(limit: int = 10):
                 "score": 0,
                 "counts": {}
             })
-            user_score["score"] += weights.get(req.request_type, 0)
+            user_score["score"] += calculate_contribution_score((req.request_type,))
 
         user_ids = list(contribution_map.keys())
         users = db.query(User).filter(User.id.in_(user_ids)).all() if user_ids else []

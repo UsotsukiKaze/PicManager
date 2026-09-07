@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Text, Table, ForeignKey, DateTime, Enum, Date
+from sqlalchemy import Column, String, Integer, Text, Table, ForeignKey, DateTime, Date
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -454,15 +454,3 @@ class CharacterQueryCount(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     character = relationship("Character")
-
-
-class GuestbookMessage(Base):
-    """Public messages left on the personal homepage."""
-    __tablename__ = "guestbook_messages"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    nickname = Column(String(32), nullable=False)
-    content = Column(Text, nullable=False)
-    parent_id = Column(Integer, ForeignKey("guestbook_messages.id"), nullable=True, index=True)
-    author_qq = Column(String(20), nullable=True, index=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)

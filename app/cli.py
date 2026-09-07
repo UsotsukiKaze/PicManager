@@ -55,6 +55,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         reload=args.reload,
         reload_dirs=["app", "static"] if args.reload else None,
         log_level=args.log_level,
+        access_log=False,
     )
 
 

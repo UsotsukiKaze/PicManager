@@ -24,7 +24,8 @@ def test_emoji_detail_contains_download_metadata_and_admin_actions():
     assert "showEditEmojiModal" in detail
     assert "deleteEmoji" in detail
     assert "window.auth?.isAdmin?.()" in detail
-    assert "renderDetailChips(emoji.emotions, 'emotion')" in detail
+    assert "renderDetailChips(this.getEmotionTags(false, emoji.emotions), 'emotion')" in detail
+    assert "renderDetailChips(this.getEmotionTags(true, emoji.emotions), 'function')" in detail
     assert ".emoji-detail-media img" in STYLE
     assert "'gif' ? 'is-gif' : ''" in detail
     assert ".emoji-detail-media.is-gif img" in STYLE

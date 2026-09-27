@@ -105,6 +105,7 @@ def test_service_layer_clamps_pagination_defensively(service):
         "character_id": None,
         "feature_tag_id": None,
         "emotion_id": None,
+        "function_id": None,
         "pid": None,
         "description": None,
         "age_rating": None,

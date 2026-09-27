@@ -3709,7 +3709,7 @@ body {
 }
 
 #emoji-upload-tag-picker .tag-picker-columns {
-    grid-template-columns: repeat(3, minmax(220px, 1fr));
+    grid-template-columns: repeat(4, minmax(180px, 1fr));
     overflow-x: auto;
 }
 
@@ -3944,6 +3944,30 @@ body {
 
 .pm-tag-emotion small {
     color: rgba(176, 31, 72, 0.68);
+}
+
+.pm-tag-function,
+.detail-chip-function {
+    background: #f3efff;
+    border-color: rgba(116, 74, 190, 0.24);
+    color: #6740a6;
+}
+
+.pm-tag-function small {
+    color: #76599f;
+}
+
+.emoji-tag-hint,
+.emoji-tag-kind {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 400;
+}
+
+.emoji-tag-hint {
+    display: block;
+    margin-top: 6px;
+    line-height: 1.5;
 }
 
 .pm-tag-add {
@@ -4677,7 +4701,7 @@ body {
 }
 
 .emoji-query-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
     align-items: end;
 }
 

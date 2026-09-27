@@ -386,7 +386,7 @@ class FeatureTagService:
 
 
 class EmotionTagService:
-    """Emotion tag service for emoji resources."""
+    """Basic emotion and functional tag service for emoji resources."""
 
     @staticmethod
     def _normalize_aliases(aliases: Optional[List[str] | str]) -> List[str]:
@@ -402,6 +402,7 @@ class EmotionTagService:
             "id": tag.id,
             "name": tag.name,
             "aliases": EmotionTagService._get_aliases(tag),
+            "tag_type": tag.tag_type,
             "description": tag.description,
             "created_at": tag.created_at,
             "updated_at": tag.updated_at,
@@ -433,6 +434,12 @@ class EmotionTagService:
         if not db_tag:
             return None
         update_data = tag_update.dict(exclude_unset=True)
+        if "name" in update_data:
+            new_type = "function" if update_data["name"].startswith("#") else "emotion"
+            if new_type != db_tag.tag_type:
+                for emoji in db_tag.emojis:
+                    if any(tag.id != db_tag.id and tag.tag_type == new_type for tag in emoji.emotions):
+                        raise ValueError("修改标签类型会使已有表情包拥有多个同类标签，请先调整这些表情包的标签")
         if "aliases" in update_data:
             aliases = EmotionTagService._normalize_aliases(update_data.pop("aliases"))
             db.query(models.EmotionTagAlias).filter(models.EmotionTagAlias.emotion_id == db_tag.id).delete()
@@ -487,6 +494,18 @@ class EmojiService:
         return ImageService._unique_ints(values)
 
     @staticmethod
+    def resolve_emotions(db: Session, emotion_ids: Optional[List[int]]) -> List[models.EmotionTag]:
+        ids = EmojiService._unique_ints(emotion_ids)
+        tags = db.query(models.EmotionTag).filter(models.EmotionTag.id.in_(ids)).all() if ids else []
+        missing = set(ids) - {tag.id for tag in tags}
+        if missing:
+            raise ValueError(f"Selected emotions do not exist: {sorted(missing)}")
+        for tag_type, label in (("emotion", "基础情绪"), ("function", "功能标签")):
+            if sum(tag.tag_type == tag_type for tag in tags) > 1:
+                raise ValueError(f"一个表情包最多只能有一个{label}")
+        return sorted(tags, key=lambda tag: (tag.tag_type == "function", tag.id))
+
+    @staticmethod
     def _apply_relationships(
         db: Session,
         db_emoji: models.Emoji,
@@ -496,7 +515,7 @@ class EmojiService:
     ) -> None:
         character_ids = EmojiService._unique_ints(character_ids)[:1]
         group_ids = EmojiService._unique_ints(group_ids)[:1]
-        emotion_ids = EmojiService._unique_ints(emotion_ids)[:1]
+        emotions = EmojiService.resolve_emotions(db, emotion_ids)
         group_id_set = set(group_ids)
 
         characters = db.query(models.Character).filter(models.Character.id.in_(character_ids)).all() if character_ids else []
@@ -504,7 +523,6 @@ class EmojiService:
             group_id_set.add(character.group_id)
 
         groups = db.query(models.Group).filter(models.Group.id.in_(group_id_set)).all() if group_id_set else []
-        emotions = db.query(models.EmotionTag).filter(models.EmotionTag.id.in_(emotion_ids)).all() if emotion_ids else []
 
         db_emoji.characters = characters
         db_emoji.groups = groups
@@ -529,6 +547,8 @@ class EmojiService:
 
     @staticmethod
     def create_emoji(db: Session, emoji: schemas.EmojiCreate, file_path: str, original_filename: str, file_extension: str = "gif") -> models.Emoji:
+        # Validate before copying the file, including uploads from integrations.
+        EmojiService.resolve_emotions(db, emoji.emotion_ids)
         while True:
             emoji_id = EmojiService.generate_emoji_id()
             if not db.query(models.Emoji).filter(models.Emoji.emoji_id == emoji_id).first():
@@ -594,15 +614,8 @@ class EmojiService:
                 for char in emoji.characters
             ],
             "emotions": [
-                {
-                    "id": emotion.id,
-                    "name": emotion.name,
-                    "aliases": EmotionTagService._get_aliases(emotion),
-                    "description": emotion.description,
-                    "created_at": emotion.created_at,
-                    "updated_at": emotion.updated_at,
-                }
-                for emotion in emoji.emotions
+                EmotionTagService.tag_to_dict(emotion)
+                for emotion in sorted(emoji.emotions, key=lambda tag: (tag.tag_type == "function", tag.id))
             ],
         }
 
@@ -636,7 +649,12 @@ class EmojiService:
         if params.character_id:
             query = query.join(models.Emoji.characters).filter(models.Character.id == params.character_id)
         if params.emotion_id:
-            query = query.join(models.Emoji.emotions).filter(models.EmotionTag.id == params.emotion_id)
+            query = query.filter(models.Emoji.emotions.any(models.EmotionTag.id == params.emotion_id))
+        if params.function_id:
+            query = query.filter(models.Emoji.emotions.any(and_(
+                models.EmotionTag.id == params.function_id,
+                func.trim(models.EmotionTag.name).startswith("#"),
+            )))
         if params.description:
             query = query.filter(models.Emoji.description.like(f"%{params.description}%"))
 
@@ -668,7 +686,10 @@ class EmojiService:
         ]
 
     @staticmethod
-    def get_random_emoji(db: Session, group_id: Optional[int] = None, character_id: Optional[int] = None, emotion_id: Optional[int] = None) -> Optional[dict]:
+    def get_random_emoji(
+        db: Session, group_id: Optional[int] = None, character_id: Optional[int] = None,
+        emotion_id: Optional[int] = None, function_id: Optional[int] = None,
+    ) -> Optional[dict]:
         query = db.query(models.Emoji).filter(models.Emoji.file_status == EmojiService.AVAILABLE)
         if group_id:
             query = query.filter(models.Emoji.groups.any(models.Group.id == group_id))
@@ -676,12 +697,17 @@ class EmojiService:
             query = query.filter(models.Emoji.characters.any(models.Character.id == character_id))
         if emotion_id:
             query = query.filter(models.Emoji.emotions.any(models.EmotionTag.id == emotion_id))
+        if function_id:
+            query = query.filter(models.Emoji.emotions.any(and_(
+                models.EmotionTag.id == function_id,
+                func.trim(models.EmotionTag.name).startswith("#"),
+            )))
 
         candidate_ids = [row[0] for row in query.with_entities(models.Emoji.emoji_id).distinct().all()]
         if not candidate_ids:
             return None
 
-        scope_key = (int(group_id) if group_id else None, int(character_id) if character_id else None, int(emotion_id) if emotion_id else None)
+        scope_key = (group_id, character_id, emotion_id, function_id)
         recent_ids = EmojiService._random_recent_emoji_ids[scope_key]
         emoji = None
         missing_found = False

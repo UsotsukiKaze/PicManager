@@ -54,7 +54,9 @@ PicManager 的初衷很简单：把自己喜欢的图片好好保存下来，需
 
 - 表情包与普通图片分别保存和展示
 - 支持 GIF、JPG、PNG、WebP、BMP
-- 按分组、角色和情绪筛选
+- 每个表情包可选一个基础情绪和一个以 `#` 开头的功能标签，两类均可单独使用
+- 例如 `#睡觉` 表示纯睡觉功能，`love` + `#摸头` 表示带 love 情绪的摸头表情
+- 按分组、角色、基础情绪和功能标签筛选，支持情绪与功能组合查询
 - 支持上传、预览、编辑、下载和随机获取
 
 ### 用户与审核
@@ -204,6 +206,19 @@ uv run pic diagnose            # 检查存储吞吐和网络信息
 - `GET /api/system/status`：获取系统状态
 
 Ubot 使用的接口位于 `/api/bot/*`，通过 `BOT_API_TOKEN` 的 Bearer 认证保护。Token 只应保存在 PicManager 和 Ubot 的服务端配置中。
+
+表情包的基础情绪和功能标签共用 `/api/emotion-tags/`（机器人端为 `/api/bot/emotion-tags`）。
+名称以 `#` 开头的标签返回 `tag_type: "function"`，其他标签返回 `tag_type: "emotion"`；类型由名称决定，别称不改变类型。
+上传和编辑继续通过 `emotion_ids` 传入标签 ID，可为空、只包含一类，或包含一个基础情绪和一个功能标签。
+重复选择同类的不同标签会返回 400；已有标签改名时，如果变更类型会使表情包的同类标签超限，也会拒绝修改。
+
+`GET /api/emojis/search`、`GET /api/emojis/random` 和 `GET /api/bot/emojis/random` 支持 `function_id`：
+
+- `?function_id=12`：按功能获取，例如 ID 12 是 `#睡觉`，可匹配该功能下所有情绪的表情包，包括仅有功能标签的表情包。
+- `?emotion_id=3&function_id=15`：同时匹配基础情绪和功能，例如 `love` + `#摸头`。
+- 原有 `emotion_id` 仍支持任意情绪标签 ID（包括 `#` 功能标签），兼容现有调用；专用 `function_id` 只匹配功能标签。
+
+返回的 `emotions` 数组包含两类标签，基础情绪排在功能标签之前。现有表和关联可直接复用，无需迁移历史数据。
 
 ## 项目结构
 

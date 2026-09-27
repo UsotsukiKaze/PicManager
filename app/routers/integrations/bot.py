@@ -511,10 +511,11 @@ def get_bot_random_emoji(
     group_id: int | None = None,
     character_id: int | None = None,
     emotion_id: int | None = None,
+    function_id: int | None = None,
 ):
-    """Return a random GIF emoji for bot-side sending."""
+    """Return an emoji matching an emotion, a #-prefixed function, or both."""
     with get_db_context() as db:
-        emoji = EmojiService.get_random_emoji(db, group_id, character_id, emotion_id)
+        emoji = EmojiService.get_random_emoji(db, group_id, character_id, emotion_id, function_id)
         if not emoji:
             raise HTTPException(status_code=404, detail="Emoji not found")
         return _with_emoji_url(emoji)
@@ -563,6 +564,10 @@ def upload_bot_emoji(
             image.verify()
 
         with get_db_context() as db:
+            try:
+                EmojiService.resolve_emotions(db, emotion_id_list)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             emoji = EmojiService.create_emoji(
                 db,
                 schemas.EmojiCreate(

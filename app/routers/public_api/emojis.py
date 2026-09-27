@@ -58,8 +58,8 @@ def _verify_emoji_file(path: str, file_extension: str) -> None:
 
 
 def _validate_emoji_tags(db, character_ids: list[int], group_ids: list[int], emotion_ids: list[int]) -> None:
-    if len(character_ids) > 1 or len(group_ids) > 1 or len(emotion_ids) > 1:
-        raise HTTPException(status_code=400, detail="Emoji supports only one group, one character, and one emotion")
+    if len(character_ids) > 1 or len(group_ids) > 1:
+        raise HTTPException(status_code=400, detail="Emoji supports only one group and one character")
     if character_ids:
         existing = db.query(models.Character).filter(models.Character.id.in_(character_ids)).all()
         if len(existing) != len(character_ids):
@@ -70,11 +70,10 @@ def _validate_emoji_tags(db, character_ids: list[int], group_ids: list[int], emo
         if len(existing) != len(group_ids):
             missing = set(group_ids) - {item.id for item in existing}
             raise HTTPException(status_code=400, detail=f"Selected groups do not exist: {missing}")
-    if emotion_ids:
-        existing = db.query(models.EmotionTag).filter(models.EmotionTag.id.in_(emotion_ids)).all()
-        if len(existing) != len(emotion_ids):
-            missing = set(emotion_ids) - {item.id for item in existing}
-            raise HTTPException(status_code=400, detail=f"Selected emotions do not exist: {missing}")
+    try:
+        EmojiService.resolve_emotions(db, emotion_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/emotion-tags/", response_model=list[schemas.EmotionTag])
@@ -104,7 +103,10 @@ def update_emotion_tag(tag_id: int, tag_update: schemas.EmotionTagUpdate, reques
             existing = db.query(models.EmotionTag).filter(models.EmotionTag.name == tag_update.name, models.EmotionTag.id != tag_id).first()
             if existing:
                 raise HTTPException(status_code=400, detail="Emotion already exists")
-        updated = EmotionTagService.update_emotion_tag(db, tag_id, tag_update)
+        try:
+            updated = EmotionTagService.update_emotion_tag(db, tag_id, tag_update)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         if not updated:
             raise HTTPException(status_code=404, detail="Emotion not found")
         return updated
@@ -127,12 +129,14 @@ def search_emojis(
     description: Optional[str] = None,
     limit: int = Query(50, ge=1, le=settings.MAX_PAGE_SIZE),
     offset: int = Query(0, ge=0),
+    function_id: Optional[int] = None,
 ):
     with get_db_context() as db:
         params = schemas.EmojiSearchParams(
             group_id=group_id,
             character_id=character_id,
             emotion_id=emotion_id,
+            function_id=function_id,
             description=description,
             limit=limit,
             offset=offset,
@@ -142,9 +146,12 @@ def search_emojis(
 
 
 @router.get("/emojis/random", response_model=schemas.EmojiWithTags)
-def random_emoji(group_id: Optional[int] = None, character_id: Optional[int] = None, emotion_id: Optional[int] = None):
+def random_emoji(
+    group_id: Optional[int] = None, character_id: Optional[int] = None,
+    emotion_id: Optional[int] = None, function_id: Optional[int] = None,
+):
     with get_db_context() as db:
-        emoji = EmojiService.get_random_emoji(db, group_id, character_id, emotion_id)
+        emoji = EmojiService.get_random_emoji(db, group_id, character_id, emotion_id, function_id)
         if not emoji:
             raise HTTPException(status_code=404, detail="Emoji not found")
         return emoji

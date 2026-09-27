@@ -5,7 +5,7 @@ class EmojiLibrary {
         this.emojiCharacters = [];
         this.emotions = [];
         this.initialized = false;
-        this.uploadTags = { group_id: null, character_id: null, emotion_id: null };
+        this.uploadTags = { group_id: null, character_id: null, emotion_id: null, function_id: null };
         this.uploadPickerDraft = null;
         this.uploadFile = null;
         this.uploadPreviewUrl = null;
@@ -34,6 +34,18 @@ class EmojiLibrary {
         )).join('');
     }
 
+    isFunctionTag(tag) {
+        return String(tag?.name || '').trim().startsWith('#');
+    }
+
+    getEmotionTags(functional, tags = this.emotions) {
+        return (tags || []).filter(tag => this.isFunctionTag(tag) === functional);
+    }
+
+    selectedEmotionIds() {
+        return [this.uploadTags.emotion_id, this.uploadTags.function_id].filter(Boolean);
+    }
+
     async fetchEmojiCharacterFacets() {
         try {
             return await api.getEmojiCharacters() || [];
@@ -48,6 +60,7 @@ class EmojiLibrary {
             group: document.getElementById('emoji-group-filter')?.value || '',
             character: document.getElementById('emoji-character-filter')?.value || '',
             emotion: document.getElementById('emoji-emotion-filter')?.value || '',
+            function: document.getElementById('emoji-function-filter')?.value || '',
         };
         const [groups, characters, emotions, emojiCharacters] = await Promise.all([
             api.getGroups(),
@@ -63,12 +76,15 @@ class EmojiLibrary {
         const groupFilter = document.getElementById('emoji-group-filter');
         const characterFilter = document.getElementById('emoji-character-filter');
         const emotionFilter = document.getElementById('emoji-emotion-filter');
+        const functionFilter = document.getElementById('emoji-function-filter');
         if (groupFilter) groupFilter.innerHTML = this.optionHtml(this.groups, '全部分组');
         if (characterFilter) characterFilter.innerHTML = this.optionHtml(this.characters, '全部角色');
-        if (emotionFilter) emotionFilter.innerHTML = this.optionHtml(this.emotions, '全部情绪');
+        if (emotionFilter) emotionFilter.innerHTML = this.optionHtml(this.getEmotionTags(false), '全部基础情绪');
+        if (functionFilter) functionFilter.innerHTML = this.optionHtml(this.getEmotionTags(true), '全部功能');
         if (groupFilter) groupFilter.value = selectedFilters.group;
         if (characterFilter) characterFilter.value = selectedFilters.character;
         if (emotionFilter) emotionFilter.value = selectedFilters.emotion;
+        if (functionFilter) functionFilter.value = selectedFilters.function;
         window.queryPanels?.update('emoji-query-panel');
         this.renderCharacterTabs();
 
@@ -121,7 +137,8 @@ class EmojiLibrary {
         const typeMap = {
             group: { key: 'group_id', label: '分组', source: this.groups },
             character: { key: 'character_id', label: '角色', source: this.characters },
-            emotion: { key: 'emotion_id', label: '情绪', source: this.emotions },
+            emotion: { key: 'emotion_id', label: '基础情绪', source: this.emotions },
+            function: { key: 'function_id', label: '功能', source: this.emotions },
         };
         const config = typeMap[type];
         const item = this.getById(config.source, id);
@@ -144,8 +161,10 @@ class EmojiLibrary {
                 ${this.tagButton('group', this.uploadTags.group_id)}
                 ${this.tagButton('character', this.uploadTags.character_id)}
                 ${this.tagButton('emotion', this.uploadTags.emotion_id)}
+                ${this.tagButton('function', this.uploadTags.function_id)}
                 <button type="button" class="pm-tag-add" onclick="emojiLibrary.openUploadTagPicker()">+</button>
             </div>
+            <small class="emoji-tag-hint">基础情绪和功能标签各选一个，也可只选其中一类。功能标签以 # 开头。</small>
         `;
     }
 
@@ -173,7 +192,7 @@ class EmojiLibrary {
     }
 
     pickerOption(item, type, selected) {
-        const labelMap = { group: '分组', character: '角色', emotion: '情绪' };
+        const labelMap = { group: '分组', character: '角色', emotion: '基础情绪', function: '功能' };
         return `
             <label class="tag-picker-option ${selected ? 'selected' : ''}">
                 <input type="radio" name="emoji-picker-${type}" value="${item.id}" ${selected ? 'checked' : ''}>
@@ -188,8 +207,8 @@ class EmojiLibrary {
         this.uploadPickerDraft = { ...this.uploadTags };
         const content = `
             <div class="tag-picker" id="${modalId}">
-                <input class="form-input tag-picker-search" placeholder="搜索分组、角色或情绪" autocomplete="off">
-                <div class="tag-picker-columns tag-picker-columns-3">
+                <input class="form-input tag-picker-search" placeholder="搜索分组、角色、基础情绪或 #功能" autocomplete="off">
+                <div class="tag-picker-columns tag-picker-columns-4">
                     <section>
                         <h4>分组</h4>
                         <div class="tag-picker-list" data-type="group"></div>
@@ -199,8 +218,12 @@ class EmojiLibrary {
                         <div class="tag-picker-list" data-type="character"></div>
                     </section>
                     <section>
-                        <h4>情绪</h4>
+                        <h4>基础情绪（最多一个）</h4>
                         <div class="tag-picker-list" data-type="emotion"></div>
+                    </section>
+                    <section>
+                        <h4>#功能（最多一个）</h4>
+                        <div class="tag-picker-list" data-type="function"></div>
                     </section>
                 </div>
                 <div class="form-actions">
@@ -232,6 +255,8 @@ class EmojiLibrary {
                 this.renderUploadTagPicker(modalId, search.value);
             } else if (input.name === 'emoji-picker-emotion') {
                 this.uploadPickerDraft.emotion_id = value;
+            } else if (input.name === 'emoji-picker-function') {
+                this.uploadPickerDraft.function_id = value;
             }
         });
     }
@@ -246,7 +271,8 @@ class EmojiLibrary {
             ? this.characters.filter(character => Number(character.group_id) === Number(selectedGroupId))
             : this.characters;
         const characters = this.filterItems(charactersSource, query);
-        const emotions = this.filterItems(this.emotions, query);
+        const emotions = this.filterItems(this.getEmotionTags(false), query);
+        const functions = this.filterItems(this.getEmotionTags(true), query);
 
         root.querySelector('[data-type="group"]').innerHTML = groups.map(group =>
             this.pickerOption(group, 'group', Number(group.id) === Number(draft.group_id))
@@ -254,9 +280,16 @@ class EmojiLibrary {
         root.querySelector('[data-type="character"]').innerHTML = characters.map(character =>
             this.pickerOption(character, 'character', Number(character.id) === Number(draft.character_id))
         ).join('') || '<div class="empty-state">没有角色</div>';
-        root.querySelector('[data-type="emotion"]').innerHTML = emotions.map(emotion =>
+        root.querySelector('[data-type="emotion"]').innerHTML = this.pickerOption(
+            { id: 0, name: '不设置基础情绪' }, 'emotion', !draft.emotion_id
+        ) + emotions.map(emotion =>
             this.pickerOption(emotion, 'emotion', Number(emotion.id) === Number(draft.emotion_id))
-        ).join('') || '<div class="empty-state">没有情绪</div>';
+        ).join('');
+        root.querySelector('[data-type="function"]').innerHTML = this.pickerOption(
+            { id: 0, name: '不设置功能标签' }, 'function', !draft.function_id
+        ) + functions.map(tag =>
+            this.pickerOption(tag, 'function', Number(tag.id) === Number(draft.function_id))
+        ).join('');
     }
 
     confirmUploadTagPicker(modalId) {
@@ -266,6 +299,7 @@ class EmojiLibrary {
             group_id: character?.group_id || draft.group_id || null,
             character_id: draft.character_id || null,
             emotion_id: draft.emotion_id || null,
+            function_id: draft.function_id || null,
         };
         this.uploadPickerDraft = null;
 
@@ -281,6 +315,7 @@ class EmojiLibrary {
             group_id: document.getElementById('emoji-group-filter')?.value || '',
             character_id: document.getElementById('emoji-character-filter')?.value || '',
             emotion_id: document.getElementById('emoji-emotion-filter')?.value || '',
+            function_id: document.getElementById('emoji-function-filter')?.value || '',
             limit: this.pagination.limit,
             offset: (this.pagination.currentPage - 1) * this.pagination.limit,
         };
@@ -389,7 +424,10 @@ class EmojiLibrary {
             return;
         }
         grid.innerHTML = emojis.map(emoji => {
-            const emotion = (emoji.emotions || [])[0]?.name || '未标情绪';
+            const emotion = [
+                ...this.getEmotionTags(false, emoji.emotions),
+                ...this.getEmotionTags(true, emoji.emotions),
+            ].map(tag => tag.name).join(' · ') || '未标情绪或功能';
             return `
                 <article class="image-card emoji-card" data-emoji-id="${this.escape(emoji.emoji_id)}">
                     <button type="button" class="image-card-open" aria-label="查看表情包 ${this.escape(emoji.emoji_id)} 的详情">
@@ -443,7 +481,8 @@ class EmojiLibrary {
                         </div>
                         <div class="detail-tag-section"><label>分组</label><div class="detail-chip-row">${this.renderDetailChips(emoji.groups, 'group')}</div></div>
                         <div class="detail-tag-section"><label>角色</label><div class="detail-chip-row">${this.renderDetailChips(emoji.characters, 'character')}</div></div>
-                        <div class="detail-tag-section"><label>情绪</label><div class="detail-chip-row">${this.renderDetailChips(emoji.emotions, 'emotion')}</div></div>
+                        <div class="detail-tag-section"><label>基础情绪</label><div class="detail-chip-row">${this.renderDetailChips(this.getEmotionTags(false, emoji.emotions), 'emotion')}</div></div>
+                        <div class="detail-tag-section"><label>功能标签</label><div class="detail-chip-row">${this.renderDetailChips(this.getEmotionTags(true, emoji.emotions), 'function')}</div></div>
                         <div class="detail-note"><span>备注</span><p>${this.escape(emoji.description || '无')}</p></div>
                     </div>
                     <div class="detail-actions">
@@ -462,11 +501,13 @@ class EmojiLibrary {
         const emoji = await api.getEmoji(id);
         const group = (emoji.groups || [])[0];
         const character = (emoji.characters || [])[0];
-        const emotion = (emoji.emotions || [])[0];
+        const emotion = this.getEmotionTags(false, emoji.emotions)[0];
+        const functionTag = this.getEmotionTags(true, emoji.emotions)[0];
         this.uploadTags = {
             group_id: group?.id || character?.group_id || null,
             character_id: character?.id || null,
             emotion_id: emotion?.id || null,
+            function_id: functionTag?.id || null,
         };
         ui.showModal('修改表情包信息', `
             <div class="emoji-edit-dialog">
@@ -500,7 +541,7 @@ class EmojiLibrary {
             await api.updateEmoji(id, {
                 group_ids: this.uploadTags.group_id ? [this.uploadTags.group_id] : [],
                 character_ids: this.uploadTags.character_id ? [this.uploadTags.character_id] : [],
-                emotion_ids: this.uploadTags.emotion_id ? [this.uploadTags.emotion_id] : [],
+                emotion_ids: this.selectedEmotionIds(),
                 description: document.getElementById('emoji-edit-description')?.value || '',
             });
             ui.closeModal();
@@ -518,13 +559,13 @@ class EmojiLibrary {
         const list = document.getElementById('emotion-list');
         if (!list) return;
         if (!this.emotions.length) {
-            list.innerHTML = '<div class="empty-state">暂无情绪标签</div>';
+            list.innerHTML = '<div class="empty-state">暂无情绪或功能标签</div>';
             return;
         }
         list.innerHTML = this.emotions.map(emotion => `
             <div class="list-item">
                 <div class="list-item-info">
-                    <div class="list-item-name">${this.escape(emotion.name)}</div>
+                    <div class="list-item-name">${this.escape(emotion.name)} <small class="emoji-tag-kind">${this.isFunctionTag(emotion) ? '功能标签' : '基础情绪'}</small></div>
                     <div class="list-item-description">
                         ${this.escape(emotion.description || '无描述')}
                         ${(emotion.aliases || []).length ? ` | 别称: ${this.escape(emotion.aliases.join(' / '))}` : ''}
@@ -543,7 +584,7 @@ class EmojiLibrary {
             await this.loadOptions();
         }
         this.clearUploadFile();
-        this.uploadTags = { group_id: null, character_id: null, emotion_id: null };
+        this.uploadTags = { group_id: null, character_id: null, emotion_id: null, function_id: null };
         ui.showModal('上传表情包', `
             <div class="emoji-upload-dialog">
                 <div class="emoji-file-drop" id="emoji-file-drop" role="button" tabindex="0" aria-label="选择表情包文件">
@@ -666,7 +707,7 @@ class EmojiLibrary {
             await api.uploadEmoji(file, {
                 group_ids: this.uploadTags.group_id ? [this.uploadTags.group_id] : [],
                 character_ids: this.uploadTags.character_id ? [this.uploadTags.character_id] : [],
-                emotion_ids: this.uploadTags.emotion_id ? [this.uploadTags.emotion_id] : [],
+                emotion_ids: this.selectedEmotionIds(),
                 description: document.getElementById('emoji-description')?.value || '',
             });
             this.clearUploadFile();
@@ -693,10 +734,11 @@ class EmojiLibrary {
 
     showEmotionModal(emotion = null) {
         const aliases = (emotion?.aliases || []).join(', ');
-        ui.showModal(emotion ? '编辑情绪' : '添加情绪', `
+        ui.showModal(emotion ? '编辑情绪 / 功能标签' : '添加情绪 / 功能标签', `
             <div class="form-group">
                 <label>名称</label>
-                <input id="emotion-name" class="form-input" value="${this.escape(emotion?.name || '')}">
+                <input id="emotion-name" class="form-input" maxlength="255" value="${this.escape(emotion?.name || '')}" placeholder="例如 love、#睡觉、#摸头">
+                <small class="emoji-tag-hint">以 # 开头的名称会自动归为功能标签，例如 #睡觉；其他名称为基础情绪。</small>
             </div>
             <div class="form-group">
                 <label>别称</label>
@@ -719,22 +761,26 @@ class EmojiLibrary {
             aliases: (document.getElementById('emotion-aliases')?.value || '').split(',').map(item => item.trim()).filter(Boolean),
             description: document.getElementById('emotion-description')?.value || '',
         };
-        if (!payload.name) {
-            ui.showToast('请填写情绪名称', 'warning');
+        if (!payload.name || (payload.name.startsWith('#') && !payload.name.slice(1).trim())) {
+            ui.showToast('请填写标签名称，功能标签的 # 后需要填写功能名称', 'warning');
             return;
         }
-        if (id) {
-            await api.updateEmotionTag(id, payload);
-        } else {
-            await api.createEmotionTag(payload);
+        try {
+            if (id) {
+                await api.updateEmotionTag(id, payload);
+            } else {
+                await api.createEmotionTag(payload);
+            }
+            ui.closeModal();
+            await this.loadOptions();
+            await this.load();
+        } catch (error) {
+            ui.showToast(`保存标签失败: ${error.message}`, 'error');
         }
-        ui.closeModal();
-        await this.loadOptions();
-        await this.load();
     }
 
     async deleteEmotion(id) {
-        if (!confirm('确定删除这个情绪吗？')) return;
+        if (!confirm('确定删除这个情绪或功能标签吗？')) return;
         await api.deleteEmotionTag(id);
         await this.loadOptions();
         await this.load();

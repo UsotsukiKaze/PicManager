@@ -21,7 +21,7 @@
         html:not(.app-booting) .app-bootstrap-status { display: none; }
     </style>
     <noscript><meta http-equiv="refresh" content="0; url=/login"></noscript>
-    <script src="/static/js/auth.js?v=20260820u"></script>
+    <script src="/static/js/auth.js?v=20260927a"></script>
 </head>
 <body>
     <div class="app-bootstrap-status" role="status">正在验证登录状态…</div>
@@ -485,7 +485,7 @@
                             <div class="emoji-upload-entry-copy">
                                 <span class="resource-type-badge">表情包资源</span>
                                 <h3>上传 GIF 或静态表情图片</h3>
-                                <p>表情包会存入独立的表情包库，不会混入普通图片库。上传前可以预览，并添加分组、角色和情绪标签。</p>
+                                <p>表情包会存入独立的表情包库，不会混入普通图片库。上传前可以预览，并添加分组、角色、基础情绪和 #功能标签。</p>
                                 <div class="emoji-upload-formats" aria-label="支持格式">
                                     <span>GIF 动图</span>
                                     <span>JPG</span>
@@ -529,7 +529,7 @@
                 <div class="tab-container">
                     <div class="tab-header">
                         <button class="tab-btn active" data-tab="emoji-list">全部表情</button>
-                        <button class="tab-btn" data-tab="emotion-management">情绪</button>
+                        <button class="tab-btn" data-tab="emotion-management">情绪 / 功能</button>
                     </div>
 
                     <div class="tab-content" id="tab-emoji-list">
@@ -560,8 +560,12 @@
                                     <select id="emoji-character-filter" class="form-input" data-query-count></select>
                                 </div>
                                 <div class="form-group">
-                                    <label for="emoji-emotion-filter">情绪</label>
+                                    <label for="emoji-emotion-filter">基础情绪</label>
                                     <select id="emoji-emotion-filter" class="form-input" data-query-count></select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="emoji-function-filter">功能标签</label>
+                                    <select id="emoji-function-filter" class="form-input" data-query-count></select>
                                 </div>
                                 <div class="form-group emoji-query-action">
                                     <button class="btn btn-primary" onclick="emojiLibrary.applyFilters()" data-query-apply="emoji-query-panel">应用筛选</button>
@@ -578,7 +582,7 @@
                         <div class="search-bar" style="margin-bottom: 24px;">
                             <div class="form-row">
                                 <div class="form-group">
-                                    <button class="btn btn-primary" onclick="emojiLibrary.showCreateEmotionModal()">添加情绪</button>
+                                    <button class="btn btn-primary" onclick="emojiLibrary.showCreateEmotionModal()">添加情绪 / 功能标签</button>
                                 </div>
                             </div>
                         </div>

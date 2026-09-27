@@ -273,7 +273,7 @@ class FeatureTagAlias(Base):
 
 
 class EmotionTag(Base):
-    """Emoji-only emotion tags such as happy, angry, or confused."""
+    """Emoji tags: basic emotions and #-prefixed functions."""
     __tablename__ = 'emotion_tags'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -284,6 +284,10 @@ class EmotionTag(Base):
 
     emojis = relationship("Emoji", secondary=emoji_emotion_association, back_populates="emotions")
     aliases = relationship("EmotionTagAlias", back_populates="emotion", cascade="all, delete-orphan")
+
+    @property
+    def tag_type(self) -> str:
+        return "function" if self.name.strip().startswith("#") else "emotion"
 
 
 class EmotionTagAlias(Base):

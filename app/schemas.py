@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, field_validator
-from typing import List, Optional
+from typing import List, Literal, Optional
 from datetime import datetime
 
 from .config import settings
@@ -86,6 +86,15 @@ class FeatureTag(FeatureTagBase):
         from_attributes = True
 
 
+def _normalize_emotion_tag_name(value: str) -> str:
+    name = value.strip()
+    if not name or (name.startswith("#") and not name[1:].strip()):
+        raise ValueError("请填写标签名称，功能标签的 # 后需要填写功能名称")
+    if len(name) > 255:
+        raise ValueError("标签名称不能超过 255 个字符")
+    return name
+
+
 class EmotionTagBase(BaseModel):
     name: str
     aliases: Optional[List[str]] = None
@@ -93,7 +102,10 @@ class EmotionTagBase(BaseModel):
 
 
 class EmotionTagCreate(EmotionTagBase):
-    pass
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return _normalize_emotion_tag_name(value)
 
 
 class EmotionTagUpdate(BaseModel):
@@ -101,9 +113,17 @@ class EmotionTagUpdate(BaseModel):
     aliases: Optional[List[str]] = None
     description: Optional[str] = None
 
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: Optional[str]) -> str:
+        if value is None:
+            raise ValueError("标签名称不能为空")
+        return _normalize_emotion_tag_name(value)
+
 
 class EmotionTag(EmotionTagBase):
     id: int
+    tag_type: Literal["emotion", "function"]
     created_at: datetime
     updated_at: datetime
 
@@ -243,6 +263,7 @@ class EmojiSearchParams(BaseModel):
     group_id: Optional[int] = None
     character_id: Optional[int] = None
     emotion_id: Optional[int] = None
+    function_id: Optional[int] = None
     description: Optional[str] = None
     limit: int = Field(default=50, ge=1, le=settings.MAX_PAGE_SIZE)
     offset: int = Field(default=0, ge=0)

@@ -278,6 +278,10 @@ class Provider:
             raise
         except Exception:
             raise PixivError("external_error") from None
+        if isinstance(response, dict) and method == "illust_detail":
+            error = response.get("error")
+            if isinstance(error, dict) and error.get("reason") in {"access_deny", "access_denied"}:
+                raise PixivError("access_deny")
         if not isinstance(response, dict) or response.get("error"):
             raise PixivError("external_error")
         return response

@@ -15,6 +15,13 @@ from .integrations.pixiv_ol import service, jobs
 from .integrations.pixiv_ol.provider import PixivError, download
 
 
+class ArtworkDenied(PixivError):
+    """A denied detail lookup, scoped to this exact image/PID and account."""
+    def __init__(self, checkpoint):
+        self.checkpoint = checkpoint
+        super().__init__("access_deny")
+
+
 class ArtworkClient:
     def __init__(self, art):
         self.art = art
@@ -108,7 +115,7 @@ def scan_next(actor_id):
     return scan_image(actor_id, image_id, remaining=len(rows))
 
 
-def scan_image(actor_id, image_id, *, remaining=1, revision=None, client=None, guard=None):
+def scan_image(actor_id, image_id, *, remaining=1, revision=None, client=None, guard=None, denial=None):
     """One independent image check; queue leases are checked before library writes."""
     with get_db_context() as db:
         service.require_actor(db, actor_id)
@@ -140,13 +147,22 @@ def scan_image(actor_id, image_id, *, remaining=1, revision=None, client=None, g
         raw = client.call("illust_detail", illust_id=work_id).get("illust")
         art = service.normalize_artwork(raw or {})
         if not art:
-            # Unsupported/invisible content or a malformed response does not
-            # establish that the library PID is invalid. Only explicit 404 does.
-            raise PixivError("access_denied" if isinstance(raw, dict) and raw.get("visible") is False else "artwork_unsupported")
+            # Invisible works need three matching denied lookups before clearing.
+            raise PixivError("access_deny" if isinstance(raw, dict) and raw.get("visible") is False else "artwork_unsupported")
         art["width"], art["height"] = int(raw.get("width") or 0), int(raw.get("height") or 0)
         service.save_artworks(revision, [raw], "library_check", actor_id)
     except PixivError as exc:
-        if exc.code != "artwork_unavailable":
+        if exc.code in {"access_deny", "access_denied"}:
+            previous = denial or {}
+            count = (previous.get("count", 0) if previous.get("snapshot") == before
+                     and previous.get("revision") == revision else 0) + 1
+            checkpoint = {"status": "denied_retry", "count": count, "snapshot": before, "revision": revision}
+            if count < 3:
+                raise ArtworkDenied(checkpoint) from None
+            invalid_reason = "access_deny"
+        elif exc.code == "artwork_unavailable":
+            invalid_reason = "artwork_unavailable"
+        else:
             raise
         art = None
     finally:
@@ -166,7 +182,8 @@ def scan_image(actor_id, image_id, *, remaining=1, revision=None, client=None, g
             db.query(models.PixivCheckReview).filter_by(image_id=image_id, resolved=None).update(
                 {"expires_at": datetime.utcnow()}, synchronize_session=False,
             )
-        return {"status": "invalid_pid_cleared", "previous_pid": before["pid"], "remaining": max(0, remaining - 1)}
+        return {"status": "invalid_pid_cleared", "previous_pid": before["pid"], "reason": invalid_reason,
+                "remaining": max(0, remaining - 1)}
     larger = (
         art["width"] >= current_width
         and art["height"] >= current_height

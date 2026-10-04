@@ -595,6 +595,22 @@ def test_reader_preview_uses_clear_master_per_page_not_original_and_caches(envir
     assert client.get(item["author_avatar_url"]).status_code == 401
 
 
+@pytest.mark.parametrize('method,reason,expected', [
+    ('illust_detail', 'access_deny', 'access_deny'),
+    ('illust_detail', 'access_denied', 'access_deny'),
+    ('illust_detail', 'other_error', 'external_error'),
+    ('illust_recommended', 'access_deny', 'external_error'),
+])
+def test_provider_distinguishes_detail_denial_from_unrelated_api_errors(monkeypatch, method, reason, expected):
+    from types import SimpleNamespace
+    monkeypatch.setattr(provider, 'throttle', lambda: None)
+    remote = provider.Provider.__new__(provider.Provider)
+    remote.api = SimpleNamespace(**{method: lambda **_kwargs: {'error': {'reason': reason}}})
+    with pytest.raises(provider.PixivError) as raised:
+        remote.call(method, illust_id='100')
+    assert raised.value.code == expected
+
+
 def test_clear_preview_upgrades_legacy_original_url_and_rejects_unknown_original():
     from app.integrations.pixiv_ol import viewer
 

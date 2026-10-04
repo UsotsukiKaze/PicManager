@@ -487,6 +487,123 @@ def test_network_permission_or_unsupported_work_never_clears_pid(queued,monkeypa
         assert image.pixiv_metadata is None
 
 
+def make_check_retry_due(context):
+    with context() as db:
+        db.query(models.PixivCheckItem).filter_by(status='queued').update(
+            {'available_at': datetime.utcnow() - timedelta(seconds=1)}, synchronize_session=False)
+
+
+@pytest.mark.parametrize('code', ['access_deny', 'access_denied', 'invisible'])
+def test_three_consecutive_detail_denials_clear_pid_without_a_failed_item(queued, monkeypatch, code):
+    from app.services import ImageService
+    context, _, add = queued
+    add(2)
+    with context() as db:
+        image = db.get(models.Image, '0000000001')
+        image.feature_tags = [db.get(models.FeatureTag, 1)]
+        path = ImageService.image_full_path(image)
+    calls = []
+    class Client:
+        def call(self, *_args, **kwargs):
+            pid = str(kwargs['illust_id']);calls.append(pid)
+            if pid == '101':
+                if code == 'invisible':
+                    raw = artwork(pid);raw['visible'] = False;return {'illust': raw}
+                raise provider.PixivError(code)
+            raw = artwork(pid);raw.update(width=32, height=20);return {'illust': raw}
+        def close(self): pass
+    monkeypatch.setattr(service, 'client_for_job', lambda *_: Client())
+    queue.start(1);worker = queue.PixivCheckWorker()
+    assert worker.run_once() and worker.run_once() and worker.run_once()
+    for count in (1, 2):
+        with context() as db:
+            image = db.get(models.Image, '0000000001')
+            task = db.query(models.PixivCheckItem).filter_by(image_id=image.image_id).one()
+            assert image.pid == '101_p0' and task.status == 'queued'
+            assert task.result['count'] == count
+            assert db.get(models.Image, '0000000002').pixiv_checked_at is not None
+        assert not queue.status(1)['run']['errors']
+        make_check_retry_due(context)
+        assert worker.run_once()
+    drain(worker)
+    state = queue.status(1)
+    assert state['run']['invalid_pids'] == 1 and not state['run']['errors']
+    with context() as db:
+        image = db.get(models.Image, '0000000001')
+        task = db.query(models.PixivCheckItem).filter_by(image_id=image.image_id).one()
+        assert image.pid is None and image.pixiv_checked_at is None and image.pixiv_metadata is None
+        assert task.status == 'completed' and task.error is None
+        assert task.result['reason'] == 'access_deny'
+        assert ImageService.image_file_exists(image) and ImageService.image_full_path(image) == path
+        assert [tag.id for tag in image.feature_tags] == [1] and [group.id for group in image.groups] == [1]
+        assert image.visual_fingerprint is not None
+    assert calls.count('101') == 3
+
+
+def test_other_error_breaks_denial_streak_and_success_preserves_pid(queued, monkeypatch):
+    context, _, add = queued
+    add(1)
+    errors = iter(['access_deny', 'external_error', 'access_denied', 'access_deny', None])
+    class Client:
+        def call(self, *_args, **kwargs):
+            code = next(errors)
+            if code:raise provider.PixivError(code)
+            raw = artwork('101');raw.update(width=32, height=20);return {'illust': raw}
+        def close(self): pass
+    monkeypatch.setattr(service, 'client_for_job', lambda *_: Client())
+    queue.start(1);worker = queue.PixivCheckWorker();assert worker.run_once()
+    for expected in (1, None, 1, 2):
+        make_check_retry_due(context);assert worker.run_once()
+        with context() as db:
+            task = db.query(models.PixivCheckItem).filter_by(image_id='0000000001').one()
+            assert (task.result or {}).get('count') == expected
+            assert task.status == 'queued'
+            assert db.get(models.Image, '0000000001').pid == '101_p0'
+    make_check_retry_due(context);drain(worker)
+    with context() as db:
+        image = db.get(models.Image, '0000000001')
+        assert image.pid == '101_p0' and image.pixiv_checked_at is not None
+    assert queue.status(1)['run']['invalid_pids'] == 0
+
+
+def test_pid_change_resets_denials_and_stop_prevents_third_denial_mutation(queued, monkeypatch):
+    context, _, add = queued
+    add(1)
+    run_id = queue.start(1)['id'];calls = []
+    class Client:
+        def call(self, *_args, **kwargs):
+            calls.append(kwargs['illust_id'])
+            if len(calls) == 4:queue.stop(1, run_id)
+            raise provider.PixivError('access_deny')
+        def close(self): pass
+    monkeypatch.setattr(service, 'client_for_job', lambda *_: Client())
+    worker = queue.PixivCheckWorker();assert worker.run_once() and worker.run_once()
+    with context() as db:db.get(models.Image, '0000000001').pid = '102_p0'
+    for expected in (1, 2):
+        make_check_retry_due(context);assert worker.run_once()
+        with context() as db:
+            task = db.query(models.PixivCheckItem).filter_by(image_id='0000000001').one()
+            assert task.result['count'] == expected
+            assert db.get(models.Image, '0000000001').pid == '102_p0'
+    make_check_retry_due(context);assert worker.run_once()
+    with context() as db:assert db.get(models.Image, '0000000001').pid == '102_p0'
+    assert queue.status(1)['run']['status'] == 'cancelled'
+
+
+def test_account_authorization_denial_never_counts_as_deleted_artwork(queued, monkeypatch):
+    context, _, add = queued
+    add(1)
+    def no_account_client(*_args):raise provider.PixivError('access_denied')
+    monkeypatch.setattr(service, 'client_for_job', no_account_client)
+    queue.start(1);worker = queue.PixivCheckWorker();assert worker.run_once()
+    for _ in range(3):
+        make_check_retry_due(context);assert worker.run_once()
+    with context() as db:
+        assert db.get(models.Image, '0000000001').pid == '101_p0'
+        task = db.query(models.PixivCheckItem).filter_by(image_id='0000000001').one()
+        assert task.status == 'failed' and task.result is None
+
+
 def test_extra_page_duplicate_is_visible_in_maintenance_and_can_resume_import(queued,monkeypatch):
     from app.services import ImageService
     from app.integrations.pixiv_ol import jobs

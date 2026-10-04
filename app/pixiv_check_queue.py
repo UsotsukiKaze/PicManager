@@ -141,7 +141,7 @@ def claim():
         item = db.get(models.PixivCheckItem, item_id)
         run = db.get(models.PixivCheckRun, item.run_id)
         return {"id": item.id, "lease": lease, "kind": item.kind, "image_id": item.image_id,
-                "actor_id": run.actor_id, "revision": run.account_revision}
+                "actor_id": run.actor_id, "revision": run.account_revision, "denial": item.result or {}}
 
 
 def stop(actor_id, run_id):
@@ -255,7 +255,7 @@ class PixivCheckWorker:
         if not task:
             self.close_client()
             return False
-        error, result = None, None
+        error, result, denial = None, None, None
         try:
             if task["kind"] == "prepare":
                 result = self.prepare(task)
@@ -265,6 +265,7 @@ class PixivCheckWorker:
                         result = pixiv_check.scan_image(
                             task["actor_id"], task["image_id"], revision=task["revision"], client=self.client(task),
                             guard=lambda db: self.check_guard(db, task),
+                            denial=task["denial"],
                         )
                         break
                     except PixivError as exc:
@@ -273,11 +274,13 @@ class PixivCheckWorker:
                         # Renew an expired access token once using the stored refresh token.
                         self.close_client()
         except Exception as exc:
+            if isinstance(exc, pixiv_check.ArtworkDenied):
+                denial = exc.checkpoint
             error = (exc.code if isinstance(exc, PixivError) else
                      "check_database_busy" if isinstance(exc, (IntegrityError, OperationalError)) else
                      "check_processing_failed")
             self.close_client()
-            if error != "check_cancelled":
+            if error != "check_cancelled" and denial is None:
                 log_error(f"Pixiv check item failed: item={task['id']}, error={error}")
         with get_db_context() as db:
             item = db.get(models.PixivCheckItem, task["id"])
@@ -287,12 +290,15 @@ class PixivCheckWorker:
             item.lease = item.locked_at = None
             if error:
                 item.error = error
+                # A different error breaks the sequence; attempts alone cannot
+                # establish three consecutive denied detail lookups.
+                item.result = denial
                 if error == "check_cancelled" and self.stop_event.is_set() and run.status == "running":
                     item.status, item.available_at = "queued", datetime.utcnow()
                     item.attempts = max(0, item.attempts - 1)
-                elif error in RETRYABLE and item.attempts < 3 and run.status == "running":
+                elif (denial is not None or error in RETRYABLE and item.attempts < 3) and run.status == "running":
                     item.status = "queued"
-                    item.available_at = datetime.utcnow() + timedelta(seconds=30 if error == "rate_limited" else 2 ** item.attempts)
+                    item.available_at = datetime.utcnow() + timedelta(seconds=30 if error == "rate_limited" else 2 ** min(item.attempts, 3))
                 else:
                     item.status = "failed"
                 if error in FATAL:

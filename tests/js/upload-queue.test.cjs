@@ -48,7 +48,7 @@ const context = vm.createContext({
     },
 });
 
-const source = fs.readFileSync(path.join(__dirname, '..', 'static', 'js', 'upload-queue.js'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '..', '..', 'static', 'js', 'upload-queue.js'), 'utf8');
 vm.runInContext(source, context, { filename: 'upload-queue.js' });
 
 const queue = context.window.uploadQueue;

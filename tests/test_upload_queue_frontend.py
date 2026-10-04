@@ -15,7 +15,7 @@ def test_global_upload_queue_is_loaded_with_the_application_shell():
     assert 'id="upload-queue-panel"' in INDEX
     assert "/static/js/upload-queue.js" in AUTH
     assert "window.uploadQueue = new UploadQueueDock()" in QUEUE
-    assert (PROJECT_ROOT / "tests" / "upload_queue_smoke.js").is_file()
+    assert (PROJECT_ROOT / "tests" / "js" / "upload-queue.test.cjs").is_file()
 
 
 def test_upload_queue_supports_progress_attention_retry_and_unload_protection():

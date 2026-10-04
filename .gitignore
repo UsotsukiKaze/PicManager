@@ -5,6 +5,9 @@ build/
 dist/
 wheels/
 *.egg-info
+.pytest_cache/
+.ruff_cache/
+.uv-cache*/
 
 # Virtual environments
 .venv
@@ -19,13 +22,19 @@ resource/store/
 resource/temp/
 resource/pending/
 resource/thumbs/
+resource/previews/
 resource/emojis/
 resource/avatars/
 
 logs/
+data/
 *.log
 *.db
 *.db.snapshot
 *.db-shm
 *.db-wal
 data/.secret_key
+data/.pixiv_ol_key
+data/pixiv_ol_previews/
+data/pixiv_ol_staging/
+data/pixiv-cli/

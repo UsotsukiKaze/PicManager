@@ -23,6 +23,17 @@ PicManager 的初衷很简单：把自己喜欢的图片好好保存下来，需
 
 ## 功能
 
+### Pixiv-ol
+
+- Root 绑定 Pixiv 账号，管理员查看推荐与关注作者的新投稿
+- 结合 App 推荐、本地标签偏好和分组库存，优先补充图片偏少的分组
+- 推荐与关注更新连续滚动加载，加入优选夹后缓存原图，确认标签后批量入库
+- 多 P 作品支持分 P 独立标签或合并标签，图库 PID 统一为 `作品ID_pN`
+- Pixiv 账号与推荐偏好位于设置；标签关联在优选夹和分组、角色、特征管理中完成
+- 本机通过 pixiv-cli 与默认浏览器登录，保留手动回调兼容入口
+- 支持按 PID 查找，以及无 PID 库图的轻量高相似提示
+- 配置与首版限制见 [Pixiv-ol 使用说明](docs/pixiv-ol-usage.md)
+
 ### 图片管理
 
 - 网格浏览图库，查看图片详情和原图
@@ -83,11 +94,9 @@ PicManager 也提供群聊年龄分级与授权接口，避免机器人在不合
 
 ### 维护工具
 
-- 检查数据库记录与图片文件状态
-- 补生成或重建缩略图
-- 整理未入库文件和缺失原图记录
-- 扫描并处理图库中的重复图片
-- 根据 Pixiv PID 检查和补全高清原图
+- 本地校验统一检查文件、补缩略图、归档缺失记录、整理孤立文件和处理重复图片
+- Pixiv 校验补齐投稿页、画师、原始标签与高清信息，旧多 P 作品由用户选择对应页
+- 图片只保留本地与 Pixiv 两项校验状态；无 PID 图片生成轻量相似指纹
 - 创建 SQLite 数据库快照
 - 检查存储吞吐和服务器网络信息
 
@@ -253,7 +262,12 @@ PicManager/
 ```bash
 uv sync --extra dev
 uv run pytest
+node --test tests/js/*.test.cjs
 ```
+
+Python 测试覆盖接口、权限、数据库与入库流程；`tests/js` 中的 Node 烟测覆盖拼音搜索、模块加载、上传队列和表情标签交互，无需真实账号。
+
+当前发布版本：**1.0.0**。使用说明见 [Pixiv-ol](docs/pixiv-ol-usage.md)、[图库校验与标签关联](docs/library-validation-and-mappings.md)、[相似提示与 PID 查找](docs/pixiv-visual-similarity.md)。后续事项见 [重构清单](docs/refactoring-roadmap.md)。
 
 主要技术栈：
 

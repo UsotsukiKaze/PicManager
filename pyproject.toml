@@ -1,6 +1,6 @@
 [project]
 name = "picmanager"
-version = "0.1.0"
+version = "1.0.0"
 description = "图片编号管理系统 - 基于标签的图片元数据管理工具"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -9,6 +9,7 @@ from pathlib import Path
 import os
 import time
 import uvicorn
+from app import __version__
 from app.database import init_database, create_db_snapshot
 from app.database import get_db_context
 from app.config import settings
@@ -56,7 +57,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="PicManager",
     description="图片编号管理系统 - 基于标签的图片元数据管理工具",
-    version="0.1.0",
+    version=__version__,
     lifespan=lifespan,
     docs_url="/docs" if settings.ENABLE_API_DOCS else None,
     redoc_url="/redoc" if settings.ENABLE_API_DOCS else None,

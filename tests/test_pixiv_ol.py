@@ -1560,6 +1560,51 @@ def test_oauth_connect_failure_logs_the_following_stage(environment, monkeypatch
     assert "private-refresh-token" not in " ".join(logs) and "private-code" not in " ".join(logs)
 
 
+@pytest.mark.parametrize("value", [
+    "https://app-api.pixiv.net/web/v1/users/auth/pixiv/callback?state=test&code=synthetic-code",
+    "https//app-api.pixiv.net/web/v1/users/auth/pixiv/callback?state=test&code=synthetic-code",
+    "app-api.pixiv.net/web/v1/users/auth/pixiv/callback?code=synthetic-code",
+    '“https//app-api.pixiv.net/web/v1/users/auth/pixiv/callback?code=synthetic-code”',
+    "pixiv://account/login?code=synthetic-code",
+    "synthetic-code",
+])
+def test_remote_manual_authorization_input_reaches_exchange(environment, monkeypatch, value):
+    context, client, _ = environment
+    monkeypatch.setattr(login, "local_request", lambda _: False)
+    install_fake(monkeypatch)
+    exchanges = []
+    monkeypatch.setattr(login, "exchange", lambda code, verifier: exchanges.append(code) or "a" * 30)
+    session = client.post("/api/pixiv-ol/account/login", json={}).json()
+    assert not session["opened"] and not session["automatic"]
+    response = client.post(f"/api/pixiv-ol/account/login/{session['id']}/complete", json={"code": value})
+    assert response.status_code == 200
+    assert exchanges == ["synthetic-code"]
+    with context() as db:
+        assert db.get(models.PixivLoginSession, session["id"]).status == "completed"
+
+
+@pytest.mark.parametrize("value", [
+    "https//app-api.pixiv.net/web/v1/users/auth/pixiv/start?code=synthetic",
+    "https//app-api.pixiv.net@evil.test/web/v1/users/auth/pixiv/callback?code=synthetic",
+    "https://app-api.pixiv.net:8443/web/v1/users/auth/pixiv/callback?code=synthetic",
+    "https//app-api.pixiv.net/web/v1/users/auth/pixiv/callback?code=one&code=two",
+    "https//app-api.pixiv.net/web/v1/users/auth/pixiv/callback?code=&code=one",
+    "https//app-api.pixiv.net/web/v1/users/auth/pixiv/callback?code=one#fragment",
+    "https//app-api.pixiv.net/web/v1/users/auth/pixiv/callback?code=%22",
+    "https//app-api.pixiv.net/web/v1/users/auth/pixiv/callback?code=one\nextra text",
+    "code=synthetic",
+])
+def test_invalid_pasted_authorization_does_not_consume_session(environment, monkeypatch, value):
+    context, client, _ = environment
+    monkeypatch.setattr(login, "exchange", lambda *_: pytest.fail("Invalid callback reached exchange"))
+    session = client.post("/api/pixiv-ol/account/login", json={"mode": "manual"}).json()
+    response = client.post(f"/api/pixiv-ol/account/login/{session['id']}/complete", json={"code": value})
+    assert response.status_code == 422
+    with context() as db:
+        row = db.get(models.PixivLoginSession, session["id"])
+        assert row.status == "waiting" and row.verifier
+
+
 def test_callback_parser_rejects_ambiguous_destinations_and_uses_rfc_pkce_vector():
     from urllib.parse import parse_qs, urlparse
 

@@ -718,6 +718,22 @@
             dialog.querySelector('[data-map-tag]').addEventListener('keydown',event=>{if(event.key==='Enter'&&event.target.tagName==='INPUT'){event.preventDefault();dialog.querySelector('[data-map-save]').click();}});
             await reload();
         }
+        authorizationInput(value) {
+            let input=String(value??'').trim();
+            if(input.length>8192)throw new Error('授权内容过长，请只复制本次 callback 链接或授权码。');
+            if(input.length>=2&&['""',"''",'“”','‘’'].includes(input[0]+input.at(-1)))input=input.slice(1,-1).trim();
+            if(!input)throw new Error('请先粘贴本次登录返回的 callback 链接或授权码。');
+            if(/[\s\x00-\x1f\x7f]/.test(input))throw new Error('授权内容包含额外文字或空格，请只复制 callback 链接。');
+            input=input.replace(/^https\/\/(?=app-api\.pixiv\.net(?:[/?]|$))/i,'https://');
+            if(/^app-api\.pixiv\.net\//i.test(input))input=`https://${input}`;
+            if(/^[a-zA-Z0-9._-]{1,2048}$/.test(input))return input;
+            try {
+                const url=new URL(input),codes=url.searchParams.getAll('code');
+                const destination=(url.protocol==='https:'&&url.hostname==='app-api.pixiv.net'&&(!url.port||url.port==='443')&&url.pathname==='/web/v1/users/auth/pixiv/callback')||(url.protocol==='pixiv:'&&url.host==='account'&&url.pathname==='/login');
+                if(destination&&!url.username&&!url.password&&!url.hash&&codes.length===1&&/^[a-zA-Z0-9._-]{1,2048}$/.test(codes[0]))return input;
+            } catch {}
+            throw new Error('未识别到有效授权结果。请复制带 code 的 callback 链接；登录页、/start 和 /post-redirect 地址不能用于连接。');
+        }
         async login(mode='default_browser') {
             if(this.loginBusy) return;
             this.loginBusy=true;
@@ -776,13 +792,11 @@
             const cancel=()=>{request(`/account/login/${session.id}`,{method:'DELETE'}).catch(()=>{});dialog.remove();};
             dialog.querySelector('#pixiv-login-cancel').onclick=cancel;dialog.addEventListener('cancel',cancel,{once:true});
             dialog.querySelector('#pixiv-login-complete').onclick=async event=>{
-                const submit=event.currentTarget,input=dialog.querySelector('#pixiv-login-code'),code=input.value.trim(),errorNode=dialog.querySelector('#pixiv-login-error');
+                const submit=event.currentTarget,input=dialog.querySelector('#pixiv-login-code'),errorNode=dialog.querySelector('#pixiv-login-error');
                 errorNode.textContent='';
-                if(code.includes('://')) {
-                    let valid=false;
-                    try {const url=new URL(code);valid=!!url.searchParams.get('code')&&((url.protocol==='https:'&&url.hostname==='app-api.pixiv.net'&&url.pathname==='/web/v1/users/auth/pixiv/callback')||(url.protocol==='pixiv:'&&url.host==='account'&&url.pathname==='/login'));} catch {}
-                    if(!valid) {errorNode.textContent='这不是授权回跳链接。请继续完成 Pixiv 登录，复制带 code 的 callback 链接；不要提交 /start 地址或 code_challenge。';return;}
-                } else if(!/^[a-zA-Z0-9._-]{1,2048}$/.test(code)) {errorNode.textContent='请输入本次登录返回的授权链接或授权码。';return;}
+                let code;
+                try {code=this.authorizationInput(input.value);}
+                catch(error) {errorNode.textContent=error.message;input.focus();return;}
                 submit.disabled=true;input.value='';
                 try {await request(`/account/login/${session.id}/complete`,{method:'POST',body:JSON.stringify({code})});dialog.remove();await this.initSettings();ui.showToast('Pixiv 已连接','success');}
                 catch(error) {

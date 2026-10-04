@@ -3,6 +3,7 @@
 import base64
 import hashlib
 import os
+import re
 import secrets
 import sys
 import threading
@@ -67,10 +68,26 @@ def callback_code(url):
         and parsed.hostname == "app-api.pixiv.net"
         and parsed.path == "/web/v1/users/auth/pixiv/callback"
     ) or (parsed.scheme == "pixiv" and parsed.netloc == "account" and parsed.path == "/login"):
-        values = parse_qs(parsed.query).get("code", [])
+        values = parse_qs(parsed.query, keep_blank_values=True).get("code", [])
         if len(values) == 1 and 1 <= len(values[0]) <= 2048:
             return values[0]
     return None
+
+
+def authorization_input(value):
+    """Accept a pasted callback, including Firefox's colonless HTTPS navigation."""
+    value = value.strip()
+    if len(value) > 8192:
+        return None
+    if len(value) >= 2 and (value[0], value[-1]) in (("\"", "\""), ("'", "'"), ("“", "”"), ("‘", "’")):
+        value = value[1:-1].strip()
+    if not value or any(char.isspace() or ord(char) <= 32 or ord(char) == 127 for char in value):
+        return None
+    value = re.sub(r"^https//(?=app-api\.pixiv\.net(?:[/?]|$))", "https://", value, flags=re.I)
+    if value.lower().startswith("app-api.pixiv.net/"):
+        value = "https://" + value
+    code = value if re.fullmatch(r"[a-zA-Z0-9._-]{1,2048}", value) else callback_code(value)
+    return code if code and re.fullmatch(r"[a-zA-Z0-9._-]{1,2048}", code) else None
 
 
 def login_url(verifier):

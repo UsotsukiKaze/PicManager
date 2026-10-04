@@ -210,12 +210,10 @@ def login_status(session_id: str, actor_id=Depends(require_root_user_id)):
 
 @router.post("/account/login/{session_id}/complete", dependencies=[Depends(write_guard)])
 def complete_login(session_id: str, body: LoginCodeBody, actor_id=Depends(require_root_user_id)):
-    import re
     from ...integrations.pixiv_ol import login
 
-    value = body.code.get_secret_value().strip()
-    code = login.callback_code(value) if "://" in value else value
-    if not code or not re.fullmatch(r"[a-zA-Z0-9._-]{1,2048}", code):
+    code = login.authorization_input(body.code.get_secret_value())
+    if not code:
         raise HTTPException(422, "授权回跳链接或授权码无效")
     return login.complete(session_id, actor_id, code)
 

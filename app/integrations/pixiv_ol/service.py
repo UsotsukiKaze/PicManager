@@ -1,6 +1,7 @@
 """Cached account state and resumable synchronization; no network inside transactions."""
 
 import secrets
+import threading
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import update
@@ -9,6 +10,8 @@ from ... import models
 from ...database import get_db_context
 from .provider import Provider, PixivError, encrypt, decrypt, plain
 from .recommendations import TagIndex, build_profile, rank_candidates
+
+CLIENT_LOCK = threading.Lock()  # Serialize refresh-token rotation, not artwork requests.
 
 
 def iso_date(value):
@@ -144,6 +147,11 @@ def store_connection(token, user, actor_id, previous, session_id=None):
 
 
 def client_for_job(actor_id, revision):
+    with CLIENT_LOCK:
+        return _client_for_job(actor_id, revision)
+
+
+def _client_for_job(actor_id, revision):
     with get_db_context() as db:
         account = require_account(db, revision)
         require_actor(db, actor_id)

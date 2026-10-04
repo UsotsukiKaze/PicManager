@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     PIXIV_USE_SYSTEM_PROXY: bool = True  # On Windows, inherit the system/environment proxy when unset.
     PIXIV_REQUEST_TIMEOUT_SECONDS: int = 30
     PIXIV_SCAN_INTERVAL_SECONDS: float = 0.5
+    PIXIV_CHECK_WORKERS: int = 3  # Bounded background validation pool, clamped to 1..6.
     PIXIV_UPGRADE_DHASH_DISTANCE: int = 10
     PIXIV_UPGRADE_TOKEN_TTL_SECONDS: int = 1800
     PIXIV_MAX_DOWNLOAD_BYTES: int = 100 * 1024 * 1024

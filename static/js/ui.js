@@ -1223,6 +1223,7 @@ class UIManager {
             document.getElementById('stat-characters').textContent = status.total_characters;
             document.getElementById('stat-temp').textContent = status.temp_images_count;
             this.scheduleThumbnailMaintenance(status);
+            refreshPixivCheckQueue();
         } catch (error) {
             console.error('加载系统诊断失败:', error);
         }
@@ -2335,11 +2336,11 @@ async function reviewPixivCheck(result) {
         const safe=value=>ui.escapeHomeRankingText(value??'');
         const autoAllowed=result.auto_review_safe&&result.artwork.page_count===1;const art=result.artwork, pages=Array.from({length:Math.min(art.page_count,1000)},(_,index)=>index);
         const dialog=document.createElement('dialog');dialog.className='px-dialog px-reader px-check-reader';
-        dialog.innerHTML=`<button class="px-icon-button px-dialog-close" aria-label="关闭" data-close>×</button><div class="px-detail-cover"><img alt="校验作品原图"><button class="px-reader-arrow px-reader-prev" aria-label="上一页">‹</button><button class="px-reader-arrow px-reader-next" aria-label="下一页">›</button><span class="px-reader-status"></span></div><div class="px-detail-body"><h3>${safe(art.title)}</h3><p>画师 · ${safe(art.author)}</p><p>当前车牌 · ${safe(result.current.pid)}</p><div class="px-tags">${art.tags.map(tag=>`<span>${safe(tag.translated_name||tag.name)}</span>`).join('')}</div><div class="px-reader-pagination"><button class="px-button" data-view-local>查看库内原图</button><select data-view-page aria-label="查看 Pixiv 页码">${pages.map(page=>`<option value="${page}">第 ${page+1} 页</option>`).join('')}</select></div><label>库内现图对应哪一页<select data-current-page required><option value="">请确认对应页</option>${pages.map(page=>`<option value="${page}">${art.pid}_p${page} · 第 ${page+1} 页</option>`).join('')}</select></label><p class="px-help">保留库内现图，并补全车牌、画师和 Pixiv 来源标签。勾选其他页可补入库，沿用现图的分组与标签；已入库的页会自动跳过。</p><div class="px-pages">${pages.map(page=>`<label><input type="checkbox" data-extra-page value="${page}" ${result.imported_pages.includes(page)?'disabled':''}><button class="px-text-button" data-page="${page}">第 ${page+1} 页${result.imported_pages.includes(page)?' · 已入库':''}</button></label>`).join('')}</div><label><input type="checkbox" data-upgrade ${pixivAutoReviewEnabled&&autoAllowed?'checked':''}>匹配内容且存在高清版本时替换现图</label><label class="px-check-auto"><input type="checkbox" data-auto-choice ${autoAllowed?'':'disabled'} ${pixivAutoReviewEnabled&&autoAllowed?'checked':''}>自动审核 · 加载完成后 10 秒确认</label><p class="px-help" data-auto-status>${autoAllowed?'可取消倒计时或修改选择，页面隐藏时暂停。':'多页或对应关系不明确，需手动确认。'}</p><p class="px-error" role="alert" data-error></p><button class="px-button px-primary" data-confirm>确认校验</button></div>`;
+        dialog.innerHTML=`<button class="px-icon-button px-dialog-close" aria-label="关闭" data-close>×</button><div class="px-detail-cover"><img alt="校验作品原图"><button class="px-reader-arrow px-reader-prev" aria-label="上一页">‹</button><button class="px-reader-arrow px-reader-next" aria-label="下一页">›</button><span class="px-reader-status"></span></div><div class="px-detail-body"><h3>${safe(art.title)}</h3><p>画师 · ${safe(art.author)}</p><p>当前车牌 · ${safe(result.current.pid)}</p><div class="px-tags">${art.tags.map(tag=>`<span>${safe(tag.translated_name||tag.name)}</span>`).join('')}</div><div class="px-reader-pagination"><button class="px-button" data-view-local>查看库内原图</button><select data-view-page aria-label="查看 Pixiv 页码">${pages.map(page=>`<option value="${page}">第 ${page+1} 页</option>`).join('')}</select></div><label>库内现图对应哪一页<select data-current-page required><option value="">请确认对应页</option>${pages.map(page=>`<option value="${page}">${art.pid}_p${page} · 第 ${page+1} 页</option>`).join('')}</select></label><p class="px-help">保留库内现图，并补全车牌、画师和 Pixiv 来源标签。勾选其他页可补入库，沿用现图的分组与标签；已入库的页会自动跳过。</p><div class="px-pages">${pages.map(page=>`<label><input type="checkbox" data-extra-page value="${page}" ${result.imported_pages.includes(page)?'disabled':''}><button class="px-text-button" data-page="${page}">第 ${page+1} 页${result.imported_pages.includes(page)?' · 已入库':''}</button></label>`).join('')}</div><label><input type="checkbox" data-upgrade ${pixivAutoReviewEnabled&&autoAllowed?'checked':''}>匹配内容且存在高清版本时替换现图</label><label class="px-check-auto"><input type="checkbox" data-auto-choice ${autoAllowed?'':'disabled'} ${pixivAutoReviewEnabled&&autoAllowed?'checked':''}>自动审核 · 加载完成后 10 秒确认</label><p class="px-help" data-auto-status>${autoAllowed?'可取消倒计时或修改选择，页面隐藏时暂停。':'多页或对应关系不明确，需手动确认。'}</p><p class="px-error" role="alert" data-error></p><div class="px-dialog-actions"><button class="px-button" data-defer>稍后确认</button><button class="px-button px-primary" data-confirm>确认校验</button></div></div>`;
         dialog.querySelector('.px-detail-body').prepend(dialog.querySelector('[data-close]'));
         document.body.appendChild(dialog);dialog.showModal();
         const image=dialog.querySelector('img'), status=dialog.querySelector('.px-reader-status');
-        const view=dialog.querySelector('[data-view-page]'), current=dialog.querySelector('[data-current-page]');let page=0,previewReady=false,autoTimer=null,seconds=10;
+        const view=dialog.querySelector('[data-view-page]'), current=dialog.querySelector('[data-current-page]');let page=0,previewReady=false,autoTimer=null,seconds=10,settled=false;
         const auto=dialog.querySelector('[data-auto-choice]'),autoStatus=dialog.querySelector('[data-auto-status]');
         const showPage=value=>{
             previewReady=false;stopAuto();
@@ -2350,13 +2351,14 @@ async function reviewPixivCheck(result) {
             image.src=`/api/system/pixiv-check/${result.review_id}/original?page=${page}`;
             dialog.querySelector('.px-reader-prev').disabled=page===0;dialog.querySelector('.px-reader-next').disabled=page===pages.length-1;
         };
-        const finish=choice=>{stopAuto();window.cancelPixivCheckReview=null;dialog.close();dialog.remove();resolve(choice);};
+        const finish=choice=>{if(settled)return;settled=true;stopAuto();window.cancelPixivCheckReview=null;dialog.close();dialog.remove();resolve(choice);};
         const stopAuto=()=>{clearInterval(autoTimer);autoTimer=null;seconds=10;};
-        const startAuto=()=>{stopAuto();if(!autoAllowed||!auto.checked||!previewReady)return;autoStatus.textContent='10 秒后确认，可随时取消自动审核';autoTimer=setInterval(()=>{if(window.pixivValidationStop){finish(null);return;}if(document.hidden){autoStatus.textContent='页面隐藏，倒计时已暂停';return;}seconds--;autoStatus.textContent=`${seconds} 秒后确认`;if(seconds<=0)dialog.querySelector('[data-confirm]').click();},1000);};
+        const startAuto=()=>{stopAuto();if(settled||!autoAllowed||!auto.checked||!previewReady)return;autoStatus.textContent='10 秒后确认，可随时取消自动审核';autoTimer=setInterval(()=>{if(window.pixivValidationStop){finish(null);return;}if(document.hidden){autoStatus.textContent='页面隐藏，倒计时已暂停';return;}seconds--;autoStatus.textContent=`${seconds} 秒后确认`;if(seconds<=0)dialog.querySelector('[data-confirm]').click();},1000);};
         auto.onchange=()=>{if(auto.checked)startAuto();else{stopAuto();autoStatus.textContent='已取消自动审核';}};
         dialog.addEventListener('change',event=>{if(event.target===auto)return;stopAuto();auto.checked=false;autoStatus.textContent='选择已修改，请手动确认';});
         window.cancelPixivCheckReview=()=>finish(null);
         dialog.querySelector('[data-close]').onclick=()=>finish(null);
+        dialog.querySelector('[data-defer]').onclick=()=>finish(null);
         dialog.addEventListener('cancel',event=>{event.preventDefault();finish(null);});
         dialog.querySelector('.px-reader-prev').onclick=()=>showPage(page-1);
         dialog.querySelector('.px-reader-next').onclick=()=>showPage(page+1);
@@ -2511,9 +2513,9 @@ function updatePixivUpgradeProgress({ checked = 0, total = null, state = 'runnin
 
     const labels = {
         running: 'Pixiv 校验中',
-        review: 'Pixiv 候选图待审核',
+        review: '扫描完成，部分作品待确认',
         stopped: 'Pixiv 校验已停止',
-        complete: 'Pixiv 校验完成',
+        complete: 'Pixiv 后台扫描完成',
         error: 'Pixiv 校验失败',
     };
     panel.hidden = false;
@@ -2534,120 +2536,94 @@ function updatePixivUpgradeProgress({ checked = 0, total = null, state = 'runnin
     count.textContent = `${safeChecked} / ${safeTotal} · ${percent}%`;
 }
 
-async function scanPixivUpgrades() {
-    if (!ui.isAdminView()) {
-        ui.showToast('只有管理员可以执行维护操作', 'warning');
-        return;
-    }
-    const button = document.getElementById('scan-pixiv-upgrades-button');
-    if (button?.disabled) return;
-    window.pixivValidationStop=false;pixivAutoReviewEnabled=!!document.getElementById('pixiv-check-auto')?.checked;const stopButton=document.getElementById('pixiv-check-stop');if(stopButton)stopButton.hidden=false;
-    let checked = 0;
-    let replaced = 0;
-    let skipped = 0;
-    let total = null;
-    let fingerprints = 0;
+const pixivCheckQueueState = {runId:null,timer:null,polling:false,reviewBusy:false,starting:false,offset:0,deferred:new Set()};
+
+function pixivCheckErrorMessage(error) {
+    return ({check_busy:'另一个管理员正在运行校验',check_review_expired:'确认项已失效，请重新校验',
+        image_changed:'库内图片已变化，请重新校验',account_changed:'Pixiv 账号已变更，请重新校验',
+        reauth_required:'请先重新连接 Pixiv 账号',permission_revoked:'管理员权限已撤销',
+        check_database_busy:'数据库暂时繁忙，可重新校验',
+        external_error:'Pixiv 暂时不可用，可稍后重新校验',check_processing_failed:'此项处理失败，可重新校验'})[error]||error;
+}
+
+async function refreshPixivCheckQueue() {
+    const state=pixivCheckQueueState;
+    if(state.polling||!ui.isAdminView())return;
+    state.polling=true;clearTimeout(state.timer);
+    let keepPolling=false;
     try {
-        if (button) button.disabled = true;
-        updatePixivUpgradeProgress({ detail: '正在统计带 Pixiv PID 且未校验的图片…' });
-        while (true) {
-            if(window.pixivValidationStop){updatePixivUpgradeProgress({checked,total,state:'stopped',detail:'已停止，完成的校验保留'});return;}
-            if (button) button.textContent = `Pixiv 检查中… ${checked}`;
-            if (total !== null) {
-                updatePixivUpgradeProgress({ checked, total, detail: '正在检查下一张图片…' });
-            }
-            const result = await api.scanNextPixivUpgrade();
-            if (result.status === 'fingerprinted') {
-                fingerprints += Number(result.processed || 0);
-                updatePixivUpgradeProgress({checked,total,detail:`已为 ${fingerprints} 张无 PID 图片生成轻量指纹${result.failed ? `，本批 ${result.failed} 张文件暂不可读` : ''}`});
-                continue;
-            }
-            const remaining = Math.max(0, Number(result.remaining || 0));
-            if (total === null) total = checked + remaining;
-            else total = Math.max(total, checked + remaining);
-            if (result.status === 'complete') {
-                total = Math.max(checked, total || 0);
-                break;
-            }
-            if (result.status === 'review') {
-                updatePixivUpgradeProgress({checked,total,state:'review',detail:`PID ${result.current.pid}：确认页码与补页`});
-                const choice=await reviewPixivCheck(result);
-                if(!choice){updatePixivUpgradeProgress({checked,total,state:'stopped',detail:'未确认的图片保持原状，下次可继续校验'});return;}
-                const saved=await api.resolvePixivCheck(choice);
-                checked+=1;
-                if(saved.upgraded) replaced+=1;else skipped+=1;
-                updatePixivUpgradeProgress({checked,total,detail:`${saved.pid}：已补全画师与 Pixiv 标签${saved.pages.length?`，${saved.pages.length} 页正在后台入库`:''}`});
-                continue;
-            }
-            if(result.status==='unavailable'){
-                checked+=1;skipped+=1;
-                updatePixivUpgradeProgress({checked,total,detail:`PID ${result.pid}：作品不可用，保留原图，不添加未经确认的画师或标签`});
-                continue;
-            }
-            if(result.status==='validated'){
-                checked+=1;skipped+=1;
-                updatePixivUpgradeProgress({checked,total,detail:`${result.pid}：已补全画师与 Pixiv 标签，保留现图`});
-                continue;
-            }
-            if (result.status === 'checked') {
-                checked += 1;
-                total = Math.max(total, checked + remaining);
-                updatePixivUpgradeProgress({
-                    checked,
-                    total,
-                    detail: `PID ${result.pid}：未找到更高清且内容匹配的原图`,
-                });
-                continue;
-            }
-            if (result.status !== 'candidate') throw new Error('无效的 Pixiv 扫描响应');
-            total = Math.max(total, checked + remaining);
-            updatePixivUpgradeProgress({
-                checked,
-                total,
-                state: 'review',
-                detail: `PID ${result.current?.pid || '—'}：找到高清候选图，等待审核`,
-            });
-            const action = await reviewPixivUpgrade(result);
-            if (!action) {
-                updatePixivUpgradeProgress({
-                    checked,
-                    total,
-                    state: 'stopped',
-                    detail: '当前候选图未处理，下次扫描仍会再次检查',
-                });
-                ui.showToast(`已停止：本次检查 ${checked} 张，覆盖 ${replaced} 张`, 'info');
-                return;
-            }
-            await api.resolvePixivUpgrade(result.token, action);
-            checked += 1;
-            if (action === 'replace') replaced += 1;
-            if (action === 'skip') skipped += 1;
-            updatePixivUpgradeProgress({
-                checked,
-                total,
-                detail: `PID ${result.current?.pid || '—'}：${action === 'replace' ? '已覆盖为高清原图' : '已保留现图'}`,
-            });
+        const data=await api.getPixivCheckQueue(null,state.offset),run=data.run;
+        state.runId=run?.id||null;
+        if(state.offset>=data.review_count&&state.offset)state.offset=0;
+        const counts=run?.counts||{},active=run?.status==='running';
+        const button=document.getElementById('scan-pixiv-upgrades-button'),stop=document.getElementById('pixiv-check-stop');
+        if(button){button.disabled=active||state.starting;button.textContent=active?'后台校验中…':'Pixiv 校验';}
+        if(stop)stop.hidden=!active;
+        if(run)updatePixivUpgradeProgress({checked:run.total-(counts.queued||0)-(counts.running||0),total:run.total,
+            state:active?'running':run.status==='cancelled'?'stopped':run.status==='failed'?'error':data.review_count?'review':'complete',
+            detail:`${run.workers} 个并发线程 · 排队 ${counts.queued||0} · 处理中 ${counts.running||0} · 待确认 ${data.review_count} · 失败 ${counts.failed||0}；已生成 ${run.fingerprints} 张指纹${run.error?`；${pixivCheckErrorMessage(run.error)}`:''}`});
+        const panel=document.getElementById('pixiv-check-review-queue');
+        if(panel){
+            const safe=escapeMaintenanceHtml;
+            panel.hidden=!data.review_count&&!run?.errors?.length;
+            panel.innerHTML=`<div class="pixiv-check-queue-heading"><strong>待确认 <span>${data.review_count}</span></strong><small>选择稍后确认不会停止后台校验，未确认图片保持未校验。</small></div><div class="pixiv-check-queue-items">${data.reviews.map(review=>`<article class="pixiv-check-queue-item"><div><strong>${safe(review.title||review.pid)}</strong><small>${safe(review.pid)} · ${Number(review.page_count)||1} 页</small></div><button class="btn btn-secondary" data-pixiv-review="${safe(review.id)}" ${state.reviewBusy?'disabled':''}>确认</button></article>`).join('')}</div>${data.review_count>20?`<div class="pixiv-check-queue-pages"><button class="btn btn-secondary" data-queue-prev ${state.offset?'':'disabled'}>上一组</button><span>${Math.floor(state.offset/20)+1} / ${Math.ceil(data.review_count/20)}</span><button class="btn btn-secondary" data-queue-next ${state.offset+20<data.review_count?'':'disabled'}>下一组</button></div>`:''}${run?.errors?.length?`<details class="validation-advanced"><summary>失败项（可重新校验）</summary>${run.errors.map(item=>`<p>${safe(item.image_id||'指纹任务')}：${safe(pixivCheckErrorMessage(item.error))}</p>`).join('')}</details>`:''}`;
+            panel.querySelectorAll('[data-pixiv-review]').forEach(node=>node.onclick=()=>reviewQueuedPixivCheck(node.dataset.pixivReview));
+            const prev=panel.querySelector('[data-queue-prev]'),next=panel.querySelector('[data-queue-next]');
+            if(prev)prev.onclick=()=>{state.offset=Math.max(0,state.offset-20);refreshPixivCheckQueue();};
+            if(next)next.onclick=()=>{state.offset+=20;refreshPixivCheckQueue();};
         }
-        updatePixivUpgradeProgress({
-            checked,
-            total: Math.max(checked, total || 0),
-            state: 'complete',
-            detail: `覆盖 ${replaced} 张，保留 ${skipped} 张；为 ${fingerprints} 张无 PID 图片生成指纹；精确同名映射已与分组、角色数据联动`,
-        });
-        ui.showToast(`Pixiv 检查完成：检查 ${checked} 张，覆盖 ${replaced} 张，保留 ${skipped} 张，生成 ${fingerprints} 张指纹`, 'success');
-        window.pixivOL?.similaritySeen?.clear();
-        ui.loadImages(null);
-        ui.loadSystemStatus();
-    } catch (error) {
-        updatePixivUpgradeProgress({ checked, total, state: 'error', detail: error.message });
-        ui.showToast(`Pixiv 校验失败: ${error.message}`, 'error');
+        keepPolling=active||(data.review_count>0&&ui.currentPage==='settings');
+        pixivAutoReviewEnabled=!!document.getElementById('pixiv-check-auto')?.checked;
+        if(pixivAutoReviewEnabled&&!state.reviewBusy&&!document.hidden&&ui.currentPage==='settings'){
+            const review=data.reviews.find(item=>item.auto_review_safe&&!state.deferred.has(item.id));
+            if(review)reviewQueuedPixivCheck(review.id);
+        }
+    } catch(error) {
+        if(error.status!==401&&error.status!==403){keepPolling=ui.currentPage==='settings';updatePixivUpgradeProgress({state:'error',detail:pixivCheckErrorMessage(error.message)});}
     } finally {
-        if(stopButton)stopButton.hidden=true;
-        if (button) {
-            button.disabled = false;
-            button.textContent = 'Pixiv 校验';
-        }
+        state.polling=false;
+        if(keepPolling)state.timer=setTimeout(refreshPixivCheckQueue,1500);
     }
+}
+
+async function reviewQueuedPixivCheck(reviewId) {
+    const state=pixivCheckQueueState;
+    if(state.reviewBusy)return;
+    state.reviewBusy=true;window.pixivValidationStop=false;
+    try {
+        const result=await api.getPixivCheckReview(reviewId);
+        const choice=await reviewPixivCheck(result);
+        if(!choice){state.deferred.add(reviewId);return;}
+        const saved=await api.resolvePixivCheck(choice);
+        ui.showToast(`${saved.pid}：已补全画师与 Pixiv 标签${saved.upgraded?'，已更新高清原图':''}`,'success');
+        window.pixivOL?.similaritySeen?.clear();
+        ui.loadSystemStatus();
+    } catch(error){state.deferred.add(reviewId);ui.showToast(pixivCheckErrorMessage(error.message),'error');}
+    finally{state.reviewBusy=false;refreshPixivCheckQueue();}
+}
+
+async function scanPixivUpgrades() {
+    if(!ui.isAdminView()){ui.showToast('只有管理员可以执行维护操作','warning');return;}
+    const state=pixivCheckQueueState;
+    if(state.starting)return;
+    state.starting=true;state.offset=0;state.deferred.clear();window.pixivValidationStop=false;
+    const button=document.getElementById('scan-pixiv-upgrades-button');if(button)button.disabled=true;
+    try {
+        const result=await api.startPixivCheckQueue();state.runId=result.id;
+        ui.showToast('Pixiv 后台校验已开始，需要选择的作品会进入待确认队列','success');
+    } catch(error){ui.showToast(pixivCheckErrorMessage(error.message),'error');}
+    finally{state.starting=false;refreshPixivCheckQueue();}
+}
+
+async function stopPixivCheckQueue() {
+    const state=pixivCheckQueueState;
+    if(!state.runId)return;
+    try {
+        await api.stopPixivCheckQueue(state.runId);
+        window.pixivValidationStop=true;window.cancelPixivCheckReview?.();
+        ui.showToast('后台校验已停止，已完成的结果和待确认队列保留','info');
+        await refreshPixivCheckQueue();
+    } catch(error){ui.showToast(pixivCheckErrorMessage(error.message),'error');}
 }
 
 

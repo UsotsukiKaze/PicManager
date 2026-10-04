@@ -10,6 +10,58 @@ from ..pixiv import PixivLookupError, PixivUpgradeService
 router = APIRouter()
 
 
+def check_queue_error(exc):
+    raise HTTPException(404 if exc.code == "check_not_found" else 409, detail=exc.code) from None
+
+
+@router.post("/pixiv-check/queue")
+def start_pixiv_check_queue(request: Request):
+    from .. import pixiv_check_queue
+    from .integrations.pixiv_ol import write_guard
+    from ..integrations.pixiv_ol.provider import PixivError
+    actor = require_admin_user_id(request)
+    write_guard(request)
+    try:
+        return pixiv_check_queue.start(actor)
+    except PixivError as exc:
+        check_queue_error(exc)
+
+
+@router.get("/pixiv-check/queue")
+def pixiv_check_queue_status(request: Request, run_id: str | None = None, offset: int = Query(0, ge=0)):
+    from .. import pixiv_check_queue
+    from ..integrations.pixiv_ol.provider import PixivError
+    actor = require_admin_user_id(request)
+    try:
+        return pixiv_check_queue.status(actor, run_id, offset)
+    except PixivError as exc:
+        check_queue_error(exc)
+
+
+@router.post("/pixiv-check/queue/{run_id}/stop")
+def stop_pixiv_check_queue(run_id: str, request: Request):
+    from .. import pixiv_check_queue
+    from .integrations.pixiv_ol import write_guard
+    from ..integrations.pixiv_ol.provider import PixivError
+    actor = require_admin_user_id(request)
+    write_guard(request)
+    try:
+        return pixiv_check_queue.stop(actor, run_id)
+    except PixivError as exc:
+        check_queue_error(exc)
+
+
+@router.get("/pixiv-check/reviews/{review_id}")
+def pixiv_check_queue_review(review_id: str, request: Request):
+    from .. import pixiv_check_queue
+    from ..integrations.pixiv_ol.provider import PixivError
+    actor = require_admin_user_id(request)
+    try:
+        return pixiv_check_queue.get_review(actor, review_id)
+    except PixivError as exc:
+        check_queue_error(exc)
+
+
 @router.post("/local-check")
 def local_check(request: Request, after_id: str = Query("", pattern="^([a-f0-9]{10})?$"), limit: int = Query(200, ge=1, le=500)):
     require_admin_user_id(request)

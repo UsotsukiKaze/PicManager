@@ -536,6 +536,24 @@ class API {
         });
     }
 
+    async startPixivCheckQueue() {
+        return this.request('/system/pixiv-check/queue', {method:'POST',headers:{'Content-Type':'application/json','X-Pixiv-OL':'1'}});
+    }
+
+    async getPixivCheckQueue(runId=null, offset=0) {
+        const query=new URLSearchParams({offset:String(offset)});
+        if(runId)query.set('run_id',runId);
+        return this.request(`/system/pixiv-check/queue?${query}`);
+    }
+
+    async stopPixivCheckQueue(runId) {
+        return this.request(`/system/pixiv-check/queue/${encodeURIComponent(runId)}/stop`, {method:'POST',headers:{'Content-Type':'application/json','X-Pixiv-OL':'1'}});
+    }
+
+    async getPixivCheckReview(reviewId) {
+        return this.request(`/system/pixiv-check/reviews/${encodeURIComponent(reviewId)}`);
+    }
+
     async resolvePixivUpgrade(token, action) {
         return this.request('/system/pixiv-upgrades/resolve', {
             method: 'POST',

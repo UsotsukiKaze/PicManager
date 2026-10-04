@@ -95,31 +95,57 @@ def scan_next(actor_id):
         rows = pending(db)
         if not rows:
             return {"status": "complete", "remaining": 0, "auto_mappings": mapped}
-        image = rows[0]
-        account = service.require_account(db)
-        revision, image_id, before = account.revision, image.image_id, snapshot(image)
+        image_id = rows[0].image_id
+    return scan_image(actor_id, image_id, remaining=len(rows))
+
+
+def scan_image(actor_id, image_id, *, remaining=1, revision=None, client=None, guard=None):
+    """One independent image check; queue leases are checked before library writes."""
+    with get_db_context() as db:
+        service.require_actor(db, actor_id)
+        if guard:
+            guard(db)
+        image = db.get(models.Image, image_id)
+        if not image or image.file_status != "available" or not split_pid(image.pid) or not ImageService.image_file_exists(image):
+            return {"status": "skipped", "remaining": max(0, remaining - 1)}
+        if image.pixiv_checked_at is not None and image.pixiv_metadata:
+            return {"status": "skipped", "remaining": max(0, remaining - 1)}
+        account = service.require_account(db, revision)
+        revision, before = account.revision, snapshot(image)
+        if guard:
+            review = db.query(models.PixivCheckReview).filter_by(
+                actor_id=actor_id, image_id=image_id, account_revision=revision, resolved=None,
+            ).filter(models.PixivCheckReview.expires_at > datetime.utcnow()).first()
+            if review and review.snapshot == before:
+                return review_json(db, review, remaining=remaining)
         work_id, explicit_page = split_pid(image.pid)
         current_hash = ImageService.compute_dhash(ImageService.image_full_path(image))
         current_width, current_height = PixivUpgradeService._image_dimensions(image)
     PixivUpgradeService.throttle_scan()
-    with jobs.ACCOUNT_LOCK:
-        client = service.client_for_job(actor_id, revision)
-        try:
-            raw = client.call("illust_detail", illust_id=work_id).get("illust")
-            art = service.normalize_artwork(raw or {})
-            if not art:
-                raise PixivError("artwork_unavailable")
-            art["width"], art["height"] = int(raw.get("width") or 0), int(raw.get("height") or 0)
-            service.save_artworks(revision, [raw], "library_check", actor_id)
-        except PixivError as exc:
-            if exc.code != "artwork_unavailable":
-                raise
-            art = None
-        finally:
+    own_client = client is None
+    if own_client:
+        # Only credential rotation needs serialization. Each worker owns its HTTP session.
+        with jobs.ACCOUNT_LOCK:
+            client = service.client_for_job(actor_id, revision)
+    try:
+        raw = client.call("illust_detail", illust_id=work_id).get("illust")
+        art = service.normalize_artwork(raw or {})
+        if not art:
+            raise PixivError("artwork_unavailable")
+        art["width"], art["height"] = int(raw.get("width") or 0), int(raw.get("height") or 0)
+        service.save_artworks(revision, [raw], "library_check", actor_id)
+    except PixivError as exc:
+        if exc.code != "artwork_unavailable":
+            raise
+        art = None
+    finally:
+        if own_client:
             client.close()
     if art is None:
         with get_db_context() as db:
             service.require_actor(db, actor_id)
+            if guard:
+                guard(db)
             service.require_account(db, revision)
             image = db.get(models.Image, image_id)
             if not image or snapshot(image) != before:
@@ -133,7 +159,7 @@ def scan_next(actor_id):
                 validated_at=datetime.utcnow(),
             )
             image.pixiv_checked_at = datetime.utcnow()
-        return {"status": "unavailable", "pid": before["pid"], "remaining": len(rows) - 1}
+        return {"status": "unavailable", "pid": before["pid"], "remaining": max(0, remaining - 1)}
     larger = (
         art["width"] >= current_width
         and art["height"] >= current_height
@@ -142,12 +168,14 @@ def scan_next(actor_id):
     if art["page_count"] == 1 and not larger:
         with get_db_context() as db:
             service.require_actor(db, actor_id)
+            if guard:
+                guard(db)
             service.require_account(db, revision)
             image = db.get(models.Image, image_id)
             if not image or snapshot(image) != before:
                 raise PixivError("image_changed")
             record_page(db, image, art, 0)
-        return {"status": "validated", "pid": canonical_pid(work_id, 0), "remaining": len(rows) - 1}
+        return {"status": "validated", "pid": canonical_pid(work_id, 0), "remaining": max(0, remaining - 1)}
     suggested = None
     # Existing explicit pages are shown as suggestions; bare IDs are compared to page samples.
     if explicit_page is not None and explicit_page < art["page_count"]:
@@ -161,6 +189,9 @@ def scan_next(actor_id):
         root.mkdir(parents=True, exist_ok=True)
         best = None
         for page, url in enumerate(art.get("page_previews", [])[:50]):
+            if guard:
+                with get_db_context() as db:
+                    guard(db)
             stage = root / f".pixiv-check-{secrets.token_hex(8)}.sample"
             try:
                 download(url, stage, limit=5 * 1024 * 1024)
@@ -174,6 +205,9 @@ def scan_next(actor_id):
         if best and best[0] <= settings.PIXIV_UPGRADE_DHASH_DISTANCE:
             suggested = best[1]
     with get_db_context() as db:
+        service.require_actor(db, actor_id)
+        if guard:
+            guard(db)
         service.require_account(db, revision)
         image = db.get(models.Image, image_id)
         if not image or snapshot(image) != before:
@@ -191,29 +225,37 @@ def scan_next(actor_id):
             snapshot=before,
             artwork=art,
             suggested_page=suggested,
-            expires_at=datetime.utcnow() + timedelta(minutes=30),
+            expires_at=datetime.utcnow() + (timedelta(days=7) if guard else timedelta(minutes=30)),
         )
         db.add(review)
-        imported = {r[0] for r in db.query(models.PixivImageMetadata.page_index).filter_by(work_id=work_id).all()}
-        imported.update(r[0] for r in db.query(models.PixivImageSource.page_index).filter_by(work_id=work_id).all())
-        return {
-            "status": "review",
-            "remaining": len(rows),
-            "review_id": review.id,
-            "current": {
-                "image_id": image_id,
-                "pid": before["pid"],
-                "preview_url": f"/resource/originals/{image_id}",
-                "group_ids": [g.id for g in image.groups],
-            },
-            "artwork": {
-                k: v for k, v in art.items() if k not in ("originals", "preview", "page_previews", "author_avatar")
-            },
-            "suggested_page": suggested,
-            "auto_review_safe": art["page_count"] == 1 or (explicit_page is not None and suggested == explicit_page),
-            "imported_pages": sorted(imported),
-            "original_url": f"/api/pixiv-ol/artworks/{work_id}/original",
-        }
+        db.flush()
+        return review_json(db, review, remaining=remaining)
+
+
+def review_json(db, review, *, remaining=0):
+    image = db.get(models.Image, review.image_id)
+    art, before = review.artwork, review.snapshot
+    work_id, image_id = art["pid"], review.image_id
+    imported = {r[0] for r in db.query(models.PixivImageMetadata.page_index).filter_by(work_id=work_id).all()}
+    imported.update(r[0] for r in db.query(models.PixivImageSource.page_index).filter_by(work_id=work_id).all())
+    return {
+        "status": "review",
+        "remaining": remaining,
+        "review_id": review.id,
+        "current": {
+            "image_id": image_id,
+            "pid": before["pid"],
+            "preview_url": f"/resource/originals/{image_id}",
+            "group_ids": [g.id for g in image.groups],
+        },
+        "artwork": {
+            k: v for k, v in art.items() if k not in ("originals", "preview", "page_previews", "author_avatar")
+        },
+        "suggested_page": review.suggested_page,
+        "auto_review_safe": art["page_count"] == 1,
+        "imported_pages": sorted(imported),
+        "original_url": f"/api/pixiv-ol/artworks/{work_id}/original",
+    }
 
 
 def resolve(review_id, actor_id, current_page, pages, upgrade=False):
@@ -285,4 +327,7 @@ def resolve(review_id, actor_id, current_page, pages, upgrade=False):
             if source and source.image_id == image.image_id:
                 source.sha256 = hashlib.sha256(Path(ImageService.image_full_path(image)).read_bytes()).hexdigest()
             result["upgraded"] = True
+        db.query(models.PixivCheckItem).filter_by(review_id=review.id, status="review").update(
+            {"status": "completed", "result": result}, synchronize_session=False,
+        )
         return result

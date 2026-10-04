@@ -410,6 +410,38 @@ class PixivCheckReview(Base):
     expires_at = Column(DateTime, nullable=False)
 
 
+class PixivCheckRun(Base):
+    __tablename__ = "pixiv_check_runs"
+    id = Column(String(32), primary_key=True)
+    actor_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    account_revision = Column(String(32), nullable=False)
+    active_key = Column(String(30), nullable=True, unique=True)
+    status = Column(String(20), nullable=False, default="running")
+    workers = Column(Integer, nullable=False, default=3)
+    fingerprints = Column(Integer, nullable=False, default=0)
+    fingerprint_failures = Column(Integer, nullable=False, default=0)
+    error = Column(String(100), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+
+
+class PixivCheckItem(Base):
+    __tablename__ = "pixiv_check_items"
+    __table_args__ = (UniqueConstraint("run_id", "image_id"), Index("ix_pixiv_check_queue", "status", "available_at", "id"))
+    id = Column(Integer, primary_key=True)
+    run_id = Column(String(32), ForeignKey("pixiv_check_runs.id"), nullable=False, index=True)
+    image_id = Column(String(10), nullable=True)
+    kind = Column(String(20), nullable=False, default="pixiv")
+    status = Column(String(20), nullable=False, default="queued")
+    attempts = Column(Integer, nullable=False, default=0)
+    available_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    locked_at = Column(DateTime, nullable=True)
+    lease = Column(String(32), nullable=True)
+    review_id = Column(String(64), nullable=True, index=True)
+    error = Column(String(100), nullable=True)
+    result = Column(JSON, nullable=True)
+
+
 @event.listens_for(Image, "before_insert")
 def _normalize_new_pixiv_pid(mapper, connection, image):
     from .pixiv_metadata import normalize_new_pid

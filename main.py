@@ -29,6 +29,7 @@ from app.security.lan_debug import configured_lan_base_url, configured_lan_hosts
 from app.security.permissions import require_admin_user_id
 from app.security.image_tokens import sign_bot_image, verify_bot_image
 from app.jobs import image_job_worker
+from app.pixiv_check_queue import worker as pixiv_check_worker
 from app.integrations.pixiv_ol.jobs import worker as pixiv_ol_worker
 from app.integrations.pixiv_ol.provider import PixivError as PixivOLError
 from app.routers.integrations.pixiv_ol import router as pixiv_ol_router
@@ -45,9 +46,11 @@ async def lifespan(app: FastAPI):
     init_database()
     image_job_worker.start()
     pixiv_ol_worker.start()
+    pixiv_check_worker.start()
     try:
         yield
     finally:
+        pixiv_check_worker.stop()
         image_job_worker.stop()
         pixiv_ol_worker.stop()
         PixivUpgradeService.close_client()

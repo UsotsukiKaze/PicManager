@@ -155,6 +155,7 @@ class PixivUpgradeService:
     STAGED_PREFIX = "pixiv-upgrade-"
     _ASCII_PID = re.compile(r"^[0-9]+$")
     LOCK = threading.Lock()
+    SCAN_RATE_LOCK = threading.Lock()
     _CLIENT_LOCK = threading.Lock()
     _CLIENT: PixivClient | None = None
     _LAST_SCAN_STARTED_AT = 0.0
@@ -180,10 +181,11 @@ class PixivUpgradeService:
     def throttle_scan(cls) -> None:
         """Apply server-side backpressure even when callers bypass the UI."""
         interval = max(0.0, float(settings.PIXIV_SCAN_INTERVAL_SECONDS))
-        elapsed = time.monotonic() - cls._LAST_SCAN_STARTED_AT
-        if elapsed < interval:
-            time.sleep(interval - elapsed)
-        cls._LAST_SCAN_STARTED_AT = time.monotonic()
+        with cls.SCAN_RATE_LOCK:
+            elapsed = time.monotonic() - cls._LAST_SCAN_STARTED_AT
+            if elapsed < interval:
+                time.sleep(interval - elapsed)
+            cls._LAST_SCAN_STARTED_AT = time.monotonic()
 
     @staticmethod
     def _image_dimensions(image: models.Image) -> tuple[int, int]:

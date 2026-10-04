@@ -2,6 +2,7 @@
 
 import secrets
 import threading
+import time
 from datetime import datetime, timedelta
 
 from sqlalchemy import func, select, update
@@ -30,7 +31,7 @@ def review_query(db, actor_id, revision):
         models.PixivCheckReview.resolved.is_(None),
         models.PixivCheckReview.expires_at > datetime.utcnow(),
         models.Image.file_status == "available",
-        models.Image.pixiv_checked_at.is_(None),
+        pixiv_check.needs_check(),
     )
 
 
@@ -58,6 +59,7 @@ def start(actor_id):
                         unchanged = False
                     if unchanged:
                         held.add(image.image_id)
+                        image.pixiv_checked_at = None
                     else:
                         review.expires_at = datetime.utcnow()
                 run = models.PixivCheckRun(
@@ -110,6 +112,8 @@ def settle_run(db, run):
 
 def claim():
     with get_db_context() as db:
+        if not db.query(models.PixivCheckRun.id).filter_by(status="running").first():
+            return None  # Avoid three idle UPDATE loops competing with maintenance.
         cutoff = datetime.utcnow() - timedelta(seconds=LEASE_SECONDS)
         db.query(models.PixivCheckItem).filter(
             models.PixivCheckItem.status == "running", models.PixivCheckItem.locked_at < cutoff,
@@ -168,16 +172,29 @@ def status(actor_id, run_id=None, offset=0):
         pending = [{"id": row.id, "pid": row.snapshot.get("pid"), "title": row.artwork.get("title"),
                     "page_count": row.artwork.get("page_count"), "auto_review_safe": row.artwork.get("page_count") == 1}
                    for row in rows]
+        import_jobs = db.query(models.PixivJob).filter(
+            models.PixivJob.actor_id == actor_id, models.PixivJob.kind == "import",
+            models.PixivJob.account_revision == (account.revision if account else ""),
+            models.PixivJob.dedupe_key.like(f"{account.revision if account else ''}:import:check:%"),
+            models.PixivJob.status.notin_(("completed", "cancelled")),
+        ).order_by(models.PixivJob.id.desc())
+        imports = [{"id": job.id, "pid": job.payload.get("pid"), "pages": job.payload.get("pages", []),
+                    "status": job.status, "error": job.error, "done": len(job.result.get("done", [])),
+                    "page": job.result.get("page"), "duplicates": job.result.get("duplicates", [])[:20]}
+                   for job in import_jobs.limit(20)]
+        supplement = {"imports": imports, "import_count": import_jobs.count()}
         if not run:
-            return {"run": None, "reviews": pending, "review_count": count}
+            return {"run": None, "reviews": pending, "review_count": count, **supplement}
         counts = dict(db.query(models.PixivCheckItem.status, func.count()).filter_by(run_id=run.id)
                       .group_by(models.PixivCheckItem.status).all())
         errors = [{"image_id": row.image_id, "error": row.error} for row in db.query(models.PixivCheckItem)
                   .filter_by(run_id=run.id, status="failed").order_by(models.PixivCheckItem.id).limit(10)]
         return {"run": {"id": run.id, "status": run.status, "workers": run.workers,
                         "total": sum(counts.values()), "counts": counts, "fingerprints": run.fingerprints,
-                        "fingerprint_failures": run.fingerprint_failures, "error": run.error, "errors": errors},
-                "reviews": pending, "review_count": count}
+                        "fingerprint_failures": run.fingerprint_failures, "error": run.error, "errors": errors,
+                        "invalid_pids": db.query(models.PixivCheckItem).filter_by(run_id=run.id).filter(
+                            models.PixivCheckItem.result["status"].as_string() == "invalid_pid_cleared").count()},
+                "reviews": pending, "review_count": count, **supplement}
 
 
 def get_review(actor_id, review_id):
@@ -198,6 +215,7 @@ class PixivCheckWorker:
         self.stop_event = threading.Event()
         self.threads = []
         self.local = threading.local()
+        self.last_error_log = {}
 
     def close_client(self):
         client = getattr(self.local, "client", None)
@@ -220,7 +238,7 @@ class PixivCheckWorker:
         while not self.stop_event.is_set():
             with get_db_context() as db:
                 item, run = guard(db, task["id"], task["lease"])
-                result = index_missing_batch(db)
+                result = index_missing_batch(db, limit=1)
                 run.fingerprints += result["processed"]
                 run.fingerprint_failures += result["failed"]
             if not result["processed"]:
@@ -287,6 +305,12 @@ class PixivCheckWorker:
                 item.result, item.error = result, None
                 item.status = "review" if result["status"] == "review" else "completed"
                 item.review_id = result.get("review_id")
+                if result["status"] == "invalid_pid_cleared" and not db.query(models.PixivCheckItem.id).filter_by(
+                    run_id=run.id, kind="prepare", status="queued",
+                ).first():
+                    # A previously identified image is now eligible for similarity
+                    # indexing, even if the initial preparation task already ended.
+                    db.add(models.PixivCheckItem(run_id=run.id, kind="prepare"))
             db.flush()
             settle_run(db, run)
         return True
@@ -297,8 +321,13 @@ class PixivCheckWorker:
                 try:
                     if not self.run_once():
                         self.stop_event.wait(1)
-                except Exception:
-                    log_error("Pixiv check queue temporarily unavailable")
+                except Exception as exc:
+                    category = "database_busy" if isinstance(exc, OperationalError) else type(exc).__name__
+                    now = time.monotonic()
+                    previous = self.last_error_log.get(threading.get_ident(), 0)
+                    if now - previous >= 30 or not previous:
+                        log_error(f"Pixiv check queue temporarily unavailable: error={category}")
+                        self.last_error_log[threading.get_ident()] = now
                     self.stop_event.wait(2)
         finally:
             self.close_client()

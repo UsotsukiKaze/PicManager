@@ -2330,7 +2330,7 @@ function formatMaintenanceBytes(value) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-async function reviewPixivCheck(result) {
+async function reviewPixivCheck(result, onConfirm=null) {
     await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261004f');
     return new Promise(resolve=>{
         const safe=value=>ui.escapeHomeRankingText(value??'');
@@ -2340,7 +2340,11 @@ async function reviewPixivCheck(result) {
         dialog.querySelector('.px-detail-body').prepend(dialog.querySelector('[data-close]'));
         document.body.appendChild(dialog);dialog.showModal();
         const image=dialog.querySelector('img'), status=dialog.querySelector('.px-reader-status');
-        const view=dialog.querySelector('[data-view-page]'), current=dialog.querySelector('[data-current-page]');let page=0,previewReady=false,autoTimer=null,seconds=10,settled=false;
+        const view=dialog.querySelector('[data-view-page]'), current=dialog.querySelector('[data-current-page]');let page=0,previewReady=false,autoTimer=null,seconds=10,settled=false,submitting=false;
+        const matchNote=({preview_failed:'自动比对预览失败，请手动对照库内图片选择对应页。',
+            ambiguous:'多页外观高度相似，无法唯一判断，请手动选择对应页。',
+            no_match:'未找到可靠的页码匹配，请手动选择对应页。'})[result.page_matching?.status];
+        if(matchNote){const note=document.createElement('p');note.className='px-help';note.textContent=matchNote;current.parentElement.after(note);}
         const auto=dialog.querySelector('[data-auto-choice]'),autoStatus=dialog.querySelector('[data-auto-status]');
         const showPage=value=>{
             previewReady=false;stopAuto();
@@ -2351,7 +2355,7 @@ async function reviewPixivCheck(result) {
             image.src=`/api/system/pixiv-check/${result.review_id}/original?page=${page}`;
             dialog.querySelector('.px-reader-prev').disabled=page===0;dialog.querySelector('.px-reader-next').disabled=page===pages.length-1;
         };
-        const finish=choice=>{if(settled)return;settled=true;stopAuto();window.cancelPixivCheckReview=null;dialog.close();dialog.remove();resolve(choice);};
+        const finish=choice=>{if(settled||submitting)return;settled=true;stopAuto();window.cancelPixivCheckReview=null;dialog.close();dialog.remove();resolve(choice);};
         const stopAuto=()=>{clearInterval(autoTimer);autoTimer=null;seconds=10;};
         const startAuto=()=>{stopAuto();if(settled||!autoAllowed||!auto.checked||!previewReady)return;autoStatus.textContent='10 秒后确认，可随时取消自动审核';autoTimer=setInterval(()=>{if(window.pixivValidationStop){finish(null);return;}if(document.hidden){autoStatus.textContent='页面隐藏，倒计时已暂停';return;}seconds--;autoStatus.textContent=`${seconds} 秒后确认`;if(seconds<=0)dialog.querySelector('[data-confirm]').click();},1000);};
         auto.onchange=()=>{if(auto.checked)startAuto();else{stopAuto();autoStatus.textContent='已取消自动审核';}};
@@ -2371,13 +2375,22 @@ async function reviewPixivCheck(result) {
         });
         current.value=result.suggested_page==null?'':String(result.suggested_page);
         current.onchange=()=>{updateSelection();if(current.value!=='')showPage(Number(current.value));};updateSelection();
-        dialog.querySelector('[data-confirm]').onclick=()=>{
+        dialog.querySelector('[data-confirm]').onclick=async()=>{
+            if(submitting)return;
             const selected=Array.from(dialog.querySelectorAll('[data-extra-page]:checked'),node=>Number(node.value));
             const error=dialog.querySelector('[data-error]');
             if(current.value===''){error.textContent='请先确认库内现图对应的页码';return;}
             if(selected.length>100){error.textContent='每次最多补入 100 页';return;}
             if(selected.length&&!result.current.group_ids.length){error.textContent='请先为库内现图设置分组，再补入其他页';return;}
-            finish({review_id:result.review_id,current_page:Number(current.value),pages:selected,upgrade:dialog.querySelector('[data-upgrade]').checked});
+            const choice={review_id:result.review_id,current_page:Number(current.value),pages:selected,upgrade:dialog.querySelector('[data-upgrade]').checked};
+            if(!onConfirm){finish(choice);return;}
+            stopAuto();auto.checked=false;submitting=true;error.textContent='';
+            const controls=Array.from(dialog.querySelectorAll('button,input,select'),node=>[node,node.disabled]);
+            controls.forEach(([node])=>node.disabled=true);
+            const confirm=dialog.querySelector('[data-confirm]');confirm.textContent='正在保存…';
+            try{const saved=await onConfirm(choice);submitting=false;finish({...choice,saved});}
+            catch(failure){error.textContent=pixivCheckErrorMessage(failure.message);autoStatus.textContent='保存未完成，选择已保留，可调整后重试。';}
+            finally{submitting=false;if(!settled){controls.forEach(([node,disabled])=>node.disabled=disabled);confirm.textContent='确认校验';}}
         };
         showPage(result.suggested_page??0);
     });
@@ -2517,6 +2530,7 @@ function updatePixivUpgradeProgress({ checked = 0, total = null, state = 'runnin
         stopped: 'Pixiv 校验已停止',
         complete: 'Pixiv 后台扫描完成',
         error: 'Pixiv 校验失败',
+        partial: '扫描完成，部分图片需重试',
     };
     panel.hidden = false;
     panel.dataset.state = state;
@@ -2543,7 +2557,28 @@ function pixivCheckErrorMessage(error) {
         image_changed:'库内图片已变化，请重新校验',account_changed:'Pixiv 账号已变更，请重新校验',
         reauth_required:'请先重新连接 Pixiv 账号',permission_revoked:'管理员权限已撤销',
         check_database_busy:'数据库暂时繁忙，可重新校验',
+        artwork_unsupported:'作品类型暂不支持或信息不完整，已保留原 PID',download_failed:'下载失败，选择已保留，可重试',
         external_error:'Pixiv 暂时不可用，可稍后重新校验',check_processing_failed:'此项处理失败，可重新校验'})[error]||error;
+}
+
+function renderPixivCheckImports(imports,total) {
+    if(!imports.length)return '';
+    const safe=escapeMaintenanceHtml,labels={queued:'排队补入',running:'正在补入',retry:'等待重试',
+        awaiting_duplicate:'需要查重确认',failed:'补入失败',partial:'待继续'};
+    return `<div class="pixiv-check-queue-heading"><strong>补入任务 ${Number(total)||imports.length}</strong><small>需要查重的页保留在这里，确认后继续入库。</small></div>${imports.map(job=>
+        `<article class="pixiv-check-import"><strong>${safe(job.pid)} · ${safe(labels[job.status]||job.status)} · ${Number(job.done)||0} / ${job.pages.length} 页</strong>${job.error?`<p>${safe(pixivCheckErrorMessage(job.error))}</p>`:''}${job.status==='awaiting_duplicate'?`<p>第 ${Number(job.page)+1} 页疑似与库内图片重复：</p><div class="pixiv-check-duplicate-options">${job.duplicates.map(image=>`<div><button class="px-text-button" data-check-image="${safe(image.image_id)}"><img src="/resource/thumbs/${encodeURIComponent(image.image_id)}.webp" loading="lazy" alt="查看库内候选图片"></button><button class="btn btn-secondary" data-check-import="existing" data-job="${Number(job.id)}" data-image="${safe(image.image_id)}">保留此图</button></div>`).join('')}<button class="btn btn-secondary" data-check-import="different" data-job="${Number(job.id)}">确认为不同图片，继续补入</button></div>`:''}${['failed','partial'].includes(job.status)?`<button class="btn btn-secondary" data-check-import="retry" data-job="${Number(job.id)}">重试补入</button>`:''}</article>`).join('')}`;
+}
+
+const pixivCheckImportBusy=new Set();
+async function actOnPixivCheckImport(button) {
+    const id=Number(button.dataset.job);if(pixivCheckImportBusy.has(id))return;
+    pixivCheckImportBusy.add(id);button.disabled=true;
+    try {
+        if(button.dataset.checkImport==='retry')await api.retryPixivCheckImport(id);
+        else await api.resolvePixivCheckImport(id,button.dataset.checkImport,button.dataset.image||null);
+        ui.showToast('已提交，补入任务将继续处理','success');
+    }catch(error){ui.showToast(pixivCheckErrorMessage(error.message),'error');}
+    finally{pixivCheckImportBusy.delete(id);button.disabled=false;refreshPixivCheckQueue();}
 }
 
 async function refreshPixivCheckQueue() {
@@ -2552,7 +2587,7 @@ async function refreshPixivCheckQueue() {
     state.polling=true;clearTimeout(state.timer);
     let keepPolling=false;
     try {
-        const data=await api.getPixivCheckQueue(null,state.offset),run=data.run;
+        const data=await api.getPixivCheckQueue(null,state.offset),run=data.run,imports=data.imports||[];
         state.runId=run?.id||null;
         if(state.offset>=data.review_count&&state.offset)state.offset=0;
         const counts=run?.counts||{},active=run?.status==='running';
@@ -2560,19 +2595,25 @@ async function refreshPixivCheckQueue() {
         if(button){button.disabled=active||state.starting;button.textContent=active?'后台校验中…':'Pixiv 校验';}
         if(stop)stop.hidden=!active;
         if(run)updatePixivUpgradeProgress({checked:run.total-(counts.queued||0)-(counts.running||0),total:run.total,
-            state:active?'running':run.status==='cancelled'?'stopped':run.status==='failed'?'error':data.review_count?'review':'complete',
-            detail:`${run.workers} 个并发线程 · 排队 ${counts.queued||0} · 处理中 ${counts.running||0} · 待确认 ${data.review_count} · 失败 ${counts.failed||0}；已生成 ${run.fingerprints} 张指纹${run.error?`；${pixivCheckErrorMessage(run.error)}`:''}`});
+            state:active?'running':run.status==='cancelled'?'stopped':run.status==='failed'?'error':data.review_count?'review':counts.failed?'partial':'complete',
+            detail:`${run.workers} 个并发线程 · 排队 ${counts.queued||0} · 处理中 ${counts.running||0} · 待确认 ${data.review_count} · 失败 ${counts.failed||0} · 补入待处理 ${data.import_count||0}；已生成 ${run.fingerprints} 张指纹 · 清除失效 PID ${run.invalid_pids||0}${run.error?`；${pixivCheckErrorMessage(run.error)}`:''}`});
         const panel=document.getElementById('pixiv-check-review-queue');
         if(panel){
             const safe=escapeMaintenanceHtml;
-            panel.hidden=!data.review_count&&!run?.errors?.length;
+            panel.hidden=!data.review_count&&!run?.errors?.length&&!imports.length;
             panel.innerHTML=`<div class="pixiv-check-queue-heading"><strong>待确认 <span>${data.review_count}</span></strong><small>选择稍后确认不会停止后台校验，未确认图片保持未校验。</small></div><div class="pixiv-check-queue-items">${data.reviews.map(review=>`<article class="pixiv-check-queue-item"><div><strong>${safe(review.title||review.pid)}</strong><small>${safe(review.pid)} · ${Number(review.page_count)||1} 页</small></div><button class="btn btn-secondary" data-pixiv-review="${safe(review.id)}" ${state.reviewBusy?'disabled':''}>确认</button></article>`).join('')}</div>${data.review_count>20?`<div class="pixiv-check-queue-pages"><button class="btn btn-secondary" data-queue-prev ${state.offset?'':'disabled'}>上一组</button><span>${Math.floor(state.offset/20)+1} / ${Math.ceil(data.review_count/20)}</span><button class="btn btn-secondary" data-queue-next ${state.offset+20<data.review_count?'':'disabled'}>下一组</button></div>`:''}${run?.errors?.length?`<details class="validation-advanced"><summary>失败项（可重新校验）</summary>${run.errors.map(item=>`<p>${safe(item.image_id||'指纹任务')}：${safe(pixivCheckErrorMessage(item.error))}</p>`).join('')}</details>`:''}`;
             panel.querySelectorAll('[data-pixiv-review]').forEach(node=>node.onclick=()=>reviewQueuedPixivCheck(node.dataset.pixivReview));
+            panel.insertAdjacentHTML('beforeend',renderPixivCheckImports(imports,data.import_count||0));
+            panel.querySelectorAll('[data-check-import]').forEach(node=>node.onclick=()=>actOnPixivCheckImport(node));
+            panel.querySelectorAll('[data-check-image]').forEach(node=>node.onclick=()=>ui.showImageDetail(node.dataset.checkImage));
+            panel.querySelectorAll('[data-check-image] img').forEach(image=>image.onerror=()=>{
+                image.onerror=null;image.src='/static/icon/Pic.ico';
+            });
             const prev=panel.querySelector('[data-queue-prev]'),next=panel.querySelector('[data-queue-next]');
             if(prev)prev.onclick=()=>{state.offset=Math.max(0,state.offset-20);refreshPixivCheckQueue();};
             if(next)next.onclick=()=>{state.offset+=20;refreshPixivCheckQueue();};
         }
-        keepPolling=active||(data.review_count>0&&ui.currentPage==='settings');
+        keepPolling=active||((data.review_count>0||imports.length>0)&&ui.currentPage==='settings');
         pixivAutoReviewEnabled=!!document.getElementById('pixiv-check-auto')?.checked;
         if(pixivAutoReviewEnabled&&!state.reviewBusy&&!document.hidden&&ui.currentPage==='settings'){
             const review=data.reviews.find(item=>item.auto_review_safe&&!state.deferred.has(item.id));
@@ -2592,9 +2633,9 @@ async function reviewQueuedPixivCheck(reviewId) {
     state.reviewBusy=true;window.pixivValidationStop=false;
     try {
         const result=await api.getPixivCheckReview(reviewId);
-        const choice=await reviewPixivCheck(result);
+        const choice=await reviewPixivCheck(result,choice=>api.resolvePixivCheck(choice));
         if(!choice){state.deferred.add(reviewId);return;}
-        const saved=await api.resolvePixivCheck(choice);
+        const saved=choice.saved||await api.resolvePixivCheck(choice);
         ui.showToast(`${saved.pid}：已补全画师与 Pixiv 标签${saved.upgraded?'，已更新高清原图':''}`,'success');
         window.pixivOL?.similaritySeen?.clear();
         ui.loadSystemStatus();

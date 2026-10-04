@@ -65,6 +65,8 @@ class ImageJobQueue:
             models.ImageJob.status.in_(("queued", "retry")),
             models.ImageJob.available_at <= now,
         ).order_by(models.ImageJob.available_at, models.ImageJob.id).limit(1).scalar_subquery()
+        if db.execute(select(candidate)).scalar_one_or_none() is None:
+            return None  # An idle worker must not continually take SQLite's writer.
         claimed_id = db.execute(
             update(models.ImageJob)
             .where(
@@ -208,7 +210,13 @@ class ImageJobWorker:
 
     def _run(self) -> None:
         while not self.stop_event.is_set():
-            if not self.run_once():
+            try:
+                if not self.run_once():
+                    self.stop_event.wait(self.poll_seconds)
+            except Exception as exc:
+                # Claim/commit contention must not terminate the derivative worker.
+                # Leases recover an interrupted commit; never log SQL parameters.
+                log_error(f"Image job worker temporarily unavailable: type={type(exc).__name__}")
                 self.stop_event.wait(self.poll_seconds)
 
     def start(self) -> None:

@@ -12,10 +12,18 @@ def mark_ready(image):
         image.local_checked_at=datetime.utcnow()
 
 
-def run_batch(db, after_id='', limit=200):
+def run_batch(db, after_id='', limit=200, *, incremental=False):
+    # Loading an expired ORM field must not autoflush pending image updates
+    # before expensive image decoding/thumbnail generation.
+    with db.no_autoflush:
+        return _run_batch(db, after_id, limit, incremental=incremental)
+
+
+def _run_batch(db, after_id='', limit=200, *, incremental=False):
     archived=moved=0
     if not after_id:
         archived=ImageService.cleanup_orphaned_records(db,settings.STORE_PATH,mode='archive')
+        if incremental: db.commit()
         moved=ImageService.move_orphaned_files_to_temp(db,settings.STORE_PATH,settings.TEMP_PATH)
     rows=db.query(models.Image).filter(models.Image.image_id>after_id,models.Image.file_status!='archived',models.Image.file_status!='deleted').order_by(models.Image.image_id).limit(limit).all()
     failed=[];ready=0
@@ -45,6 +53,10 @@ def run_batch(db, after_id='', limit=200):
             ready+=1
         except (OSError,ValueError,RuntimeError):
             image.local_checked_at=None;image.thumb_status='failed';failed.append(image.image_id)
+        finally:
+            # Release the writer before decoding/generating the next image.
+            # Local maintenance is resumable; a batch is not one atomic write.
+            if incremental: db.commit()
     db.flush()
     cursor=rows[-1].image_id if rows else after_id
     more=db.query(models.Image).filter(models.Image.image_id>cursor,models.Image.file_status.notin_(['archived','deleted'])).count()

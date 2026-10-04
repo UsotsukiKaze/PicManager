@@ -863,11 +863,12 @@ def test_unavailable_pixiv_work_does_not_block_scan_or_invent_artist_and_tags(en
     Image.new("RGB", (32, 20), "red").save(path)
     with context() as db:
         db.add(models.Image(image_id="0000000001", pid="100", file_extension="png", file_path=str(path)))
-    assert pixiv_check.scan_next(1)["status"] == "unavailable"
+    assert pixiv_check.scan_next(1)["status"] == "invalid_pid_cleared"
+    assert pixiv_check.scan_next(1)["status"] == "fingerprinted"
     assert pixiv_check.scan_next(1)["status"] == "complete"
     with context() as db:
         image = db.get(models.Image, "0000000001")
-        assert image.pixiv_metadata.status == "unavailable"
+        assert image.pid is None and image.pixiv_metadata is None and image.pixiv_checked_at is None
         assert public_metadata(image)["pixiv_verified"] is False
         assert db.query(models.PixivArtist).count() == 0 and not image.feature_tags
 

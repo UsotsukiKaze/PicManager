@@ -565,6 +565,15 @@ class API {
         return this.request('/system/pixiv-check/resolve', {method:'POST',body:JSON.stringify(choice)});
     }
 
+    async resolvePixivCheckImport(jobId, action, imageId=null) {
+        return this.request(`/pixiv-ol/imports/${Number(jobId)}/resolve`, {method:'POST',
+            headers:{'Content-Type':'application/json','X-Pixiv-OL':'1'},body:JSON.stringify({action,image_id:imageId})});
+    }
+
+    async retryPixivCheckImport(jobId) {
+        return this.request(`/pixiv-ol/jobs/${Number(jobId)}/retry`, {method:'POST',headers:{'X-Pixiv-OL':'1'}});
+    }
+
     // 榜单
     async getRankings(limit = 10) {
         return this.request(`/rankings?limit=${limit}`);

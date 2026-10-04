@@ -100,3 +100,8 @@
 .pixiv-check-queue-item strong { font-size:13px; overflow-wrap:anywhere; }
 .pixiv-check-queue-item .btn { flex-shrink:0; }
 .pixiv-check-queue-pages { display:flex; align-items:center; justify-content:flex-end; gap:12px; margin-top:12px; font-size:12px; }
+.pixiv-check-import {padding:12px;margin-top:10px;background:var(--surface-secondary,#f7f7f9);border-radius:12px;font-size:13px;}
+.pixiv-check-import p {margin:8px 0;color:var(--text-secondary);}
+.pixiv-check-duplicate-options {display:flex;gap:12px;flex-wrap:wrap;align-items:center;}
+.pixiv-check-duplicate-options>div {display:grid;gap:6px;justify-items:center;}
+.pixiv-check-duplicate-options img {width:90px;height:90px;object-fit:cover;border-radius:8px;}

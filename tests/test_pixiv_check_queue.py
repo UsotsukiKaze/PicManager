@@ -388,3 +388,182 @@ def test_non_cart_import_metadata_keeps_each_pages_confirmed_character(queued):
     with context() as db:
         assert [c.id for c in db.get(models.Image, '0000000001').characters] == [10]
         assert [c.id for c in db.get(models.Image, '0000000002').characters] == [11]
+
+
+@pytest.mark.parametrize('existing_review', [False, True])
+def test_legacy_hd_marker_does_not_hide_or_repeatedly_scan_multipage_review(queued, monkeypatch, existing_review):
+    context, client, add = queued
+    add(2)
+    calls=[]
+    client_factory(monkeypatch, first_review=True, calls=calls)
+    with context() as db:
+        image=db.get(models.Image, '0000000001')
+        image.pixiv_checked_at=datetime(2026, 1, 1)
+        if existing_review:
+            art=service.normalize_artwork(artwork('101', pages=2))
+            db.add(models.PixivCheckReview(id='a'*48, image_id=image.image_id, actor_id=1,
+                account_revision='rev',snapshot=pixiv_check.snapshot(image),artwork=art,
+                expires_at=datetime.utcnow()+timedelta(days=1)))
+    queue.start(1);drain(queue.PixivCheckWorker())
+    status=client.get('/api/system/pixiv-check/queue').json()
+    assert status['review_count']==1 and status['run']['status']=='completed'
+    assert calls==(['102'] if existing_review else ['101','102'])
+    review=status['reviews'][0]['id']
+    assert client.get(f'/api/system/pixiv-check/reviews/{review}').status_code==200
+    queue.start(1);drain(queue.PixivCheckWorker())
+    assert client.get('/api/system/pixiv-check/queue').json()['review_count']==1
+    assert client.post('/api/system/pixiv-check/resolve',json={'review_id':review,'current_page':1,'pages':[],'upgrade':False}).status_code==200
+    with context() as db:
+        assert db.get(models.Image,'0000000001').pid=='101_p1'
+
+
+@pytest.mark.parametrize('failed_samples', [True, False])
+def test_bare_pid_sample_failure_or_ambiguous_pages_stays_reviewable_and_does_not_block(queued, monkeypatch, failed_samples):
+    context, _, add=queued
+    add(2)
+    with context() as db:db.get(models.Image,'0000000001').pid='101'
+    client_factory(monkeypatch,first_review=True)
+    if failed_samples:
+        def unavailable(*_args,**_kwargs):raise provider.PixivError('download_failed')
+        monkeypatch.setattr(pixiv_check,'download',unavailable)
+    queue.start(1);drain(queue.PixivCheckWorker())
+    status=queue.status(1)
+    assert status['run']['status']=='completed' and status['review_count']==1
+    assert not status['run']['counts'].get('failed')
+    detail=queue.get_review(1,status['reviews'][0]['id'])
+    assert detail['suggested_page'] is None
+    assert detail['page_matching']['status']==('preview_failed' if failed_samples else 'ambiguous')
+    with context() as db:
+        assert db.get(models.Image,'0000000001').pixiv_checked_at is None
+        assert db.get(models.Image,'0000000002').pixiv_checked_at is not None
+    pixiv_check.resolve(detail['review_id'],1,1,[],False)
+    assert queue.status(1)['review_count']==0
+
+
+def test_explicit_deleted_work_clears_pid_and_stale_sources_but_keeps_file_and_labels(queued, monkeypatch):
+    from app.services import ImageService
+    context, _, add=queued
+    add(1)
+    with context() as db:
+        image=db.get(models.Image,'0000000001');image.feature_tags=[db.get(models.FeatureTag,1)]
+        db.add(models.Character(id=10,name='角色甲',group_id=1));db.flush()
+        image.characters=[db.get(models.Character,10)]
+        db.add(models.PixivArtist(id='9',name='旧画师'));db.flush()
+        image.pixiv_metadata=models.PixivImageMetadata(work_id='101',page_index=0,page_count=0,status='unavailable',artist_id='9')
+        image.pixiv_checked_at=datetime(2026,1,1)
+        db.add(models.PixivImageSource(image_id=image.image_id,work_id='101',page_index=0,sha256='old',metadata_json={}))
+        before=ImageService.image_full_path(image)
+    class Client:
+        def call(self,*_args,**_kwargs):raise provider.PixivError('artwork_unavailable')
+        def close(self):pass
+    monkeypatch.setattr(service,'client_for_job',lambda *_:Client())
+    queue.start(1);drain(queue.PixivCheckWorker())
+    assert queue.status(1)['run']['invalid_pids']==1
+    with context() as db:
+        image=db.get(models.Image,'0000000001')
+        assert image.pid is None and image.pixiv_metadata is None and image.pixiv_checked_at is None
+        assert image.file_path==before and ImageService.image_file_exists(image)
+        assert [c.id for c in image.characters]==[10] and [g.id for g in image.groups]==[1]
+        assert [t.id for t in image.feature_tags]==[1]
+        assert not image.pixiv_sources and not db.query(models.PixivArtist).count()
+        assert image.visual_fingerprint is not None
+
+
+@pytest.mark.parametrize('error',['external_error','access_denied','rate_limited','unsupported'])
+def test_network_permission_or_unsupported_work_never_clears_pid(queued,monkeypatch,error):
+    context, _, add=queued
+    add(1)
+    class Client:
+        def call(self,*_args,**_kwargs):
+            if error!='unsupported':raise provider.PixivError(error)
+            raw=artwork('101');raw['type']='ugoira';return {'illust':raw}
+        def close(self):pass
+    monkeypatch.setattr(service,'client_for_job',lambda *_:Client())
+    queue.start(1);worker=queue.PixivCheckWorker()
+    assert worker.run_once() and worker.run_once()
+    with context() as db:
+        image=db.get(models.Image,'0000000001')
+        assert image.pid=='101_p0' and image.pixiv_checked_at is None
+        assert image.pixiv_metadata is None
+
+
+def test_extra_page_duplicate_is_visible_in_maintenance_and_can_resume_import(queued,monkeypatch):
+    from app.services import ImageService
+    from app.integrations.pixiv_ol import jobs
+    context, client, add=queued
+    add(1)
+    with context() as db:
+        image=db.get(models.Image,'0000000001')
+        image.perceptual_hash=ImageService.compute_dhash(image.file_path)
+    client_factory(monkeypatch,first_review=True)
+    monkeypatch.setattr(jobs,'download',lambda url,path,**kwargs:Image.new('RGB',(32,20),'blue').save(path,format='PNG'))
+    queue.start(1);drain(queue.PixivCheckWorker())
+    review=queue.status(1)['reviews'][0]['id']
+    saved=pixiv_check.resolve(review,1,0,[1],False)
+    assert jobs.Worker().run_once()
+    data=client.get('/api/system/pixiv-check/queue').json()
+    assert data['review_count']==0 and data['import_count']==1
+    supplement=data['imports'][0]
+    assert supplement['status']=='awaiting_duplicate' and supplement['page']==1
+    assert supplement['duplicates'][0]['image_id']=='0000000001'
+    assert client.post(f"/api/pixiv-ol/imports/{saved['import_job_id']}/resolve",json={'action':'different'}).status_code==202
+    assert jobs.Worker().run_once()
+    assert queue.status(1)['imports']==[]
+    with context() as db:assert db.query(models.Image).filter_by(pid='101_p1').count()==1
+
+
+def test_uppercase_local_cursor_is_valid_and_incremental_route_is_used(queued,monkeypatch):
+    from app import local_check
+    _,client,_=queued
+    seen=[]
+    monkeypatch.setattr(local_check,'run_batch',lambda db,after_id,limit,**kw:seen.append((after_id,kw)) or {'processed':0})
+    assert client.post('/api/system/local-check?after_id=1C2476F04F').status_code==200
+    assert seen==[('1C2476F04F',{'incremental':True})]
+    assert client.post('/api/system/local-check?after_id=bad-cursor').status_code==422
+
+
+def test_incremental_local_validation_releases_writer_between_image_decodes(queued,monkeypatch):
+    from app import local_check
+    from app.services import ImageService
+    context,_,add=queued;add(2)
+    monkeypatch.setattr(ImageService,'cleanup_orphaned_records',lambda *a,**kw:0)
+    monkeypatch.setattr(ImageService,'move_orphaned_files_to_temp',lambda *a,**kw:0)
+    calls=[]
+    def thumbnail(image):
+        calls.append(image.image_id)
+        if len(calls)==2:
+            with context() as concurrent:
+                concurrent.get(models.Group,1).name='并发写入成功'
+        image.thumb_status='ready';return True
+    monkeypatch.setattr(ImageService,'ensure_thumbnail',thumbnail)
+    with context() as db:assert local_check.run_batch(db,incremental=True)['ready']==2
+    with context() as db:assert db.get(models.Group,1).name=='并发写入成功'
+
+
+def test_derivative_worker_survives_database_lock_and_continues(queued,monkeypatch):
+    import sqlite3
+    from sqlalchemy.exc import OperationalError
+    from app.jobs import ImageJobWorker
+    worker=ImageJobWorker(poll_seconds=.1);calls=[]
+    def run_once():
+        calls.append(1)
+        if len(calls)==1:raise OperationalError('',{},sqlite3.OperationalError('database is locked'))
+        worker.stop_event.set();return False
+    monkeypatch.setattr(worker,'run_once',run_once)
+    worker._run()
+    assert len(calls)==2
+
+
+def test_idle_queue_claims_do_not_issue_update_statements(queued):
+    from sqlalchemy import event
+    from app.jobs import ImageJobQueue
+    context,_,_=queued
+    with context() as db:engine=db.get_bind()
+    statements=[]
+    def before(_conn,_cursor,statement,_params,_context,_many):statements.append(statement)
+    event.listen(engine,'before_cursor_execute',before)
+    try:
+        assert queue.claim() is None
+        with context() as db:assert ImageJobQueue.claim(db) is None
+        assert not any(sql.lstrip().upper().startswith('UPDATE') for sql in statements)
+    finally:event.remove(engine,'before_cursor_execute',before)

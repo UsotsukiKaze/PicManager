@@ -18,6 +18,7 @@ function harness() {
     const nodes = Object.fromEntries(ids.map(id => [id, {
         dataset: {}, hidden: false, checked: false, textContent: '', innerHTML: '',
         removeAttribute() {}, querySelectorAll() { return []; }, querySelector() { return null; },
+        insertAdjacentHTML(_position,value) {this.innerHTML+=value;},
     }]));
     context.document.getElementById = id => nodes[id] || null;
     context.ui = { currentPage: 'settings', isAdminView: () => true, showToast() {}, loadSystemStatus() {} };
@@ -74,4 +75,37 @@ test('stop acts on the durable run and keeps its review list available', async (
     assert.equal(nodes['pixiv-upgrade-progress'].dataset.state, 'stopped');
     assert.equal(nodes['pixiv-check-review-queue'].hidden, false);
     assert.match(nodes['pixiv-check-review-queue'].innerHTML, /Needs confirmation/);
+});
+
+test('supplement duplicate jobs remain visible and can resume after review count reaches zero', async () => {
+    const {context,nodes,calls,data}=harness();
+    data.run.status='completed';data.reviews=[];data.review_count=0;
+    data.imports=[{id:7,pid:'101',pages:[1],done:0,status:'awaiting_duplicate',page:1,duplicates:[{image_id:'0000000001'}]}];
+    data.import_count=1;
+    context.api.resolvePixivCheckImport=async(id,action)=>{calls.push(`duplicate:${id}:${action}`);data.imports=[];data.import_count=0;};
+    await context.refreshPixivCheckQueue();
+    assert.equal(nodes['pixiv-check-review-queue'].hidden,false);
+    assert.match(nodes['pixiv-check-review-queue'].innerHTML,/需要查重确认/);
+    assert.match(nodes['pixiv-check-review-queue'].innerHTML,/data-check-import="different"/);
+    await context.actOnPixivCheckImport({dataset:{job:'7',checkImport:'different'},disabled:false});
+    assert(calls.includes('duplicate:7:different'));
+});
+
+test('queue confirmation uses the saved modal result without submitting a second time', async () => {
+    const {context,calls}=harness();
+    context.reviewPixivCheck=async(result,onConfirm)=>{
+        const choice={review_id:result.review_id,current_page:0,pages:[],upgrade:false};
+        return {...choice,saved:await onConfirm(choice)};
+    };
+    await context.reviewQueuedPixivCheck('review');
+    assert.equal(calls.filter(call=>call==='resolve').length,1);
+});
+
+test('failed checks are reported as partial completion and not a successful batch',async()=>{
+    const {context,nodes,data}=harness();
+    data.run.status='completed';data.run.counts={completed:3,failed:1};
+    data.reviews=[];data.review_count=0;
+    await context.refreshPixivCheckQueue();
+    assert.equal(nodes['pixiv-upgrade-progress'].dataset.state,'partial');
+    assert.match(nodes['pixiv-upgrade-progress-label'].textContent,/需重试/);
 });

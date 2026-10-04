@@ -63,12 +63,12 @@ def pixiv_check_queue_review(review_id: str, request: Request):
 
 
 @router.post("/local-check")
-def local_check(request: Request, after_id: str = Query("", pattern="^([a-f0-9]{10})?$"), limit: int = Query(200, ge=1, le=500)):
+def local_check(request: Request, after_id: str = Query("", pattern="^([a-fA-F0-9]{10})?$"), limit: int = Query(200, ge=1, le=500)):
     require_admin_user_id(request)
     from ..local_check import run_batch
     from ..integrations.pixiv_ol.jobs import ACCOUNT_LOCK
     with PixivUpgradeService.LOCK, ACCOUNT_LOCK, ImageService.DUPLICATE_WRITE_LOCK, get_db_context() as db:
-        return run_batch(db, after_id, limit)
+        return run_batch(db, after_id, limit, incremental=True)
 
 
 @router.post("/pixiv-check/next")

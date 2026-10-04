@@ -49,6 +49,15 @@ def snapshot(image):
     return {"pid": image.pid, "size": stat.st_size, "mtime": stat.st_mtime_ns}
 
 
+def needs_check():
+    return or_(models.Image.pixiv_checked_at.is_(None), ~models.Image.pixiv_metadata.has(),
+               models.Image.pixiv_metadata.has(models.PixivImageMetadata.status == "unavailable"))
+
+
+def is_complete(image):
+    return bool(image.pixiv_checked_at and image.pixiv_metadata and image.pixiv_metadata.status != "unavailable")
+
+
 def pending(db):
     rows = (
         db.query(models.Image)
@@ -56,7 +65,7 @@ def pending(db):
         .filter(
             models.Image.file_status == "available",
             models.Image.pid.isnot(None),
-            or_(models.Image.pixiv_checked_at.is_(None), ~models.Image.pixiv_metadata.has()),
+            needs_check(),
         )
         .order_by(models.Image.created_at, models.Image.image_id)
         .all()
@@ -108,7 +117,7 @@ def scan_image(actor_id, image_id, *, remaining=1, revision=None, client=None, g
         image = db.get(models.Image, image_id)
         if not image or image.file_status != "available" or not split_pid(image.pid) or not ImageService.image_file_exists(image):
             return {"status": "skipped", "remaining": max(0, remaining - 1)}
-        if image.pixiv_checked_at is not None and image.pixiv_metadata:
+        if is_complete(image):
             return {"status": "skipped", "remaining": max(0, remaining - 1)}
         account = service.require_account(db, revision)
         revision, before = account.revision, snapshot(image)
@@ -131,7 +140,9 @@ def scan_image(actor_id, image_id, *, remaining=1, revision=None, client=None, g
         raw = client.call("illust_detail", illust_id=work_id).get("illust")
         art = service.normalize_artwork(raw or {})
         if not art:
-            raise PixivError("artwork_unavailable")
+            # Unsupported/invisible content or a malformed response does not
+            # establish that the library PID is invalid. Only explicit 404 does.
+            raise PixivError("access_denied" if isinstance(raw, dict) and raw.get("visible") is False else "artwork_unsupported")
         art["width"], art["height"] = int(raw.get("width") or 0), int(raw.get("height") or 0)
         service.save_artworks(revision, [raw], "library_check", actor_id)
     except PixivError as exc:
@@ -150,16 +161,12 @@ def scan_image(actor_id, image_id, *, remaining=1, revision=None, client=None, g
             image = db.get(models.Image, image_id)
             if not image or snapshot(image) != before:
                 raise PixivError("image_changed")
-            image.pixiv_metadata = models.PixivImageMetadata(
-                work_id=work_id,
-                page_index=explicit_page or 0,
-                page_count=0,
-                tags=[],
-                status="unavailable",
-                validated_at=datetime.utcnow(),
+            image.pid, image.pixiv_checked_at, image.pixiv_metadata = None, None, None
+            image.pixiv_sources = [source for source in image.pixiv_sources if source.provider != "pixiv"]
+            db.query(models.PixivCheckReview).filter_by(image_id=image_id, resolved=None).update(
+                {"expires_at": datetime.utcnow()}, synchronize_session=False,
             )
-            image.pixiv_checked_at = datetime.utcnow()
-        return {"status": "unavailable", "pid": before["pid"], "remaining": max(0, remaining - 1)}
+        return {"status": "invalid_pid_cleared", "previous_pid": before["pid"], "remaining": max(0, remaining - 1)}
     larger = (
         art["width"] >= current_width
         and art["height"] >= current_height
@@ -177,9 +184,11 @@ def scan_image(actor_id, image_id, *, remaining=1, revision=None, client=None, g
             record_page(db, image, art, 0)
         return {"status": "validated", "pid": canonical_pid(work_id, 0), "remaining": max(0, remaining - 1)}
     suggested = None
+    matching = {"status": "manual", "sampled": 0, "failed": 0}
     # Existing explicit pages are shown as suggestions; bare IDs are compared to page samples.
     if explicit_page is not None and explicit_page < art["page_count"]:
         suggested = explicit_page
+        matching["status"] = "explicit_page"
     elif art["page_count"] == 1:
         suggested = 0
     else:
@@ -187,7 +196,7 @@ def scan_image(actor_id, image_id, *, remaining=1, revision=None, client=None, g
 
         root = Path(settings.PENDING_PATH)
         root.mkdir(parents=True, exist_ok=True)
-        best = None
+        matches, consecutive_failures = [], 0
         for page, url in enumerate(art.get("page_previews", [])[:50]):
             if guard:
                 with get_db_context() as db:
@@ -196,14 +205,27 @@ def scan_image(actor_id, image_id, *, remaining=1, revision=None, client=None, g
             try:
                 download(url, stage, limit=5 * 1024 * 1024)
                 distance = ImageService.dhash_distance(current_hash, ImageService.compute_dhash(str(stage)))
-                if best is None or distance < best[0]:
-                    best = distance, page
+                matching["sampled"] += 1
+                matches.append((distance, page))
+                consecutive_failures = 0
+            except (PixivError, OSError, ValueError):
+                # Page inference is optional. Preserve a manual review even when
+                # CDN samples cannot be downloaded/read; never lose this image.
+                matching["failed"] += 1
+                consecutive_failures += 1
             finally:
                 stage.unlink(missing_ok=True)
-            if best and best[0] == 0:
+            if consecutive_failures >= 3:
                 break
-        if best and best[0] <= settings.PIXIV_UPGRADE_DHASH_DISTANCE:
-            suggested = best[1]
+        matches.sort()
+        if matches and matches[0][0] <= settings.PIXIV_UPGRADE_DHASH_DISTANCE:
+            if len(matches) == 1 or matches[1][0] > matches[0][0]:
+                suggested = matches[0][1]
+                matching["status"] = "suggested"
+            else:
+                matching["status"] = "ambiguous"
+        else:
+            matching["status"] = "preview_failed" if matching["failed"] else "no_match"
     with get_db_context() as db:
         service.require_actor(db, actor_id)
         if guard:
@@ -212,6 +234,8 @@ def scan_image(actor_id, image_id, *, remaining=1, revision=None, client=None, g
         image = db.get(models.Image, image_id)
         if not image or snapshot(image) != before:
             raise PixivError("image_changed")
+        # A legacy HD-only flag is not confirmation of a multi-page identity.
+        image.pixiv_checked_at = None
         # Each scan supersedes the previous uncommitted review for this image.
         db.query(models.PixivCheckReview).filter(models.PixivCheckReview.expires_at < datetime.utcnow()).delete(
             synchronize_session=False
@@ -223,7 +247,7 @@ def scan_image(actor_id, image_id, *, remaining=1, revision=None, client=None, g
             actor_id=actor_id,
             account_revision=revision,
             snapshot=before,
-            artwork=art,
+            artwork={**art, "page_matching": matching},
             suggested_page=suggested,
             expires_at=datetime.utcnow() + (timedelta(days=7) if guard else timedelta(minutes=30)),
         )
@@ -249,11 +273,12 @@ def review_json(db, review, *, remaining=0):
             "group_ids": [g.id for g in image.groups],
         },
         "artwork": {
-            k: v for k, v in art.items() if k not in ("originals", "preview", "page_previews", "author_avatar")
+            k: v for k, v in art.items() if k not in ("originals", "preview", "page_previews", "author_avatar", "page_matching")
         },
         "suggested_page": review.suggested_page,
         "auto_review_safe": art["page_count"] == 1,
         "imported_pages": sorted(imported),
+        "page_matching": art.get("page_matching", {"status": "manual"}),
         "original_url": f"/api/pixiv-ol/artworks/{work_id}/original",
     }
 
@@ -266,7 +291,7 @@ def resolve(review_id, actor_id, current_page, pages, upgrade=False):
             raise PixivError("check_review_expired")
         service.require_account(db, review.account_revision)
         image = db.get(models.Image, review.image_id)
-        if not image or snapshot(image) != review.snapshot or image.pixiv_metadata:
+        if not image or snapshot(image) != review.snapshot or is_complete(image):
             raise PixivError("image_changed")
         art = review.artwork
         if not 0 <= current_page < art["page_count"] or any(not 0 <= page < art["page_count"] for page in pages):

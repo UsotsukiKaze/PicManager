@@ -416,7 +416,7 @@ def test_preview_requires_admin_and_is_never_public(environment, monkeypatch):
     response = client.get("/api/pixiv-ol/previews/100")
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/webp"
-    assert response.headers["cache-control"] == "private, no-store"
+    assert response.headers["cache-control"] == "private, no-cache, must-revalidate"
     client.cookies.clear()
     assert client.get("/api/pixiv-ol/previews/100").status_code == 401
 
@@ -464,6 +464,90 @@ def test_provider_rejects_untrusted_redirects_and_cursor():
     assert provider.Provider.cursor("https://app-api.pixiv.net/v2/illust/follow?offset=30") == {"offset": "30"}
     with pytest.raises(provider.PixivError):
         provider.Provider.cursor("https://evil.test/?offset=30")
+
+
+@pytest.mark.parametrize('path', ['/previews/100', '/artworks/100/reader-preview', '/artworks/100/avatar', '/account/avatar'])
+def test_media_revalidation_requires_current_permission_and_account(environment, monkeypatch, path):
+    from app.integrations.pixiv_ol import viewer
+
+    context, client, _ = environment
+    install_fake(monkeypatch)
+    raw = artwork()
+    raw['user']['profile_image_urls'] = {'medium': 'https://i.pximg.net/9.jpg'}
+    service.save_artworks('rev', [raw], 'recommended', 1)
+    with context() as db:
+        db.get(models.PixivAccount, 1).sync_state = {'account_profile': {'avatar': 'https://i.pximg.net/7.jpg'}}
+    calls = []
+
+    def fetch(url, destination, **kwargs):
+        calls.append(url)
+        Image.new('RGB', (32, 20)).save(destination, format='PNG')
+
+    monkeypatch.setattr(viewer, 'download', fetch)
+    url = '/api/pixiv-ol' + path
+    first = client.get(url)
+    assert first.status_code == 200
+    assert first.headers['cache-control'] == 'private, no-cache, must-revalidate'
+    assert first.headers['cloudflare-cdn-cache-control'] == 'no-store'
+    assert 'Cookie' in first.headers['vary']
+    headers = {'If-None-Match': first.headers['etag']}
+    count = len(calls)
+    unchanged = client.get(url, headers=headers)
+    assert unchanged.status_code == 304 and not unchanged.content
+    assert unchanged.headers['etag'] == first.headers['etag']
+    assert len(calls) == count
+    assert client.get(url, headers={'If-None-Match': 'W/' + first.headers['etag']}).status_code == 304
+    client.cookies.set('session_id', 'session-3')
+    assert client.get(url, headers=headers).status_code == 403
+    client.cookies.clear()
+    assert client.get(url, headers=headers).status_code == 401
+    client.cookies.set('session_id', 'session-1')
+    with context() as db:
+        db.get(models.PixivAccount, 1).revision = 'rev2'
+    if path == '/account/avatar':
+        changed = client.get(url, headers=headers)
+        assert changed.status_code == 200 and changed.headers['etag'] != first.headers['etag']
+    else:
+        assert client.get(url, headers=headers).status_code == 404
+
+
+@pytest.mark.parametrize('path', ['/previews/100', '/artworks/100/reader-preview', '/artworks/100/avatar'])
+def test_conditional_media_does_not_bypass_changed_content_preferences(environment, monkeypatch, path):
+    from app.integrations.pixiv_ol import viewer
+
+    context, client, _ = environment
+    install_fake(monkeypatch)
+    raw = artwork()
+    raw['user']['profile_image_urls'] = {'medium': 'https://i.pximg.net/9.jpg'}
+    service.save_artworks('rev', [raw], 'recommended', 1)
+    monkeypatch.setattr(viewer, 'download', lambda url, destination, **kwargs: Image.new('RGB', (32, 20)).save(destination, format='PNG'))
+    url = '/api/pixiv-ol' + path
+    first = client.get(url)
+    assert first.status_code == 200
+    with context() as db:
+        db.get(models.PixivAccount, 1).preferences = {'blocked_tags': ['游戏']}
+    assert client.get(url, headers={'If-None-Match': first.headers['etag']}).status_code == 404
+
+
+def test_cart_reader_revalidation_checks_ownership_and_selected_pages(environment, monkeypatch):
+    from app.integrations.pixiv_ol import viewer
+
+    context, client, _ = environment
+    install_fake(monkeypatch)
+    service.save_artworks('rev', [artwork()], 'recommended', 1)
+    id_ = client.post('/api/pixiv-ol/cart', json={'pid': '100', 'pages': [0]}).json()['id']
+    monkeypatch.setattr(viewer, 'download', lambda url, destination, **kwargs: Image.new('RGB', (32, 20)).save(destination, format='PNG'))
+    url = f'/api/pixiv-ol/cart/{id_}/reader-preview?page=0'
+    first = client.get(url)
+    assert first.status_code == 200
+    headers = {'If-None-Match': first.headers['etag']}
+    assert client.get(url, headers=headers).status_code == 304
+    client.cookies.set('session_id', 'session-2')
+    assert client.get(url, headers=headers).status_code != 304
+    client.cookies.set('session_id', 'session-1')
+    with context() as db:
+        db.get(models.PixivCartItem, id_).pages = []
+    assert client.get(url, headers=headers).status_code == 404
 
 
 def test_new_library_pid_infers_pixiv_page_without_touching_other_sources(environment):
@@ -584,7 +668,7 @@ def test_reader_preview_uses_clear_master_per_page_not_original_and_caches(envir
     for page in (0, 1, 1):
         response = client.get(item["reader_preview_url"] + f"?page={page}")
         assert response.status_code == 200
-        assert response.headers["cache-control"] == "private, no-store"
+        assert response.headers["cache-control"] == "private, no-cache, must-revalidate"
     assert calls == [
         (f"https://i.pximg.net/img-master/img/2026/100_p{page}_master1200.jpg", 8 * 1024 * 1024) for page in (0, 1)
     ]

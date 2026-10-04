@@ -14,8 +14,9 @@ from .provider import download, PixivError, trusted_image_url
 
 LOCK = threading.Lock()
 FILE_LOCKS = {}
-DOWNLOAD_SLOTS = threading.BoundedSemaphore(4)
-AVATAR_SLOTS = threading.BoundedSemaphore(2)
+ENCODE_SLOTS = threading.BoundedSemaphore(2)
+CACHE_LOCK = threading.Lock()
+CACHE_STATES = {}
 TYPES = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp", "GIF": "image/gif", "BMP": "image/bmp"}
 
 
@@ -44,7 +45,7 @@ def file_lock(path):
 
 
 def make_webp(source, target):
-    with Image.open(source) as image:
+    with ENCODE_SLOTS, Image.open(source) as image:
         if getattr(image, "is_animated", False):
             return False
         mode = "RGBA" if "A" in image.getbands() else "RGB"
@@ -52,46 +53,94 @@ def make_webp(source, target):
     return True
 
 
-def cached_media(url, revision, name, limit, *, webp=False, slots=None):
+@contextmanager
+def cache_space(root, path, limit):
+    """Account for in-flight files; scan periodically or when near the quota."""
+    with CACHE_LOCK:
+        state = CACHE_STATES.get(root)
+        if state is None:
+            if len(CACHE_STATES) >= 64:
+                idle = next((key for key, value in CACHE_STATES.items() if not value['reserved']), None)
+                if idle is not None:
+                    CACHE_STATES.pop(idle)
+            state = CACHE_STATES[root] = {'checked': float('-inf'), 'used': 0, 'reserved': 0, 'sizes': {}}
+        budget = max(settings.PIXIV_MAX_DOWNLOAD_BYTES, 512 * 1024 * 1024)
+        if time.monotonic() - state['checked'] >= 60 or state['used'] + state['reserved'] + limit > budget:
+            files = []
+            for cached in root.glob('*/*.img'):
+                try:
+                    stat = cached.stat()
+                    files.append((cached, stat.st_size, stat.st_mtime))
+                except OSError:
+                    continue
+            state['sizes'] = {cached: size for cached, size, _ in files}
+            state['used'] = sum(state['sizes'].values())
+            for cached, size, modified in sorted(files, key=lambda item: item[2]):
+                if time.time() - modified <= 86400 and state['used'] + state['reserved'] + limit <= budget:
+                    continue
+                with LOCK:
+                    if cached in FILE_LOCKS:
+                        continue
+                    try:
+                        cached.unlink(missing_ok=True)
+                    except OSError:
+                        continue
+                state['sizes'].pop(cached, None)
+                state['used'] -= size
+            state['checked'] = time.monotonic()
+        state['reserved'] += limit
+    try:
+        yield
+    finally:
+        with CACHE_LOCK:
+            state['reserved'] -= limit
+            try:
+                size = path.stat().st_size
+            except OSError:
+                size = None
+            if size is not None:
+                state['used'] += size - state['sizes'].get(path, 0)
+                state['sizes'][path] = size
+
+
+def cached_media(url, revision, name, limit, *, webp=False, lane="reader"):
     root = Path(settings.TEMP_PATH) / "pixiv-ol-viewer"
     folder = root / revision
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"{name}.img"
     with file_lock(path):
         if not path.is_file():
-            with LOCK:
-                cached = sorted(root.glob("*/*.img"), key=lambda p: p.stat().st_mtime)
-                budget = max(settings.PIXIV_MAX_DOWNLOAD_BYTES, 512 * 1024 * 1024)
-                used = sum(p.stat().st_size for p in cached)
-                for old in cached:
-                    if old in FILE_LOCKS:
-                        continue
-                    if time.time() - old.stat().st_mtime > 86400 or used + limit > budget:
-                        used -= old.stat().st_size
-                        old.unlink(missing_ok=True)
             stage = path.with_name(f"{path.stem}-{secrets.token_hex(4)}.part")
             try:
-                with slots or DOWNLOAD_SLOTS:
-                    download(url, stage, limit=limit)
-                image_type(stage)
-                stage.replace(path)
-            finally:
-                stage.unlink(missing_ok=True)
-        if webp and image_type(path) != "image/webp":
-            stage = path.with_name(f"{path.stem}-{secrets.token_hex(4)}.part")
-            try:
-                if make_webp(path, stage):
+                with cache_space(root, path, limit):
+                    download(url, stage, limit=limit, lane=lane)
+                    image_type(stage)
                     stage.replace(path)
             finally:
                 stage.unlink(missing_ok=True)
-        return path, image_type(path)
+        kind = image_type(path)
+        if webp and kind != "image/webp":
+            stage = path.with_name(f"{path.stem}-{secrets.token_hex(4)}.part")
+            try:
+                if make_webp(path, stage):
+                    kind = image_type(stage)
+                    stage.replace(path)
+                    with CACHE_LOCK:
+                        state = CACHE_STATES.get(root)
+                        if state and path in state['sizes']:
+                            size = path.stat().st_size
+                            state['used'] += size - state['sizes'][path]
+                            state['sizes'][path] = size
+            finally:
+                stage.unlink(missing_ok=True)
+        return path, kind
 
 
 def original(art, revision, page):
     urls = art.get("originals") or []
     if page < 0 or page >= art["page_count"] or page >= len(urls):
         raise PixivError("invalid_page")
-    return cached_media(urls[page], revision, f"{art['pid']}_p{page}", settings.PIXIV_MAX_DOWNLOAD_BYTES)
+    return cached_media(urls[page], revision, f"{art['pid']}_p{page}", settings.PIXIV_MAX_DOWNLOAD_BYTES, lane="original")
 
 
 def clear_preview_url(art, page):
@@ -130,4 +179,4 @@ def avatar(art, revision):
     url = art.get("author_avatar")
     if not trusted_image_url(url):
         raise PixivError("preview_unavailable")
-    return cached_media(url, revision, f"artist-{art['author_id']}-avatar", 2 * 1024 * 1024, slots=AVATAR_SLOTS)
+    return cached_media(url, revision, f"artist-{art['author_id']}-avatar", 2 * 1024 * 1024, lane="avatar")

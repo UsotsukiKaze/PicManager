@@ -32,6 +32,7 @@ from app.jobs import image_job_worker
 from app.pixiv_check_queue import worker as pixiv_check_worker
 from app.integrations.pixiv_ol.jobs import worker as pixiv_ol_worker
 from app.integrations.pixiv_ol.provider import PixivError as PixivOLError
+from app.integrations.pixiv_ol.media_pool import media_clients
 from app.routers.integrations.pixiv_ol import router as pixiv_ol_router
 from app.storage import get_image_storage
 
@@ -54,6 +55,7 @@ async def lifespan(app: FastAPI):
         image_job_worker.stop()
         pixiv_ol_worker.stop()
         PixivUpgradeService.close_client()
+        media_clients.close()
         create_db_snapshot()
 
 # 创建FastAPI应用
@@ -214,8 +216,14 @@ def _restricted_derivative(request: Request, image_id: str) -> bool:
 async def prevent_stale_ui_cache(request: Request, call_next):
     response = await call_next(request)
     if request.url.path.startswith("/api/pixiv-ol") or request.url.path == "/pixiv-ol":
-        _apply_no_store_headers(response)
-        response.headers["Cache-Control"] = "private, no-store"
+        conditional_media = (
+            response.status_code in (200, 304)
+            and response.headers.get("Cache-Control") == "private, no-cache, must-revalidate"
+            and response.headers.get("ETag")
+        )
+        if not conditional_media:
+            _apply_no_store_headers(response)
+            response.headers["Cache-Control"] = "private, no-store"
     if settings.DEBUG and _is_ui_cache_sensitive_path(request.url.path):
         _apply_no_store_headers(response)
     elif not settings.DEBUG:

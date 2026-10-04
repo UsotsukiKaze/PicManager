@@ -48,13 +48,14 @@
 
     class MediaCache {
         constructor() {this.entries=new Map();this.bytes=0;}
-        clear() {for(const entry of this.entries.values())if(entry.url)URL.revokeObjectURL(entry.url);this.entries.clear();this.bytes=0;}
+        clear() {for(const entry of this.entries.values()){entry.controller?.abort();if(entry.url)URL.revokeObjectURL(entry.url);}this.entries.clear();this.bytes=0;}
         load(url,key=url,priority='high') {
             const hit=this.entries.get(key);
             if(hit) {this.entries.delete(key);this.entries.set(key,hit);return hit.promise;}
-            const entry={url:null,size:0};this.entries.set(key,entry);
+            const entry={url:null,size:0,controller:new AbortController()};this.entries.set(key,entry);
+            const timeout=setTimeout(()=>entry.controller.abort(),12000);
             entry.promise=(async()=>{
-                const response=await fetch(url,{credentials:'same-origin',priority,signal:AbortSignal.timeout(12000)});
+                const response=await fetch(url,{credentials:'same-origin',priority,signal:entry.controller.signal});
                 if(!response.ok)throw new Error('图片加载失败');
                 const blob=await response.blob();if(!blob.type.startsWith('image/')||blob.size>12*1024*1024)throw new Error('图片格式无效');
                 if(this.entries.get(key)!==entry)throw new Error('图片缓存已更新');
@@ -65,7 +66,7 @@
                     URL.revokeObjectURL(old.url);this.bytes-=old.size;this.entries.delete(oldKey);
                 }
                 return entry.url;
-            })().catch(error=>{if(this.entries.get(key)===entry)this.entries.delete(key);throw error;});
+            })().catch(error=>{if(this.entries.get(key)===entry)this.entries.delete(key);throw error;}).finally(()=>clearTimeout(timeout));
             return entry.promise;
         }
     }
@@ -97,8 +98,8 @@
                 this.hoverTimer=setTimeout(()=>{
                     const item=this.items?.find(item=>item.pid===card.querySelector('[data-pid]')?.dataset.pid);
                     if(!item)return;
-                    this.media.load(item.author_avatar_url||`/api/pixiv-ol/artworks/${item.pid}/avatar`,`artist:${item.author_id}`,'low')
-                        .catch(()=>null).then(()=>this.media.load(`${item.reader_preview_url||`/api/pixiv-ol/artworks/${item.pid}/reader-preview`}?page=0`,undefined,'low')).catch(()=>{});
+                    this.media.load(item.author_avatar_url||`/api/pixiv-ol/artworks/${item.pid}/avatar`,`artist:${item.author_id}`,'low').catch(()=>{});
+                    this.media.load(`${item.reader_preview_url||`/api/pixiv-ol/artworks/${item.pid}/reader-preview`}?page=0`,undefined,'low').catch(()=>{});
                 },200);
             });
             node.addEventListener('pointerout',event=>{const card=event.target.closest('.px-card');if(card&&!card.contains(event.relatedTarget)){clearTimeout(this.hoverTimer);card.classList.remove('px-resting');delete card.dataset.readerHover;}});
@@ -640,7 +641,7 @@
             const avatar=dialog.querySelector('.px-artist-photo');
             const avatarUrl=item.author_avatar_url||`/api/pixiv-ol/artworks/${item.pid}/avatar`;
             avatar.removeAttribute('src');
-            const avatarReady=this.media.load(avatarUrl,`artist:${item.author_id}`).then(async url=>{if(!dialog.isConnected)return;avatar.src=url;await avatar.decode();if(dialog.isConnected)avatar.parentElement.classList.add('is-ready');}).catch(()=>avatar.remove());
+            this.media.load(avatarUrl,`artist:${item.author_id}`).then(async url=>{if(!dialog.isConnected)return;avatar.src=url;await avatar.decode();if(dialog.isConnected)avatar.parentElement.classList.add('is-ready');}).catch(()=>avatar.remove());
             cartReady.then(ok=>{
                 if(!ok||!dialog.isConnected||cartRow||dialog.dataset.submitting)return;
                 const added=this.cartItems.some(row=>row.artwork.pid===item.pid),submit=dialog.querySelector('#pixiv-draft-submit');
@@ -670,7 +671,7 @@
                 dialog.querySelectorAll('.px-reader-prev').forEach(node=>node.disabled=position===0);
                 dialog.querySelectorAll('.px-reader-next').forEach(node=>node.disabled=position===allPages.length-1);
                 try {
-                    await avatarReady;if(!dialog.isConnected||generation!==pageGeneration)return;
+                    if(!dialog.isConnected||generation!==pageGeneration)return;
                     const base=item.reader_preview_url||`/api/pixiv-ol/${cartRow?`cart/${cartRow.id}`:`artworks/${item.pid}`}/reader-preview`;
                     const url=await this.media.load(`${base}?page=${page}`);
                     if(!dialog.isConnected||generation!==pageGeneration)return;

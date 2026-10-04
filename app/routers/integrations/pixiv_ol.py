@@ -8,7 +8,7 @@ from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, SecretStr
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func
@@ -44,6 +44,23 @@ def handle_error(exc):
         409 if exc.code in ("account_changed", "invalid_tags", "group_required", "idempotency_conflict", "pages_unconfirmed", "invalid_page_draft") else 502,
         detail=exc.code,
     ) from None
+
+
+def private_media(path, kind, request, revision):
+    """Call only after all account, ownership, page and preference checks."""
+    stat = path.stat()
+    identity = f"{revision}:{path.name}:{stat.st_mtime_ns}:{stat.st_size}"
+    etag = '"' + hashlib.sha256(identity.encode()).hexdigest()[:32] + '"'
+    headers = {
+        "Cache-Control": "private, no-cache, must-revalidate",
+        "Cloudflare-CDN-Cache-Control": "no-store",
+        "Vary": "Cookie",
+        "ETag": etag,
+    }
+    tags = request.headers.get("if-none-match", "").split(",")
+    if any(value.strip().removeprefix('W/') in (etag, '*') for value in tags):
+        return Response(status_code=304, headers=headers)
+    return FileResponse(path, media_type=kind, headers=headers, stat_result=stat)
 
 
 class ConnectBody(BaseModel):
@@ -503,7 +520,7 @@ def account_status():
 
 
 @router.get("/account/avatar")
-def account_avatar(actor_id=Depends(require_admin_user_id)):
+def account_avatar(request: Request, actor_id=Depends(require_admin_user_id)):
     from datetime import datetime
     from ...integrations.pixiv_ol.viewer import avatar
 
@@ -537,7 +554,7 @@ def account_avatar(actor_id=Depends(require_admin_user_id)):
             service.require_account(db, revision)
     except PixivError as exc:
         handle_error(exc)
-    return FileResponse(path, media_type=kind, headers={"Cache-Control": "private, no-store"})
+    return private_media(path, kind, request, revision)
 
 
 @router.post("/account/connect", dependencies=[Depends(write_guard)])
@@ -821,7 +838,7 @@ def artwork_original(pid: str, page: int = Query(0, ge=0, le=999)):
 
 
 @router.get("/artworks/{pid}/reader-preview")
-def reader_preview(pid: str, page: int = Query(0, ge=0, le=999)):
+def reader_preview(pid: str, request: Request, page: int = Query(0, ge=0, le=999)):
     from ...integrations.pixiv_ol.viewer import clear_preview
 
     with get_db_context() as db:
@@ -837,15 +854,16 @@ def reader_preview(pid: str, page: int = Query(0, ge=0, le=999)):
         path, kind = clear_preview(art, revision, page)
         with get_db_context() as db:
             account = service.require_account(db, revision)
-            if not allowed(art, account.preferences):
+            row = db.query(models.PixivArtwork).filter_by(account_revision=revision, pid=pid).first()
+            if not row or not allowed(row.metadata_json, account.preferences):
                 raise HTTPException(404, "作品不可用")
     except PixivError as exc:
         handle_error(exc)
-    return FileResponse(path, media_type=kind, headers={"Cache-Control": "private, no-store"})
+    return private_media(path, kind, request, revision)
 
 
 @router.get("/cart/{cart_id}/reader-preview")
-def cart_reader_preview(cart_id: str, page: int = Query(0, ge=0, le=999), actor_id=Depends(require_admin_user_id)):
+def cart_reader_preview(cart_id: str, request: Request, page: int = Query(0, ge=0, le=999), actor_id=Depends(require_admin_user_id)):
     from ...integrations.pixiv_ol.cart import require_item
     from ...integrations.pixiv_ol.viewer import clear_preview
 
@@ -862,16 +880,16 @@ def cart_reader_preview(cart_id: str, page: int = Query(0, ge=0, le=999), actor_
         path, kind = clear_preview(art, revision, page)
         with get_db_context() as db:
             account = service.require_account(db, revision)
-            require_item(db, cart_id, revision, actor_id)
-            if not allowed(art, account.preferences):
+            item = require_item(db, cart_id, revision, actor_id)
+            if page not in item.pages or not allowed(item.metadata_json, account.preferences):
                 raise HTTPException(404, "作品不可用")
     except PixivError as exc:
         handle_error(exc)
-    return FileResponse(path, media_type=kind, headers={"Cache-Control": "private, no-store"})
+    return private_media(path, kind, request, revision)
 
 
 @router.get("/artworks/{pid}/avatar")
-def artwork_avatar(pid: str, actor_id=Depends(require_admin_user_id)):
+def artwork_avatar(pid: str, request: Request, actor_id=Depends(require_admin_user_id)):
     from ...integrations.pixiv_ol.viewer import avatar
 
     with get_db_context() as db:
@@ -929,11 +947,12 @@ def artwork_avatar(pid: str, actor_id=Depends(require_admin_user_id)):
         path, kind = avatar(art, revision)
         with get_db_context() as db:
             account = service.require_account(db, revision)
-            if not allowed(art, account.preferences):
+            row = db.query(models.PixivArtwork).filter_by(account_revision=revision, pid=pid).first()
+            if not row or not allowed(row.metadata_json, account.preferences):
                 raise HTTPException(404, "作品不可用")
     except PixivError as exc:
         handle_error(exc)
-    return FileResponse(path, media_type=kind, headers={"Cache-Control": "private, no-store"})
+    return private_media(path, kind, request, revision)
 
 
 @router.get("/cart/{cart_id}/original")
@@ -1009,7 +1028,7 @@ def recommendations(
 
 
 @router.get("/previews/{pid}")
-def preview(pid: str):
+def preview(pid: str, request: Request):
     with get_db_context() as db:
         account = service.require_account(db)
         row = db.query(models.PixivArtwork).filter_by(account_revision=account.revision, pid=pid).first()
@@ -1019,19 +1038,18 @@ def preview(pid: str):
         canonical_pid = row.pid
     path = Path(settings.DATA_PATH) / "pixiv_ol_previews" / revision / f"{canonical_pid}.webp"
     path.parent.mkdir(parents=True, exist_ok=True)
-    from ...integrations.pixiv_ol.viewer import file_lock, DOWNLOAD_SLOTS
+    from ...integrations.pixiv_ol.viewer import file_lock, ENCODE_SLOTS
 
     with file_lock(path):
         if not path.is_file():
             stage = path.with_name(f"{path.stem}-{secrets.token_hex(4)}.tmp")
             try:
-                with DOWNLOAD_SLOTS:
-                    download(url, stage, limit=5 * 1024 * 1024)
+                download(url, stage, limit=5 * 1024 * 1024, lane="preview")
                 from PIL import Image
 
                 with Image.open(stage) as image:
                     image.verify()
-                with Image.open(stage) as image:
+                with ENCODE_SLOTS, Image.open(stage) as image:
                     if image.width * image.height > 50_000_000:
                         raise ValueError("image dimensions")
                     image.thumbnail((800, 800))
@@ -1045,11 +1063,7 @@ def preview(pid: str):
         row = db.query(models.PixivArtwork).filter_by(account_revision=revision, pid=pid).first()
         if not row or not allowed(row.metadata_json, account.preferences):
             raise HTTPException(404, "预览已失效")
-    return FileResponse(
-        path,
-        media_type="image/webp",
-        headers={"Cache-Control": "private, no-store", "Cloudflare-CDN-Cache-Control": "no-store"},
-    )
+    return private_media(path, "image/webp", request, revision)
 
 
 @router.post("/imports", status_code=202, dependencies=[Depends(write_guard)])

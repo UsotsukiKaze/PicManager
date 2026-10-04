@@ -10,12 +10,12 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 from urllib.request import getproxies
 
-import httpx
 from cryptography.fernet import Fernet, InvalidToken
 from pixivpy3 import AppPixivAPI
 
 from ...config import settings
 from ...logger import log_error
+from .media_pool import media_clients
 
 
 class PixivError(Exception):
@@ -311,19 +311,19 @@ def trusted_image_url(url):
         return False
 
 
-def download(url, destination, *, limit=None):
+def download(url, destination, *, limit=None, lane="original"):
     """CDN requests have no Pixiv account credentials; validate every redirect."""
     limit = limit or min(settings.MAX_FILE_SIZE, settings.PIXIV_MAX_DOWNLOAD_BYTES)
-    options = {"timeout": max(5, settings.PIXIV_REQUEST_TIMEOUT_SECONDS), "follow_redirects": False, "trust_env": False}
-    proxy = proxy_url()
-    if proxy:
-        options["proxy"] = proxy
     try:
-        with httpx.Client(**options) as client:
+        if not trusted_image_url(url):
+            raise PixivError("untrusted_image_url")
+        with media_clients.lease(lane, proxy_url(), max(5, settings.PIXIV_REQUEST_TIMEOUT_SECONDS)) as client:
             for _ in range(4):
                 if not trusted_image_url(url):
                     raise PixivError("untrusted_image_url")
-                with client.stream("GET", url, headers={"Referer": "https://www.pixiv.net/"}) as response:
+                # Explicitly suppress any CDN cookies collected by the shared
+                # client; account credentials never enter these pools.
+                with client.stream("GET", url, headers={"Referer": "https://www.pixiv.net/", "Cookie": ""}) as response:
                     if response.is_redirect:
                         url = str(response.url.join(response.headers.get("location", "")))
                         continue

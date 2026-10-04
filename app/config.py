@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     PIXIV_UPGRADE_DHASH_DISTANCE: int = 10
     PIXIV_UPGRADE_TOKEN_TTL_SECONDS: int = 1800
     PIXIV_MAX_DOWNLOAD_BYTES: int = 100 * 1024 * 1024
+    PIXIV_MEDIA_DOWNLOAD_WORKERS: int = 14  # Total CDN budget, bounded to 8..20; each other lane reserves two.
+    PIXIV_MEDIA_PREVIEW_WORKERS: int = 8  # Visible thumbnails; bounded by the total media budget.
     
     # 分页配置
     DEFAULT_PAGE_SIZE: int = 50

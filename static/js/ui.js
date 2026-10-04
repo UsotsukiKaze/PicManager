@@ -2332,6 +2332,7 @@ function formatMaintenanceBytes(value) {
 
 async function reviewPixivCheck(result, onConfirm=null) {
     await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261004f');
+    if(result.queue_processing&&(window.pixivValidationStop||ui.currentPage!=='settings'||!ui.isAdminView()))return null;
     return new Promise(resolve=>{
         const safe=value=>ui.escapeHomeRankingText(value??'');
         const autoAllowed=result.auto_review_safe&&result.artwork.page_count===1;const art=result.artwork, pages=Array.from({length:Math.min(art.page_count,1000)},(_,index)=>index);
@@ -2362,7 +2363,8 @@ async function reviewPixivCheck(result, onConfirm=null) {
         dialog.addEventListener('change',event=>{if(event.target===auto)return;stopAuto();auto.checked=false;autoStatus.textContent='选择已修改，请手动确认';});
         window.cancelPixivCheckReview=()=>finish(null);
         dialog.querySelector('[data-close]').onclick=()=>finish(null);
-        dialog.querySelector('[data-defer]').onclick=()=>finish(null);
+        if(result.queue_processing)dialog.querySelector('[data-defer]').textContent='稍后处理，下一张';
+        dialog.querySelector('[data-defer]').onclick=()=>finish(result.queue_processing?{deferred:true}:null);
         dialog.addEventListener('cancel',event=>{event.preventDefault();finish(null);});
         dialog.querySelector('.px-reader-prev').onclick=()=>showPage(page-1);
         dialog.querySelector('.px-reader-next').onclick=()=>showPage(page+1);
@@ -2550,7 +2552,7 @@ function updatePixivUpgradeProgress({ checked = 0, total = null, state = 'runnin
     count.textContent = `${safeChecked} / ${safeTotal} · ${percent}%`;
 }
 
-const pixivCheckQueueState = {runId:null,timer:null,polling:false,reviewBusy:false,starting:false,offset:0,deferred:new Set()};
+const pixivCheckQueueState = {runId:null,timer:null,polling:false,reviewBusy:false,processing:false,autoPaused:false,starting:false,offset:0,deferred:new Set()};
 
 function pixivCheckErrorMessage(error) {
     return ({check_busy:'另一个管理员正在运行校验',check_review_expired:'确认项已失效，请重新校验',
@@ -2601,8 +2603,9 @@ async function refreshPixivCheckQueue() {
         if(panel){
             const safe=escapeMaintenanceHtml;
             panel.hidden=!data.review_count&&!run?.errors?.length&&!imports.length;
-            panel.innerHTML=`<div class="pixiv-check-queue-heading"><strong>待确认 <span>${data.review_count}</span></strong><small>选择稍后确认不会停止后台校验，未确认图片保持未校验。</small></div><div class="pixiv-check-queue-items">${data.reviews.map(review=>`<article class="pixiv-check-queue-item"><div><strong>${safe(review.title||review.pid)}</strong><small>${safe(review.pid)} · ${Number(review.page_count)||1} 页</small></div><button class="btn btn-secondary" data-pixiv-review="${safe(review.id)}" ${state.reviewBusy?'disabled':''}>确认</button></article>`).join('')}</div>${data.review_count>20?`<div class="pixiv-check-queue-pages"><button class="btn btn-secondary" data-queue-prev ${state.offset?'':'disabled'}>上一组</button><span>${Math.floor(state.offset/20)+1} / ${Math.ceil(data.review_count/20)}</span><button class="btn btn-secondary" data-queue-next ${state.offset+20<data.review_count?'':'disabled'}>下一组</button></div>`:''}${run?.errors?.length?`<details class="validation-advanced"><summary>失败项（可重新校验）</summary>${run.errors.map(item=>`<p>${safe(item.image_id||'指纹任务')}：${safe(pixivCheckErrorMessage(item.error))}</p>`).join('')}</details>`:''}`;
-            panel.querySelectorAll('[data-pixiv-review]').forEach(node=>node.onclick=()=>reviewQueuedPixivCheck(node.dataset.pixivReview));
+            panel.innerHTML=`<div class="pixiv-check-queue-heading pixiv-check-review-heading"><strong>待处理 <span>${data.review_count}</span></strong><button class="btn btn-secondary" data-start-reviews ${!data.review_count||state.reviewBusy||state.processing?'disabled':''}>${state.processing?'正在处理…':'开始处理'}</button><small>逐张确认后自动进入下一张；稍后处理跳过当前张，关闭窗口可暂停。</small></div><div class="pixiv-check-queue-items">${data.reviews.map(review=>`<article class="pixiv-check-queue-item"><div><strong>${safe(review.title||review.pid)}</strong><small>${safe(review.pid)} · ${Number(review.page_count)||1} 页</small></div></article>`).join('')}</div>${data.review_count>20?`<div class="pixiv-check-queue-pages"><button class="btn btn-secondary" data-queue-prev ${state.offset?'':'disabled'}>上一组</button><span>${Math.floor(state.offset/20)+1} / ${Math.ceil(data.review_count/20)}</span><button class="btn btn-secondary" data-queue-next ${state.offset+20<data.review_count?'':'disabled'}>下一组</button></div>`:''}${run?.errors?.length?`<details class="validation-advanced"><summary>失败项（可重新校验）</summary>${run.errors.map(item=>`<p>${safe(item.image_id||'指纹任务')}：${safe(pixivCheckErrorMessage(item.error))}</p>`).join('')}</details>`:''}`;
+            const startReviews=panel.querySelector('[data-start-reviews]');
+            if(startReviews)startReviews.onclick=startProcessingPixivChecks;
             panel.insertAdjacentHTML('beforeend',renderPixivCheckImports(imports,data.import_count||0));
             panel.querySelectorAll('[data-check-import]').forEach(node=>node.onclick=()=>actOnPixivCheckImport(node));
             panel.querySelectorAll('[data-check-image]').forEach(node=>node.onclick=()=>ui.showImageDetail(node.dataset.checkImage));
@@ -2615,7 +2618,7 @@ async function refreshPixivCheckQueue() {
         }
         keepPolling=active||((data.review_count>0||imports.length>0)&&ui.currentPage==='settings');
         pixivAutoReviewEnabled=!!document.getElementById('pixiv-check-auto')?.checked;
-        if(pixivAutoReviewEnabled&&!state.reviewBusy&&!document.hidden&&ui.currentPage==='settings'){
+        if(pixivAutoReviewEnabled&&!state.autoPaused&&!state.reviewBusy&&!state.processing&&!document.hidden&&ui.currentPage==='settings'){
             const review=data.reviews.find(item=>item.auto_review_safe&&!state.deferred.has(item.id));
             if(review)reviewQueuedPixivCheck(review.id);
         }
@@ -2630,24 +2633,56 @@ async function refreshPixivCheckQueue() {
 async function reviewQueuedPixivCheck(reviewId) {
     const state=pixivCheckQueueState;
     if(state.reviewBusy)return;
-    state.reviewBusy=true;window.pixivValidationStop=false;
+    state.reviewBusy=true;if(!state.processing)window.pixivValidationStop=false;
     try {
         const result=await api.getPixivCheckReview(reviewId);
+        if(state.processing&&(window.pixivValidationStop||ui.currentPage!=='settings'||!ui.isAdminView()))return 'closed';
+        result.queue_processing=state.processing;
         const choice=await reviewPixivCheck(result,choice=>api.resolvePixivCheck(choice));
-        if(!choice){state.deferred.add(reviewId);return;}
+        if(!choice){state.deferred.add(reviewId);if(state.processing)state.autoPaused=true;return 'closed';}
+        if(choice.deferred){state.deferred.add(reviewId);return 'deferred';}
         const saved=choice.saved||await api.resolvePixivCheck(choice);
         ui.showToast(`${saved.pid}：已补全画师与 Pixiv 标签${saved.upgraded?'，已更新高清原图':''}`,'success');
         window.pixivOL?.similaritySeen?.clear();
         ui.loadSystemStatus();
-    } catch(error){state.deferred.add(reviewId);ui.showToast(pixivCheckErrorMessage(error.message),'error');}
+        return 'confirmed';
+    } catch(error){state.deferred.add(reviewId);ui.showToast(pixivCheckErrorMessage(error.message),'error');return 'error';}
     finally{state.reviewBusy=false;refreshPixivCheckQueue();}
+}
+
+async function startProcessingPixivChecks() {
+    const state=pixivCheckQueueState;
+    if(state.processing||state.reviewBusy||!ui.isAdminView()||ui.currentPage!=='settings')return;
+    state.processing=true;state.autoPaused=false;state.deferred.clear();
+    window.pixivValidationStop=false;
+    refreshPixivCheckQueue();
+    const visited=new Set();
+    const canContinue=()=>!window.pixivValidationStop&&ui.isAdminView()&&ui.currentPage==='settings';
+    // Reload from the first page after each decision: confirmed rows leave the queue.
+    // Walk past deferred rows so batches larger than 20 never stall at the first page.
+    try {
+        while(canContinue()){
+            let review=null;
+            for(let offset=0;canContinue();offset+=20){
+                const data=await api.getPixivCheckQueue(null,offset);
+                if(!canContinue())break;
+                review=data.reviews.find(item=>!visited.has(item.id));
+                if(review||offset+20>=data.review_count)break;
+            }
+            if(!review||!canContinue())break;
+            visited.add(review.id);
+            const outcome=await reviewQueuedPixivCheck(review.id);
+            if(outcome==='closed'||outcome==='error')break;
+        }
+    }catch(error){state.autoPaused=true;ui.showToast(pixivCheckErrorMessage(error.message),'error');}
+    finally{state.processing=false;state.autoPaused=true;state.offset=0;refreshPixivCheckQueue();}
 }
 
 async function scanPixivUpgrades() {
     if(!ui.isAdminView()){ui.showToast('只有管理员可以执行维护操作','warning');return;}
     const state=pixivCheckQueueState;
     if(state.starting)return;
-    state.starting=true;state.offset=0;state.deferred.clear();window.pixivValidationStop=false;
+    state.starting=true;state.autoPaused=false;state.offset=0;state.deferred.clear();window.pixivValidationStop=false;
     const button=document.getElementById('scan-pixiv-upgrades-button');if(button)button.disabled=true;
     try {
         const result=await api.startPixivCheckQueue();state.runId=result.id;

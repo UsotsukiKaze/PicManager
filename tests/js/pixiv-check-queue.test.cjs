@@ -63,7 +63,8 @@ test('refresh restores durable pending reviews without creating another scan', a
     assert.equal(calls.includes('start'), false);
     assert.equal(nodes['scan-pixiv-upgrades-button'].disabled, false);
     assert.equal(nodes['pixiv-upgrade-progress'].dataset.state, 'review');
-    assert.match(nodes['pixiv-check-review-queue'].innerHTML, /data-pixiv-review="review"/);
+    assert.match(nodes['pixiv-check-review-queue'].innerHTML, /data-start-reviews/);
+    assert.doesNotMatch(nodes['pixiv-check-review-queue'].innerHTML, /data-pixiv-review/);
     assert.equal(vm.runInContext('pixivCheckQueueState.runId',context), 'run');
 });
 
@@ -108,4 +109,107 @@ test('failed checks are reported as partial completion and not a successful batc
     await context.refreshPixivCheckQueue();
     assert.equal(nodes['pixiv-upgrade-progress'].dataset.state,'partial');
     assert.match(nodes['pixiv-upgrade-progress-label'].textContent,/需重试/);
+});
+
+function continuousQueue(context,data,calls,total) {
+    data.reviews=Array.from({length:total},(_,index)=>({id:`r${index}`,pid:`${100+index}`,page_count:2}));
+    data.review_count=total;
+    context.api.getPixivCheckQueue=async(_run,offset=0)=>{
+        calls.push(`page:${offset}`);
+        return {...data,reviews:data.reviews.slice(offset,offset+20),review_count:data.reviews.length};
+    };
+    context.api.resolvePixivCheck=async choice=>{
+        calls.push(`saved:${choice.review_id}`);
+        data.reviews=data.reviews.filter(row=>row.id!==choice.review_id);
+        data.review_count=data.reviews.length;
+        return {pid:choice.review_id};
+    };
+}
+
+test('start processing confirms a whole queue including new arrivals without another click',async()=>{
+    const {context,data,calls}=harness();continuousQueue(context,data,calls,23);
+    let added=false;
+    context.reviewPixivCheck=async(result,onConfirm)=>{
+        assert.equal(result.queue_processing,true);
+        if(!added){data.reviews.push({id:'new',pid:'200',page_count:2});added=true;}
+        const choice={review_id:result.review_id,current_page:0,pages:[],upgrade:false};
+        return {...choice,saved:await onConfirm(choice)};
+    };
+    await context.startProcessingPixivChecks();
+    assert.equal(data.reviews.length,0);
+    assert.equal(calls.filter(call=>call.startsWith('review:')).length,24);
+    assert.equal(calls.filter(call=>call.startsWith('saved:')).length,24);
+    assert.equal(calls.includes('stop'),false);
+    assert.equal(vm.runInContext('pixivCheckQueueState.processing',context),false);
+});
+
+test('deferred reviews are skipped across pagination and offered again on the next start',async()=>{
+    const {context,data,calls}=harness();continuousQueue(context,data,calls,22);
+    context.reviewPixivCheck=async(result,onConfirm)=>{
+        if(Number(result.review_id.slice(1))<20)return {deferred:true};
+        const choice={review_id:result.review_id};return {...choice,saved:await onConfirm(choice)};
+    };
+    await context.startProcessingPixivChecks();
+    assert.equal(calls.filter(call=>call.startsWith('review:')).length,22);
+    assert.equal(data.reviews.length,20);
+    assert(calls.includes('page:20'));
+    assert.equal(calls.includes('stop'),false);
+    context.reviewPixivCheck=async(result,onConfirm)=>{
+        const choice={review_id:result.review_id};return {...choice,saved:await onConfirm(choice)};
+    };
+    await context.startProcessingPixivChecks();
+    assert.equal(data.reviews.length,0);
+});
+
+test('closing pauses continuous processing and prevents automatic reopening',async()=>{
+    const {context,nodes,data,calls}=harness();continuousQueue(context,data,calls,3);
+    context.reviewPixivCheck=async()=>null;
+    await context.startProcessingPixivChecks();
+    nodes['pixiv-check-auto'].checked=true;data.reviews.forEach(row=>row.auto_review_safe=true);
+    await context.refreshPixivCheckQueue();
+    assert.equal(calls.filter(call=>call.startsWith('review:')).length,1);
+    assert.equal(data.reviews.length,3);
+    assert.equal(calls.includes('stop'),false);
+});
+
+test('double start cannot create two readers and a background stop prevents the next reader',async()=>{
+    const {context,data,calls}=harness();continuousQueue(context,data,calls,3);
+    let finish;
+    context.reviewPixivCheck=()=>new Promise(resolve=>{finish=resolve;});
+    const processing=context.startProcessingPixivChecks();
+    await new Promise(setImmediate);
+    await context.startProcessingPixivChecks();
+    assert.equal(calls.filter(call=>call.startsWith('review:')).length,1);
+    context.window.cancelPixivCheckReview=()=>finish(null);
+    await context.stopPixivCheckQueue();
+    await processing;
+    assert.equal(calls.filter(call=>call.startsWith('review:')).length,1);
+    assert.equal(data.reviews.length,3);
+});
+
+test('leaving settings while loading a review does not open its reader',async()=>{
+    const {context,data,calls}=harness();continuousQueue(context,data,calls,2);
+    let finish;
+    context.api.getPixivCheckReview=id=>new Promise(resolve=>{calls.push(`review:${id}`);finish=resolve;});
+    context.reviewPixivCheck=()=>{assert.fail('Reader must not open after leaving settings');};
+    const processing=context.startProcessingPixivChecks();
+    await new Promise(setImmediate);
+    context.ui.currentPage='gallery';finish({review_id:'r0'});
+    await processing;
+    assert.equal(data.reviews.length,2);
+    assert.equal(vm.runInContext('pixivCheckQueueState.processing',context),false);
+});
+
+test('load failure pauses without dropping reviews; restarting resumes',async()=>{
+    const {context,data,calls}=harness();continuousQueue(context,data,calls,2);
+    const original=context.api.getPixivCheckReview;
+    context.api.getPixivCheckReview=async()=>{throw new Error('external_error');};
+    await context.startProcessingPixivChecks();
+    assert.equal(data.reviews.length,2);
+    context.api.getPixivCheckReview=original;
+    context.reviewPixivCheck=async(result,onConfirm)=>{
+        const choice={review_id:result.review_id};return {...choice,saved:await onConfirm(choice)};
+    };
+    await context.startProcessingPixivChecks();
+    assert.equal(data.reviews.length,0);
 });

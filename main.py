@@ -28,6 +28,9 @@ from app.security.lan_debug import configured_lan_base_url, configured_lan_hosts
 from app.security.permissions import require_admin_user_id
 from app.security.image_tokens import sign_bot_image, verify_bot_image
 from app.jobs import image_job_worker
+from app.integrations.pixiv_ol.jobs import worker as pixiv_ol_worker
+from app.integrations.pixiv_ol.provider import PixivError as PixivOLError
+from app.routers.integrations.pixiv_ol import router as pixiv_ol_router
 from app.storage import get_image_storage
 
 UI_ASSET_VERSION = str(int(time.time()))
@@ -40,10 +43,12 @@ async def lifespan(app: FastAPI):
     log_info("正在初始化数据库...")
     init_database()
     image_job_worker.start()
+    pixiv_ol_worker.start()
     try:
         yield
     finally:
         image_job_worker.stop()
+        pixiv_ol_worker.stop()
         PixivUpgradeService.close_client()
         create_db_snapshot()
 
@@ -117,17 +122,19 @@ def _apply_production_cache_headers(request: Request, response) -> None:
         response.headers["Cloudflare-CDN-Cache-Control"] = policy
 
 
-def _apply_security_headers(response) -> None:
+def _apply_security_headers(response, *, embedded_profile: bool = False) -> None:
     """Apply browser-side hardening without changing application behavior."""
     response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; "
+        "default-src 'self'; base-uri 'none'; object-src 'none'; "
+        + ("frame-ancestors 'self'; " if embedded_profile else "frame-ancestors 'none'; ")
+        +
         "form-action 'self'; script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; "
         "media-src 'self' blob:; font-src 'self' data:; connect-src 'self'"
     )
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN" if embedded_profile else "DENY"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
 
 
@@ -188,6 +195,8 @@ def _preview_path(resource_path: str) -> Path:
 def _restricted_derivative(request: Request, image_id: str) -> bool:
     with get_db_context() as db:
         rating_row = db.query(ImageModel.age_rating).filter(ImageModel.image_id == image_id).first()
+        if rating_row is None:
+            raise HTTPException(status_code=404, detail="Image no longer exists")
         rating = getattr(rating_row, "age_rating", None) if rating_row is not None else None
         restricted = str(rating or "all").lower() in {"r16", "r18"}
         if restricted:
@@ -200,11 +209,14 @@ def _restricted_derivative(request: Request, image_id: str) -> bool:
 @app.middleware("http")
 async def prevent_stale_ui_cache(request: Request, call_next):
     response = await call_next(request)
+    if request.url.path.startswith("/api/pixiv-ol") or request.url.path == "/pixiv-ol":
+        _apply_no_store_headers(response)
+        response.headers["Cache-Control"] = "private, no-store"
     if settings.DEBUG and _is_ui_cache_sensitive_path(request.url.path):
         _apply_no_store_headers(response)
     elif not settings.DEBUG:
         _apply_production_cache_headers(request, response)
-    _apply_security_headers(response)
+    _apply_security_headers(response, embedded_profile=request.url.path == "/profile" and request.query_params.get("embedded") == "1")
     return response
 
 
@@ -369,12 +381,26 @@ app.include_router(system_router, prefix="/api/system")
 app.include_router(bot_router, prefix="/api/bot")
 app.include_router(sso_router, prefix="/api/sso")
 app.include_router(kaze_apps_router, prefix="/api/integrations/kaze-apps")
+app.include_router(pixiv_ol_router, prefix="/api/pixiv-ol", tags=["Pixiv-ol"])
 app.include_router(admin_router, prefix="/api/admin")
 app.include_router(auth_router, prefix="/auth")
 app.include_router(admin_router, prefix="/admin")
 @app.get("/", response_class=HTMLResponse)
 async def root():
     """Serve PicManager only; personal domains are handled by KazeApps."""
+    return FileResponse(os.path.join(settings.BASE_DIR, "static", "index.html"))
+
+
+@app.exception_handler(PixivOLError)
+async def pixiv_ol_error(request: Request, exc: PixivOLError):
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"detail": exc.code}, status_code=409,
+                        headers={"Cache-Control": "private, no-store", "Cloudflare-CDN-Cache-Control": "no-store"})
+
+
+@app.get("/pixiv-ol", response_class=HTMLResponse)
+def pixiv_ol_page(request: Request):
+    require_admin_user_id(request)
     return FileResponse(os.path.join(settings.BASE_DIR, "static", "index.html"))
 
 

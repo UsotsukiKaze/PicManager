@@ -169,13 +169,42 @@ class ImageJobWorker:
             job = ImageJobQueue.claim(db)
             if not job:
                 return False
-            try:
-                ImagePipeline.handle(db, job)
+            job_id, image_id, job_type, lease = job.id, job.image_id, job.job_type, job.locked_at
+        # The claim is committed before disk/network work, releasing SQLite's writer.
+        with get_db_context() as db:
+            image = db.get(models.Image, image_id)
+            if image:
+                source_locator, source_version = image.file_path, image.updated_at
+                db.expunge(image)
+        error = None
+        try:
+            if image is None:
+                raise ValueError("Image no longer exists")
+            if job_type == "thumbnail":
+                ImagePipeline.generate_thumbnail(None, image)
+            elif job_type == "preview":
+                ImagePipeline.generate_preview(None, image)
+            else:
+                raise ValueError("Unknown derivative job")
+        except Exception as exc:
+            error = exc
+        with get_db_context() as db:
+            job = db.get(models.ImageJob, job_id)
+            if not job or job.status != "running" or job.locked_at != lease:
+                return True
+            current = db.get(models.Image, image_id)
+            if not error and (not current or current.file_path != source_locator or current.updated_at != source_version):
+                error = RuntimeError("Image changed during derivative generation")
+            if error:
+                ImageJobQueue.fail(job, error)
+                log_error(f"Image job {job_id} failed")
+            else:
+                if job_type == "thumbnail":
+                    current.thumb_status = image.thumb_status
+                else:
+                    current.preview_status = image.preview_status
                 ImageJobQueue.complete(job)
-            except Exception as exc:
-                ImageJobQueue.fail(job, exc)
-                log_error(f"Image job {job.id} failed: {exc}")
-            return True
+        return True
 
     def _run(self) -> None:
         while not self.stop_event.is_set():

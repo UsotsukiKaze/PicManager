@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from . import models
 from .config import settings
+from .pixiv_metadata import split_pid
 
 
 class PixivLookupError(RuntimeError):
@@ -51,20 +52,11 @@ class PixivClient:
 
     @staticmethod
     def _configured_proxy() -> str | None:
-        proxy = settings.PIXIV_PROXY.strip()
-        if not proxy:
-            return None
+        from .integrations.pixiv_ol.provider import proxy_url, PixivError
         try:
-            parsed = urlparse(proxy)
-            # Accessing port also validates malformed values such as :abc.
-            _ = parsed.port
-        except ValueError as exc:
-            raise PixivLookupError("PIXIV_PROXY 格式无效") from exc
-        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
-            raise PixivLookupError("PIXIV_PROXY 只支持完整的 HTTP/HTTPS 代理地址")
-        if parsed.query or parsed.fragment:
-            raise PixivLookupError("PIXIV_PROXY 不能包含查询参数或片段")
-        return proxy
+            return proxy_url()
+        except PixivError:
+            raise PixivLookupError("Pixiv 代理配置无效") from None
 
     def __init__(self) -> None:
         headers = {
@@ -230,7 +222,11 @@ class PixivUpgradeService:
         from .services import ImageService
 
         client = client or PixivUpgradeService.client()
-        pid = str(image.pid or "")
+        from .pixiv_metadata import split_pid
+        parsed_pid = split_pid(image.pid)
+        if not parsed_pid:
+            return None
+        pid, known_page = parsed_pid
         pages = client.pages(pid)
         if not pages:
             return None
@@ -244,6 +240,8 @@ class PixivUpgradeService:
         root.mkdir(parents=True, exist_ok=True)
 
         for page_index, page in enumerate(pages):
+            if known_page is not None and page_index != known_page:
+                continue
             urls = page.get("urls") if isinstance(page, dict) else None
             if not isinstance(urls, dict):
                 continue
@@ -305,7 +303,7 @@ class PixivUpgradeService:
         ).order_by(models.Image.created_at.asc(), models.Image.image_id.asc()).all()
         return [
             image for image in candidates
-            if PixivUpgradeService._ASCII_PID.fullmatch(str(image.pid or ""))
+            if split_pid(image.pid)
             and ImageService.image_file_exists(image)
         ]
 

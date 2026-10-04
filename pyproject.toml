@@ -29,6 +29,9 @@ dependencies = [
     "pillow>=10.0.0",
     "python-multipart>=0.0.6",
     "httpx>=0.25.0",
+    "pixivpy3>=3.7.5",
+    "cryptography>=50.0.2",
+    "playwright>=1.63.0",
 ]
 
 [project.scripts]

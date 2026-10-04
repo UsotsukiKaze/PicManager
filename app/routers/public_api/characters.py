@@ -175,7 +175,10 @@ def update_character(character_id: int, character_update: schemas.CharacterUpdat
 
         effective_update = schemas.CharacterUpdate(**update_data)
         if is_admin:
-            character = CharacterService.update_character(db, character_id, effective_update)
+            try:
+                character = CharacterService.update_character(db, character_id, effective_update)
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from None
             return character
 
         update_data["character_id"] = character_id

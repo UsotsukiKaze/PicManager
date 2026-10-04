@@ -44,7 +44,14 @@ class Settings(BaseSettings):
     DUPLICATE_DHASH_DISTANCE: int = 4
     DUPLICATE_DECISION_TTL_SECONDS: int = 600
     PIXIV_COOKIE: str = ""
+    PIXIV_OL_ENCRYPTION_KEY: str = ""  # Fernet key; otherwise persisted independently in DATA_PATH.
+    PIXIV_OL_SYNC_SECONDS: int = 1800
+    PIXIV_OL_REQUEST_INTERVAL: float = 1.0
+    PIXIV_OL_CART_MAX_BYTES: int = 2 * 1024 * 1024 * 1024
+    PIXIV_OL_BROWSER_EXECUTABLE: str = ""  # Optional Chromium/Edge for official Pixiv login.
+    PIXIV_CLI_EXECUTABLE: str = ""  # Defaults to DATA_PATH/pixiv-cli/pixiv.exe on Windows.
     PIXIV_PROXY: str = ""
+    PIXIV_USE_SYSTEM_PROXY: bool = True  # On Windows, inherit the system/environment proxy when unset.
     PIXIV_REQUEST_TIMEOUT_SECONDS: int = 30
     PIXIV_SCAN_INTERVAL_SECONDS: float = 0.5
     PIXIV_UPGRADE_DHASH_DISTANCE: int = 10

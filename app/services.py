@@ -252,8 +252,18 @@ class CharacterService:
             feature_tag_ids = None
             if "feature_tag_ids" in update_data:
                 feature_tag_ids = update_data.pop("feature_tag_ids") or []
+            if "group_id" in update_data and update_data["group_id"] != db_character.group_id:
+                for mapping in db_character.pixiv_mappings:
+                    conflicting = db.query(models.PixivTagMapping).filter_by(
+                        normalized_tag=mapping.normalized_tag, group_context=update_data["group_id"]
+                    ).first()
+                    if conflicting and conflicting.id != mapping.id:
+                        raise ValueError("目标分组已有同名 Pixiv 标签映射，请先在标签管理中处理映射冲突")
             for field, value in update_data.items():
                 setattr(db_character, field, value)
+            if "group_id" in update_data:
+                for mapping in list(db_character.pixiv_mappings):
+                    mapping.group_context=db_character.group_id
             db.commit()
             db.refresh(db_character)
 
@@ -1340,6 +1350,7 @@ class ImageService:
     def mark_file_status(db: Session, image: models.Image, exists: Optional[bool] = None) -> str:
         exists = ImageService.image_file_exists(image) if exists is None else exists
         image.file_status = ImageService.AVAILABLE if exists else ImageService.MISSING
+        if not exists: image.local_checked_at = None
         image.file_checked_at = datetime.utcnow()
         return image.file_status
 
@@ -1446,7 +1457,9 @@ class ImageService:
 
     @staticmethod
     def image_to_dict(image: models.Image) -> dict:
+        from .pixiv_metadata import public_metadata
         return {
+            **public_metadata(image),
             "image_id": image.image_id,
             "pid": image.pid,
             "description": image.description,
@@ -1669,6 +1682,7 @@ class ImageService:
             joinedload(models.Image.characters).joinedload(models.Character.feature_tags),
             joinedload(models.Image.groups),
             joinedload(models.Image.feature_tags),
+            joinedload(models.Image.pixiv_metadata).joinedload(models.PixivImageMetadata.artist),
         ).filter(
             models.Image.image_id == image_id,
             models.Image.file_status == ImageService.AVAILABLE
@@ -1783,6 +1797,7 @@ class ImageService:
             joinedload(models.Image.characters).joinedload(models.Character.feature_tags),
             joinedload(models.Image.groups),
             joinedload(models.Image.feature_tags),
+            joinedload(models.Image.pixiv_metadata).joinedload(models.PixivImageMetadata.artist),
         ).filter(models.Image.file_status == ImageService.AVAILABLE)
         
         if params.group_id:
@@ -1798,6 +1813,10 @@ class ImageService:
         if params.feature_tag_id:
             query = query.join(models.Image.feature_tags).filter(
                 models.FeatureTag.id == params.feature_tag_id
+            )
+        if getattr(params, "artist", None):
+            query = query.join(models.Image.pixiv_metadata).join(models.PixivImageMetadata.artist).filter(
+                (models.PixivArtist.id == params.artist) | models.PixivArtist.name.contains(params.artist, autoescape=True)
             )
         
         if params.pid:
@@ -1983,6 +2002,7 @@ class ImageService:
                 ),
             ).delete(synchronize_session=False)
             for image in missing_images:
+                image.local_checked_at = None
                 db.delete(image)
             count = len(missing_images)
         else:
@@ -2049,6 +2069,7 @@ class ImageService:
 
         allowed_extensions = {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'}
         existing_ids = {row[0] for row in db.query(models.Image.image_id).all()}
+        referenced_paths = {os.path.normcase(os.path.abspath(ImageService.image_full_path(image))) for image in db.query(models.Image).all()}
 
         moved = 0
         for filename in os.listdir(store_path):
@@ -2062,6 +2083,8 @@ class ImageService:
 
             src_path = os.path.join(store_path, filename)
             if not os.path.isfile(src_path):
+                continue
+            if os.path.normcase(os.path.abspath(src_path)) in referenced_paths:
                 continue
 
             dest_path = os.path.join(temp_path, filename)

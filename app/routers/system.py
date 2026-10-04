@@ -10,6 +10,61 @@ from ..pixiv import PixivLookupError, PixivUpgradeService
 router = APIRouter()
 
 
+@router.post("/local-check")
+def local_check(request: Request, after_id: str = Query("", pattern="^([a-f0-9]{10})?$"), limit: int = Query(200, ge=1, le=500)):
+    require_admin_user_id(request)
+    from ..local_check import run_batch
+    from ..integrations.pixiv_ol.jobs import ACCOUNT_LOCK
+    with PixivUpgradeService.LOCK, ACCOUNT_LOCK, ImageService.DUPLICATE_WRITE_LOCK, get_db_context() as db:
+        return run_batch(db, after_id, limit)
+
+
+@router.post("/pixiv-check/next")
+def next_pixiv_check(request: Request):
+    from .. import pixiv_check
+    from ..integrations.pixiv_ol.provider import PixivError
+    actor = require_admin_user_id(request)
+    try:
+        with PixivUpgradeService.LOCK:
+            return pixiv_check.scan_next(actor)
+    except PixivError as exc:
+        raise HTTPException(502, detail=exc.code) from None
+
+
+@router.post("/pixiv-check/resolve")
+def resolve_pixiv_check(body: schemas.PixivCheckResolveRequest, request: Request):
+    from .. import pixiv_check
+    from ..integrations.pixiv_ol.provider import PixivError
+    actor = require_admin_user_id(request)
+    try:
+        with PixivUpgradeService.LOCK:
+            return pixiv_check.resolve(body.review_id, actor, body.current_page, body.pages, body.upgrade)
+    except PixivError as exc:
+        raise HTTPException(409, detail=exc.code) from None
+
+
+@router.get("/pixiv-check/{review_id}/original")
+def pixiv_check_original(review_id: str, request: Request, page: int = Query(0, ge=0, le=999)):
+    from datetime import datetime
+    from fastapi.responses import FileResponse
+    from .. import models
+    from ..integrations.pixiv_ol import service
+    from ..integrations.pixiv_ol.viewer import original
+    from ..integrations.pixiv_ol.provider import PixivError
+    actor = require_admin_user_id(request)
+    with get_db_context() as db:
+        review = db.get(models.PixivCheckReview, review_id)
+        if not review or review.actor_id != actor or review.resolved or review.expires_at <= datetime.utcnow():
+            raise HTTPException(404, "校验预览已失效")
+        service.require_account(db, review.account_revision)
+        art, revision = dict(review.artwork), review.account_revision
+    try:
+        path, kind = original(art, revision, page)
+    except PixivError as exc:
+        raise HTTPException(502, detail=exc.code) from None
+    return FileResponse(path, media_type=kind, headers={"Cache-Control":"private, no-store"})
+
+
 @router.get("/status", response_model=schemas.PublicSystemStatus)
 def get_system_status():
     """Return the lightweight public counters used by the home page."""
@@ -108,16 +163,27 @@ def resolve_pixiv_upgrade(choice: schemas.PixivUpgradeResolveRequest, request: R
 def scan_existing_duplicates(
     request: Request,
     limit: int = Query(25, ge=1, le=100),
+    local_validation: bool = Query(False),
     options: schemas.ExistingDuplicateScanRequest | None = None,
 ):
     """Find existing images that share a character and are visually similar."""
     require_admin_user_id(request)
     with get_db_context() as db:
-        return ImageService.scan_existing_perceptual_duplicates(
+        result = ImageService.scan_existing_perceptual_duplicates(
             db,
             limit=limit,
             excluded_pairs=options.excluded_pairs if options else None,
         )
+        from .. import models
+        pending_ids = [image_id for pair in result["groups"] for image_id in pair["image_ids"]]
+        if pending_ids:
+            db.query(models.Image).filter(models.Image.image_id.in_(pending_ids)).update({"local_checked_at": None}, synchronize_session=False)
+        elif local_validation:
+            from ..local_check import mark_ready
+            deferred = {image_id for pair in (options.excluded_pairs if options else []) for image_id in pair}
+            for image in db.query(models.Image).filter_by(file_status="available").all():
+                if image.image_id not in deferred: mark_ready(image)
+        return result
 
 
 @router.post("/duplicates/resolve")
@@ -134,6 +200,9 @@ def resolve_existing_duplicates(choice: schemas.ExistingDuplicateResolveRequest,
                     ImageService.remember_distinct_duplicate_pair(
                         db, choice.image_ids[0], choice.image_ids[1], decided_by=admin_user_id,
                     )
+                    from ..local_check import mark_ready
+                    from .. import models
+                    for image_id in choice.image_ids: mark_ready(db.get(models.Image, image_id))
                     return {"message": "已标记为两张不同图片，后续不再提示", "action": "distinct", "archived": 0}
                 if not choice.keep_image_id:
                     raise ValueError("A kept image is required for merging")
@@ -142,6 +211,10 @@ def resolve_existing_duplicates(choice: schemas.ExistingDuplicateResolveRequest,
                 ImageService.merge_duplicate_image_metadata(
                     db, choice.keep_image_id, other_image_id, choice.metadata_sources,
                 )
+                from ..local_check import mark_ready
+                from .. import models
+                db.flush()
+                mark_ready(db.get(models.Image, choice.keep_image_id))
                 archived = 1
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

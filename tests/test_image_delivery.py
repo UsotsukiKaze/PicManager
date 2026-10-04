@@ -7,6 +7,27 @@ from fastapi import HTTPException
 
 import main
 from app.services import ImageService
+from app import models
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+
+@pytest.fixture
+def public_image_db(monkeypatch, tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'delivery.db'}")
+    models.Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    with Session() as db:
+        db.add(models.Image(image_id="ABCDEF1234", file_extension="jpg", file_path="unused.jpg", age_rating="all"))
+        db.commit()
+
+    @contextmanager
+    def context():
+        with Session() as db:
+            yield db
+    monkeypatch.setattr(main, "get_db_context", context)
+    yield Session
+    engine.dispose()
 
 
 def _request(session_id=None):
@@ -15,7 +36,7 @@ def _request(session_id=None):
 
 
 @pytest.mark.asyncio
-async def test_thumbnail_route_never_falls_back_to_original(monkeypatch, tmp_path):
+async def test_thumbnail_route_never_falls_back_to_original(monkeypatch, tmp_path, public_image_db):
     thumb_root = tmp_path / "thumbs"
     store_root = tmp_path / "store"
     thumb_root.mkdir()
@@ -35,7 +56,7 @@ async def test_thumbnail_route_never_falls_back_to_original(monkeypatch, tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_thumbnail_route_serves_cached_webp(monkeypatch, tmp_path):
+async def test_thumbnail_route_serves_cached_webp(monkeypatch, tmp_path, public_image_db):
     thumb_root = tmp_path / "thumbs"
     thumb_root.mkdir()
     thumbnail = thumb_root / "ABCDEF1234.webp"
@@ -88,7 +109,7 @@ async def test_restricted_thumbnail_requires_session_and_disables_shared_cache(m
 
 
 @pytest.mark.asyncio
-async def test_preview_route_serves_bounded_variant_with_public_cache(monkeypatch, tmp_path):
+async def test_preview_route_serves_bounded_variant_with_public_cache(monkeypatch, tmp_path, public_image_db):
     preview_root = tmp_path / "previews"
     preview_root.mkdir()
     preview = preview_root / "ABCDEF1234.webp"

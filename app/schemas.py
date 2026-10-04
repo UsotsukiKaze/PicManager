@@ -187,6 +187,12 @@ class Image(ImageBase):
     file_path: str
     created_at: datetime
     updated_at: datetime
+    artist: Optional[dict] = None
+    pixiv_tags: List[dict] = []
+    pixiv_verified: bool = False
+    local_verified: bool = False
+    pixiv_page: Optional[int] = None
+    pixiv_page_count: Optional[int] = None
     
     class Config:
         from_attributes = True
@@ -210,6 +216,7 @@ class ImageSearchParams(BaseModel):
     group_id: Optional[int] = None
     character_id: Optional[int] = None
     feature_tag_id: Optional[int] = None
+    artist: Optional[str] = Field(default=None, max_length=255)
     pid: Optional[str] = None
     description: Optional[str] = None
     age_rating: Optional[str] = None
@@ -373,6 +380,13 @@ class ExistingDuplicateScanRequest(BaseModel):
 class PixivUpgradeResolveRequest(BaseModel):
     token: str = Field(min_length=32, max_length=16384)
     action: str = Field(pattern="^(replace|skip)$")
+
+
+class PixivCheckResolveRequest(BaseModel):
+    review_id: str = Field(min_length=48, max_length=48, pattern="^[0-9a-f]+$")
+    current_page: int = Field(ge=0, le=999)
+    pages: List[int] = Field(default_factory=list, max_length=100)
+    upgrade: bool = False
 
 # Temp目录上传
 class TempImageUpload(BaseModel):

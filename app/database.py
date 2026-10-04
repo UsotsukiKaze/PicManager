@@ -286,6 +286,29 @@ def apply_migrations():
             conn.execute(text("ALTER TABLE images ADD COLUMN perceptual_hash VARCHAR(16)"))
         if "pixiv_checked_at" not in image_columns:
             conn.execute(text("ALTER TABLE images ADD COLUMN pixiv_checked_at DATETIME"))
+        if "local_checked_at" not in image_columns:
+            conn.execute(text("ALTER TABLE images ADD COLUMN local_checked_at DATETIME"))
+        mapping_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(pixiv_tag_mappings)"))}
+        if mapping_columns:
+            for column, definition in {
+                "group_id": "INTEGER REFERENCES groups(id) ON DELETE CASCADE",
+                "character_id": "INTEGER REFERENCES characters(id) ON DELETE CASCADE",
+                "feature_tag_id": "INTEGER REFERENCES feature_tags(id) ON DELETE CASCADE",
+                "original_tag": "VARCHAR(255)",
+                "source": "VARCHAR(20) NOT NULL DEFAULT 'manual'",
+                "confirmed_at": "DATETIME",
+            }.items():
+                if column not in mapping_columns:
+                    conn.execute(text(f"ALTER TABLE pixiv_tag_mappings ADD COLUMN {column} {definition}"))
+            for kind, table, column in (("group", "groups", "group_id"), ("character", "characters", "character_id"), ("feature", "feature_tags", "feature_tag_id")):
+                conn.execute(text(f"DELETE FROM pixiv_tag_mappings WHERE target_type=:kind AND target_id NOT IN (SELECT id FROM {table})"), {"kind": kind})
+                conn.execute(text(f"UPDATE pixiv_tag_mappings SET {column}=target_id WHERE target_type=:kind"), {"kind": kind})
+                conn.execute(text(f"CREATE INDEX IF NOT EXISTS ix_pixiv_tag_mappings_{column} ON pixiv_tag_mappings ({column})"))
+            conn.execute(text("UPDATE pixiv_tag_mappings SET original_tag=normalized_tag WHERE original_tag IS NULL"))
+            conn.execute(text("UPDATE pixiv_tag_mappings SET confirmed_at=CURRENT_TIMESTAMP WHERE confirmed_at IS NULL"))
+        # Preserve every prior Pixiv completion, including metadata and legacy HD checks.
+        conn.execute(text("UPDATE images SET pixiv_checked_at=(SELECT validated_at FROM pixiv_image_metadata m WHERE m.image_id=images.image_id) WHERE pixiv_checked_at IS NULL AND EXISTS (SELECT 1 FROM pixiv_image_metadata m WHERE m.image_id=images.image_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_local_checked_at ON images (local_checked_at)"))
 
         conn.execute(text(
             """

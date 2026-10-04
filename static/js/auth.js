@@ -7,7 +7,7 @@ class AuthManager {
         this.featureLoadPromises = {};
         this.featureAssets = {
             pixiv: {
-                src: '/static/js/pixiv-ol.js?v=20261004g',
+                src: '/static/js/pixiv-ol.js?v=20261004k',
                 resolve: () => window.pixivOL,
             },
             upload: {
@@ -125,7 +125,7 @@ class AuthManager {
             const stylesReady = Promise.all([
                 this.loadStyle('/static/css/style.css?v=20261004f'),
                 this.loadStyle('/static/css/icons.css?v=20260812a'),
-                this.loadStyle('/static/css/workspace-shell.css?v=20261004j'),
+                this.loadStyle('/static/css/workspace-shell.css?v=20261004k'),
             ]);
             const scripts = [
                 '/static/js/security.js?v=20260820a',
@@ -133,7 +133,7 @@ class AuthManager {
                 '/static/js/pinyin-search.js?v=20260820c',
                 '/static/js/character-selector.js?v=20260820b',
                 '/static/js/tag-selector.js?v=20261004f',
-                '/static/js/api.js?v=20261004j',
+                '/static/js/api.js?v=20261004k',
                 '/static/js/upload-queue.js?v=20260820j',
                 '/static/js/query-panel.js?v=20260820d',
                 '/static/js/entity-cache.js?v=20260820a',
@@ -141,7 +141,7 @@ class AuthManager {
                 '/static/js/image-list.js?v=20261004f',
                 '/static/js/modal.js?v=20261004f',
                 '/static/js/workspace-shell.js?v=20261004f',
-                '/static/js/ui.js?v=20261004j',
+                '/static/js/ui.js?v=20261004k',
                 '/static/js/main.js?v=20261004f',
             ];
 

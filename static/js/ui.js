@@ -325,7 +325,7 @@ class UIManager {
                     return;
                 }
                 this.activateFeature('pixiv-ol-page', 'pixiv-ol', async () => {
-                    await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261004f');
+                    await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261004k');
                     const feature = await window.auth.loadFeature('pixiv');
                     await feature.init();
                 }, 'Pixiv-ol 加载失败，请重试');
@@ -337,7 +337,7 @@ class UIManager {
                 this.loadSystemStatus();
                 if (window.auth.isAdmin()) {
                     this.activateFeature('pixiv-settings', 'settings', async () => {
-                        await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261004f');
+                        await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261004k');
                         const feature = await window.auth.loadFeature('pixiv');
                         await feature.initSettings();
                     }, 'Pixiv 设置加载失败，请重试');
@@ -1869,7 +1869,7 @@ class UIManager {
                 api.getFeatureTags()
             ]);
             const pixiv = await auth.loadFeature('pixiv');
-            await auth.loadStyle('/static/css/pixiv-ol.css?v=20261004f');
+            await auth.loadStyle('/static/css/pixiv-ol.css?v=20261004k');
             const rawTags = (image.pixiv_tags || []).filter(tag => tag && tag.name);
             let mappings = [], mappingError = '';
             if (rawTags.length) {
@@ -2331,7 +2331,7 @@ function formatMaintenanceBytes(value) {
 }
 
 async function reviewPixivCheck(result, onConfirm=null) {
-    await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261004f');
+    await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261004k');
     if(result.queue_processing&&(window.pixivValidationStop||ui.currentPage!=='settings'||!ui.isAdminView()))return null;
     return new Promise(resolve=>{
         const safe=value=>ui.escapeHomeRankingText(value??'');

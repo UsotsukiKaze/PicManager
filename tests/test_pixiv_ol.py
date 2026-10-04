@@ -1209,6 +1209,9 @@ def test_cart_caches_temp_then_imports_without_pixiv_or_redownload(environment, 
     monkeypatch.setattr(jobs, "download", no_network)
     response = client.post("/api/pixiv-ol/cart/imports", json={"item_ids": [id_]})
     assert response.status_code == 202
+    submitted = response.json()["jobs"][0]
+    assert submitted["pid"] == "100" and submitted["page_count"] == 1
+    assert submitted["id"] in {job["id"] for job in client.get("/api/pixiv-ol/jobs").json()}
     assert jobs.Worker().run_once()
     assert client.get("/api/pixiv-ol/cart").json()["items"] == []
     assert not cart.directory(id_).exists()

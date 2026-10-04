@@ -580,6 +580,8 @@ def job_json(job):
         "status": job.status,
         "result": job.result or {},
         "error": job.error,
+        "pid": job.payload.get("pid") if job.kind == "import" else None,
+        "page_count": len(job.payload.get("pages", [])) if job.kind == "import" else None,
         "created_at": job.created_at.isoformat() + "Z",
     }
 

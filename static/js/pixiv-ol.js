@@ -5,6 +5,7 @@
         spark:'<path d="m12 3 2.6 6.4L21 12l-6.4 2.6L12 21l-2.6-6.4L3 12l6.4-2.6L12 3Z"/>',
         plus:'<path d="M12 5v14M5 12h14"/>',arrow:'<path d="m12 5-7 7 7 7M5 12h14"/>',top:'<path d="m6 13 6-6 6 6M12 7v14M5 3h14"/>',
         refresh:'<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/>',
+        upload:'<path d="m8 9 4-4 4 4M12 5v10M5 15v5h14v-5"/>',
         heart:'<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/>',
         check:'<path d="m5 12 4 4L19 6"/>',search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',close:'<path d="m6 6 12 12M6 18 18 6"/>', settings:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>'};
     const icon = name => `<svg class="px-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || icons.spark}</svg>`;
@@ -73,6 +74,7 @@
         constructor() {
             this.view='recommendations'; this.lastView=this.view; this.mode='combined'; this.offset=0;
             this.generation=0; this.batch=null; this.cartItems=[]; this.selection=new Set();
+            this.importJobs=[];this.submittingCartIds=new Set();this.submittedCartIds=new Set();this.importSubmitting=false;
             this.media=new MediaCache();
             this.readingStates=new Map();this.readerPages=new Map();
             this.lookupItems=new Map();this.similarityPending=new Set();this.similaritySeen=new Set();this.similarityEpoch=0;
@@ -84,7 +86,6 @@
             node.addEventListener('click', event => this.click(event).catch(error => ui.showToast(error.message,'error')));
             node.addEventListener('change', event => {
                 if (event.target.name==='pixiv-cart-check') {
-                    this.userSelection=true;
                     event.target.checked ? this.selection.add(event.target.value) : this.selection.delete(event.target.value);
                     this.updateSelection();
                 }
@@ -109,12 +110,24 @@
             const scope=[window.auth.currentUser?.id,this.account.user_id,this.account.media_revision,this.account.connected].join(':');
             if(this.mediaScope!==scope){this.media.clear();this.readingStates.clear();this.readerPages.clear();this.lookupItems.clear();this.similarityPending.clear();this.similaritySeen.clear();this.similarityEpoch++;this.similarityAbort?.abort();this.mediaScope=scope;}
         }
-        async loadCart() { this.cartItems=(await request('/cart')).items; }
+        async loadCart() {
+            const generation=this.cartGeneration=(this.cartGeneration||0)+1;
+            const items=(await request('/cart')).items;
+            if(generation!==this.cartGeneration)return;
+            this.cartItems=items;
+            for(const id of this.submittedCartIds){
+                const row=this.cartItems.find(item=>item.id===id);
+                if(!row||row.status==='importing')this.submittedCartIds.delete(id);
+            }
+            const available=new Set(this.cartItems.filter(row=>row.status!=='importing'&&!this.submittedCartIds.has(row.id)).map(row=>row.id));
+            for(const id of this.selection)if(!available.has(id))this.selection.delete(id);
+        }
         async init() {
             if (!window.auth.isAdmin()) return;
             this.root=document.getElementById('pixiv-ol-root'); this.bind(this.root);
             await Promise.all([this.loadAccount(),this.loadCart()]);
             await this.render(); this.watch();
+            this.loadImportJobs().then(()=>this.updateImportTools()).catch(()=>{});
         }
         async initSettings() {
             if (!window.auth.isAdmin()) return;
@@ -132,7 +145,7 @@
             [this.groups,this.characters,this.features]=await Promise.all([ui.loadGroupsData(force,true),ui.loadCharactersData(force,true),ui.loadFeatureTagsData(force,true)]);
         }
         heading() {
-            const count=this.cartItems.length;
+            const count=this.cartCount();
             return `<header class="px-header"><div class="px-heading"><img src="/static/icon/pixiv-ol.svg" alt="" class="px-brand"><div><h2>Pixiv<span>-ol</span></h2></div></div>
                 <button class="px-button px-cart-button ${this.view==='cart'?'is-active':''}" data-view="cart">${icon('bag')}优选夹<span class="px-count">${count}</span></button></header>
                 <div class="px-navigation"><div class="px-tabs" role="tablist" aria-label="Pixiv 内容"><button role="tab" aria-selected="${this.view==='recommendations'}" data-view="recommendations">${icon('spark')}为你推荐</button><button role="tab" aria-selected="${this.view==='feed'}" data-view="feed">关注更新</button></div><button class="px-text-button" data-action="settings">${icon('settings')}设置</button></div>`;
@@ -154,15 +167,15 @@
                 content.replaceWith(saved.content);this.items=saved.items;
                 const flow=this.flow={...saved.flow,generation,seen:new Set(saved.flow.seen),busy:false};
                 this.batch=flow.batch;this.syncCartButtons();this.updateRefreshButton();
-                await this.refreshLibraryStatus(this.items).catch(()=>{});
+                this.updateImportTools();await this.refreshLibraryStatus(this.items).catch(()=>{});
                 await new Promise(resolve=>requestAnimationFrame(resolve));
                 if(this.flow!==flow)return;
                 this.root.closest('.main-content')?.scrollTo({top:saved.scrollTop,behavior:'instant'});
                 this.positionTools();this.observeFlow(flow);this.root.querySelectorAll('.px-image-button img').forEach(image=>{if(image.complete&&image.naturalWidth)this.queueSimilarity(image.closest('[data-pid]').dataset.pid);});return;
             }
             this.items=[];
-            content.innerHTML=`<div class="px-toolbar"><a class="px-account-profile" href="https://www.pixiv.net/users/${esc(this.account.user_id||'')}" target="_blank" rel="noopener noreferrer"><span class="px-artist-avatar"><span aria-hidden="true">${esc((this.account.name||'P').slice(0,1))}</span><img alt="" decoding="async"></span><span>${esc(this.account.name||'Pixiv')}</span></a><div class="px-toolbar-actions">${this.view==='feed'?'':`<select id="pixiv-mode" aria-label="推荐方式"><option value="combined">综合补图</option><option value="native">Pixiv 推荐</option></select>`}</div></div><div class="px-showcase"><div class="px-gallery-flow"><div class="px-gallery"></div><div class="px-load-sentinel" role="status">正在加载画作…</div></div><aside class="px-floating-tools" aria-label="展柜操作"><div class="px-floating-actions"><button class="px-icon-button" data-action="lookup" aria-label="按 PID 查找" title="按 PID 查找">${icon('search')}</button><button class="px-icon-button" data-action="refresh" aria-label="${this.view==='feed'?'更新动态':'换一批'}" title="${this.view==='feed'?'更新动态':'换一批'}">${icon('refresh')}</button><button class="px-icon-button" data-action="top" aria-label="回到顶部" title="回到顶部">${icon('top')}</button></div><button class="px-icon-button px-floating-cart" data-view="cart" aria-label="打开优选夹" title="优选夹">${icon('bag')}</button></aside></div>`;
-            this.positionTools();
+            content.innerHTML=`<div class="px-toolbar"><a class="px-account-profile" href="https://www.pixiv.net/users/${esc(this.account.user_id||'')}" target="_blank" rel="noopener noreferrer"><span class="px-artist-avatar"><span aria-hidden="true">${esc((this.account.name||'P').slice(0,1))}</span><img alt="" decoding="async"></span><span>${esc(this.account.name||'Pixiv')}</span></a><div class="px-toolbar-actions">${this.view==='feed'?'':`<select id="pixiv-mode" aria-label="推荐方式"><option value="combined">综合补图</option><option value="native">Pixiv 推荐</option></select>`}</div></div><div class="px-showcase"><div class="px-gallery-flow"><div class="px-gallery"></div><div class="px-load-sentinel" role="status">正在加载画作…</div></div><aside class="px-floating-tools" aria-label="展柜操作"><div class="px-floating-actions"><button class="px-icon-button" data-action="lookup" aria-label="按 PID 查找" title="按 PID 查找">${icon('search')}</button><button class="px-icon-button" data-action="refresh" aria-label="${this.view==='feed'?'更新动态':'换一批'}" title="${this.view==='feed'?'更新动态':'换一批'}">${icon('refresh')}</button><button class="px-icon-button" data-action="top" aria-label="回到顶部" title="回到顶部">${icon('top')}</button></div><button class="px-icon-button px-floating-cart" data-view="cart" aria-label="打开优选夹" title="优选夹">${icon('bag')}</button>${this.importButton()}</aside></div>`;
+            this.positionTools();this.updateImportTools();
             const avatar=content.querySelector('.px-account-profile img');
             if(this.account.avatar_url)this.media.load(this.account.avatar_url,'account-avatar').then(url=>{if(avatar.isConnected)avatar.src=url;}).catch(()=>avatar.remove());else avatar.remove();
             const flow=this.flow={generation,view:this.view,mode:this.mode,offset:0,batch:null,cursor:null,seen:new Set(),busy:false,more:true,upstreamMore:true,emptyRounds:0};
@@ -177,7 +190,7 @@
         readingKey(view=this.view,mode=this.mode) {return view==='feed'?'feed':`${view}:${mode}`;}
         positionTools() {
             this.toolsObserver?.disconnect();
-            const tools=this.root.querySelector('.px-floating-tools'),gallery=this.root.querySelector('.px-gallery-flow');
+            const tools=this.root.querySelector('.px-floating-tools'),gallery=this.root.querySelector('.px-gallery-flow,.px-cart-list');
             if(!tools||!gallery)return;
             const align=()=>{
                 if(!tools.isConnected||!gallery.getClientRects().length)return;
@@ -364,7 +377,7 @@
                 this.saveReading();
                 this.flow=null;this.abort?.abort();this.loadObserver?.disconnect();
                 if(button.dataset.view!=='cart') this.lastView=button.dataset.view;
-                this.view=button.dataset.view;this.userSelection=false;
+                this.view=button.dataset.view;
                 await this.loadCart();await this.render();if(this.view==='cart')this.root.closest('.main-content')?.scrollTo({top:0,behavior:'instant'});return;
             }
             const action=button.dataset.action; if(!action) return;
@@ -393,15 +406,12 @@
                     if(removed.liked)this.askRemoveLike(removed.pid,row?.artwork.title);
                 }
                 else if(action==='cart-all') {
-                    const ready=this.cartItems.filter(row=>row.status==='ready');this.userSelection=true;
+                    const ready=this.cartItems.filter(row=>row.status==='ready'&&!this.submittingCartIds.has(row.id));
                     const all=ready.every(row=>this.selection.has(row.id));ready.forEach(row=>all?this.selection.delete(row.id):this.selection.add(row.id));this.renderCart(document.getElementById('pixiv-content'));
                 } else if(action==='cart-import') {
-                    const rows=this.cartItems.filter(row=>this.selection.has(row.id)&&row.status==='ready');
-                    if(!rows.length) throw new Error('请先选择缓存完成的作品');
-                    if(rows.some(row=>row.draft.import_mode==='split'&&row.draft.pages.some(page=>!(row.draft.confirmed_pages||[]).includes(page))))throw new Error('请逐页确认分 P 作品的标签后再入库');
-                    if(rows.some(row=>row.draft.import_mode!=='split'&&!row.draft.group_ids.length)) throw new Error('请先为标记“待确认分组”的作品选择分组');
-                    await request('/cart/imports',{method:'POST',body:JSON.stringify({item_ids:rows.map(row=>row.id)})});
-                    ui.showToast(`已提交 ${rows.length} 个作品入库`,'success');await this.loadCart();await this.render();this.watch();
+                    await this.importSelected();
+                } else if(action==='import-progress') {
+                    await this.showImportProgress();
                 } else if(action==='retry') {await request(`/jobs/${Number(button.dataset.id)}/retry`,{method:'POST'});this.watch();}
                 else if(action==='resolve') {await request(`/imports/${Number(button.dataset.id)}/resolve`,{method:'POST',body:JSON.stringify({action:button.dataset.choice,image_id:button.dataset.image || null})});this.watch();}
                 else if(action==='login') await this.login();
@@ -426,21 +436,21 @@
             const existing=this.cartItems.some(row=>row.artwork.pid===pid);
             const item=this.items?.find(row=>row.pid===pid)||this.lookupItems.get(pid)||(!existing?await request(`/artworks/${encodeURIComponent(pid)}`):null);
             const selected=pages||Array.from({length:Math.min(item?.page_count||1,100)},(_,index)=>index).filter(page=>!(item?.imported_pages||[]).includes(page));
-            const mode=!existing&&item.page_count>1?await this.chooseImportMode(item,selected):'merged';
+            const mode=!existing&&item.page_count>1?(selected.length===1?'split':await this.chooseImportMode(item,selected)):'merged';
             if(!mode)return false;
             await request('/cart',{method:'POST',body:JSON.stringify({pid,import_mode:mode,...(pages?{pages}:{})})});
             await this.loadCart();
             this.setLiked(pid,true);
-            const count=this.root.querySelector('.px-count');if(count)count.textContent=this.cartItems.length;
+            const count=this.root.querySelector('.px-count');if(count)count.textContent=this.cartCount();
             this.root.querySelectorAll(`[data-action="add"][data-pid="${pid}"]`).forEach(button=>{button.disabled=true;button.classList.remove('px-primary');button.classList.add('px-added');button.innerHTML=icon('check')+'已加入';});
             this.watch();if(notify)ui.showToast('已加入优选夹，正在缓存原图','success');return true;
         }
         renderCart(content) {
-            const rows=this.cartItems;
-            if(!this.userSelection) this.selection=new Set(rows.filter(row=>row.status==='ready').map(row=>row.id));
+            const rows=this.cartItems.filter(row=>row.status!=='importing'&&!this.submittingCartIds.has(row.id)&&!this.submittedCartIds.has(row.id));
             content.innerHTML=`<div class="px-toolbar"><div><h3>优选夹</h3><p>先挑选，再整理。原图缓存完成后可统一入库。</p></div><button class="px-text-button" data-view="${this.lastView}">${icon('arrow')}继续发现</button></div>
-                ${rows.length?`<div class="px-cart-list">${rows.map(row=>this.cartRow(row)).join('')}</div><div class="px-checkout"><button class="px-text-button" data-action="cart-all">全选 / 取消</button><span id="pixiv-selection-count"></span><span class="px-cart-storage">已缓存 ${bytes(rows.reduce((n,row)=>n+row.bytes,0))}</span><button id="pixiv-checkout-button" class="px-button px-primary" data-action="cart-import"></button></div>`:this.empty('你的暂存袋还是空的','喜欢的画作先加入这里，确认标签后一起入库。',`<button class="px-button px-primary" data-view="${this.lastView}">去发现画作</button>`)}`;
-            this.updateSelection();
+                ${rows.length?`<div class="px-cart-list">${rows.map(row=>this.cartRow(row)).join('')}</div><div class="px-checkout"><button class="px-text-button" data-action="cart-all">全选 / 取消</button><span id="pixiv-selection-count"></span><span class="px-cart-storage">已缓存 ${bytes(rows.reduce((n,row)=>n+row.bytes,0))}</span><button id="pixiv-checkout-button" class="px-button px-primary" data-action="cart-import"></button></div>`:this.empty(this.cartItems.length?'已提交后台入库':'优选夹还是空的',this.cartItems.length?'点击悬浮球查看进度，也可以继续挑选画作。':'喜欢的画作先加入这里，确认标签后一起入库。',`<button class="px-button px-primary" data-view="${this.lastView}">去发现画作</button>`)}`;
+            content.insertAdjacentHTML('beforeend',`<aside class="px-floating-tools px-cart-import-tools" aria-label="入库任务">${this.importButton()}</aside>`);
+            this.updateSelection();this.updateImportTools();this.positionTools();
         }
         cartRow(row) {
             const item=row.artwork;const job=row.job;
@@ -461,6 +471,100 @@
             const text=document.getElementById('pixiv-selection-count'),button=document.getElementById('pixiv-checkout-button');
             if(text) text.textContent=`已选 ${count} 个作品`;
             if(button) {button.textContent=`统一入库${count?`（${count}）`:''}`;button.disabled=!count;}
+        }
+        selectTaggedCartItem(row) {
+            const draft=row.draft;
+            const confirmed=draft.import_mode==='split'
+                ?draft.pages.every(page=>(draft.confirmed_pages||[]).includes(page)&&(draft.page_drafts?.[page]?.group_ids||[]).length)
+                :(draft.group_ids||[]).length>0;
+            if(confirmed&&row.status!=='importing'&&!this.submittingCartIds.has(row.id)&&!this.submittedCartIds.has(row.id))this.selection.add(row.id);
+        }
+        async importSelected() {
+            if(this.importSubmitting)return;
+            const rows=this.cartItems.filter(row=>this.selection.has(row.id)&&row.status==='ready'&&!this.submittingCartIds.has(row.id));
+            if(!rows.length)throw new Error('请先选择缓存完成的作品');
+            if(rows.some(row=>row.draft.import_mode==='split'&&row.draft.pages.some(page=>!(row.draft.confirmed_pages||[]).includes(page))))throw new Error('请逐页确认分 P 作品的标签后再入库');
+            if(rows.some(row=>row.draft.import_mode!=='split'&&!row.draft.group_ids.length))throw new Error('请先为标记“待确认分组”的作品选择分组');
+            this.importSubmitting=true;this.selection.clear();
+            rows.forEach(row=>this.submittingCartIds.add(row.id));
+            this.renderCart(document.getElementById('pixiv-content'));
+            try {
+                const result=await request('/cart/imports',{method:'POST',body:JSON.stringify({item_ids:rows.map(row=>row.id)})});
+                this.cartGeneration=(this.cartGeneration||0)+1;
+                for(const job of result.jobs)this.importJobs=this.importJobs.filter(old=>old.id!==job.id).concat(job);
+                rows.forEach(row=>this.submittedCartIds.add(row.id));
+                rows.forEach(row=>row.status='importing');
+                this.cartItems.filter(row=>this.submittedCartIds.has(row.id)).forEach(row=>row.status='importing');
+                ui.showToast(`已提交 ${rows.length} 个作品，可在悬浮球查看入库进度`,'success');
+                this.watch();
+            }catch(error){
+                rows.forEach(row=>this.selection.add(row.id));
+                throw error;
+            }finally{
+                rows.forEach(row=>this.submittingCartIds.delete(row.id));this.importSubmitting=false;
+                if(this.view==='cart')this.renderCart(document.getElementById('pixiv-content'));
+                this.updateImportTools();
+            }
+        }
+        async loadImportJobs() {
+            const jobs=await request('/jobs'),previous=new Map(this.currentImportJobs().map(job=>[job.id,job]));
+            this.importJobs=jobs.filter(job=>job.kind==='import').map(job=>({...previous.get(job.id),...job}));return jobs;
+        }
+        currentImportJobs() {
+            const jobs=new Map();
+            for(const row of this.cartItems)if(row.job?.kind==='import')jobs.set(row.job.id,{...row.job,title:row.artwork.title,pid:row.artwork.pid,page_count:row.draft.pages.length});
+            for(const job of this.importJobs){
+                const row=this.cartItems.find(item=>item.artwork.pid===job.pid);
+                jobs.set(job.id,{title:row?.artwork.title,...jobs.get(job.id),...job});
+            }
+            return Array.from(jobs.values()).sort((a,b)=>b.id-a.id);
+        }
+        cartCount() {
+            return this.cartItems.filter(row=>row.status!=='importing'&&!this.submittingCartIds.has(row.id)&&!this.submittedCartIds.has(row.id)).length;
+        }
+        importButton() {
+            return `<button class="px-icon-button px-floating-import" data-action="import-progress" aria-label="入库进度" title="入库进度" hidden>${icon('upload')}<span class="px-task-count" hidden></span></button>`;
+        }
+        updateImportTools() {
+            const count=this.root?.querySelector('.px-count');if(count)count.textContent=this.cartCount();
+            const jobs=this.currentImportJobs(),pending=this.submittingCartIds.size;
+            const active=jobs.filter(job=>['queued','running','retry','awaiting_duplicate','failed','partial'].includes(job.status)).length+pending;
+            this.root?.querySelectorAll('.px-floating-import').forEach(button=>{
+                button.hidden=!jobs.length&&!pending;
+                button.classList.toggle('has-attention',jobs.some(job=>['awaiting_duplicate','failed','partial'].includes(job.status)));
+                button.classList.toggle('is-importing',pending>0||jobs.some(job=>['queued','running','retry'].includes(job.status)));
+                const badge=button.querySelector('.px-task-count');badge.hidden=!active;badge.textContent=active;
+            });
+            const tools=this.root?.querySelector('.px-cart-import-tools');if(tools)tools.hidden=!jobs.length&&!pending;
+            if(this.importDialog?.isConnected)this.renderImportProgress();
+        }
+        async showImportProgress() {
+            if(this.importDialog?.isConnected)return;
+            const dialog=this.importDialog=document.createElement('dialog');dialog.className='px-dialog px-confirm-dialog px-import-progress';
+            dialog.innerHTML=`<button class="px-icon-button px-dialog-close" data-close aria-label="关闭入库进度">${icon('close')}</button><div class="px-detail-body"><span class="px-eyebrow">COLLECTION QUEUE</span><h3>入库进度</h3><p>后台继续处理，你可以关闭窗口继续浏览。</p><div data-import-jobs aria-live="polite"></div></div>`;
+            const close=()=>{dialog.close();dialog.remove();this.importDialog=null;};
+            dialog.querySelector('[data-close]').onclick=close;
+            dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
+            dialog.addEventListener('click',event=>{if(event.target===dialog)close();});
+            document.body.append(dialog);dialog.showModal();this.renderImportProgress();
+            await this.loadImportJobs();this.updateImportTools();this.watch();
+        }
+        renderImportProgress() {
+            const list=this.importDialog.querySelector('[data-import-jobs]'),jobs=this.currentImportJobs();
+            list.innerHTML=(this.submittingCartIds.size?'<p class="px-help">正在提交入库任务…</p>':'')+jobs.map(job=>{
+                const total=Number(job.page_count)||0,done=job.result?.done?.length||0;
+                return `<article class="px-import-task"><div class="px-import-task-heading"><strong>${esc(job.title||job.pid||`入库任务 ${job.id}`)}</strong><span class="px-state">${esc(statuses[job.status]||job.status)}</span></div>${total?`<progress max="${total}" value="${done}"></progress><p>${done} / ${total} 页</p>`:''}${job.error?`<p class="px-error">${esc(errors[job.error]||job.error)}</p>`:''}${job.status==='awaiting_duplicate'?`<div class="px-import-duplicates"><p>第 ${Number(job.result.page)+1} 页可能已收录，请选择：</p>${(job.result.duplicates||[]).map(image=>`<button class="px-button" data-import-choice="existing" data-job="${Number(job.id)}" data-image="${esc(image.image_id)}">保留 ${esc(image.image_id)}</button>`).join('')}<button class="px-button" data-import-choice="different" data-job="${Number(job.id)}">确认为不同图片，继续入库</button></div>`:''}${['failed','partial'].includes(job.status)?`<button class="px-button" data-import-choice="retry" data-job="${Number(job.id)}">重试入库</button>`:''}</article>`;
+            }).join('')||'<p class="px-help">暂无入库任务。</p>';
+            list.querySelectorAll('[data-import-choice]').forEach(button=>button.onclick=async()=>{
+                if(this.importJobAction)return;this.importJobAction=true;button.disabled=true;
+                try {
+                    const id=Number(button.dataset.job),action=button.dataset.importChoice;
+                    if(action==='retry')await request(`/jobs/${id}/retry`,{method:'POST'});
+                    else await request(`/imports/${id}/resolve`,{method:'POST',body:JSON.stringify({action,image_id:button.dataset.image||null})});
+                    await this.loadImportJobs();this.updateImportTools();this.watch();
+                }catch(error){ui.showToast(error.message,'error');}
+                finally{this.importJobAction=false;button.disabled=false;}
+            });
         }
         setLiked(pid,liked) {
             const lists=[this.items||[],[...this.lookupItems.values()],...Array.from(this.readingStates.values(),state=>state.items),this.cartItems.map(row=>row.artwork)];
@@ -602,7 +706,7 @@
                     if(selectedPages.length>100) throw new Error('每次最多选择 100 页，请分批加入');
                     if(cartRow) {
                         const payload={pages:selectedPages,...tagDraft.selector.getValue(),new_tags:tagDraft.newTags,age_rating:dialog.querySelector('#pixiv-draft-rating').value};
-                        await request(split?`/cart/${cartRow.id}/pages/${editPage}`:`/cart/${cartRow.id}`,{method:'PUT',body:JSON.stringify(payload)});close();await this.loadCart();await this.render();ui.showToast(split?`第 ${editPage+1} 页标签已确认`:'标签草稿已保存','success');
+                        const updated=await request(split?`/cart/${cartRow.id}/pages/${editPage}`:`/cart/${cartRow.id}`,{method:'PUT',body:JSON.stringify(payload)});this.selectTaggedCartItem(updated);close();await this.loadCart();await this.render();ui.showToast(split?`第 ${editPage+1} 页标签已确认`:'标签草稿已保存','success');
                     } else {
                         submit.textContent='正在加入…';const added=await this.add(item.pid,selectedPages,false);
                         if(!added){delete dialog.dataset.submitting;submit.innerHTML=original;submit.disabled=false;return;}
@@ -846,7 +950,7 @@
             this.timer=setTimeout(async()=>{
                 if(ui.currentPage!=='pixiv-ol') return;
                 try {
-                    const jobs=await request('/jobs');const before=JSON.stringify(this.cartItems.map(row=>[row.id,row.status,row.cached_pages,row.job?.status]));
+                    const jobs=await this.loadImportJobs();const before=JSON.stringify(this.cartItems.map(row=>[row.id,row.status,row.cached_pages,row.job?.status]));
                     const flows=new Set([this.flow,...Array.from(this.readingStates.values(),state=>state.flow)]);
                     for(const flow of flows) {
                         if(!flow?.continueJob)continue;
@@ -855,7 +959,8 @@
                     }
                     await this.loadCart();const changed=before!==JSON.stringify(this.cartItems.map(row=>[row.id,row.status,row.cached_pages,row.job?.status]));
                     if(this.view==='cart'&&changed) await this.render();
-                    const count=this.root.querySelector('.px-count');if(count) count.textContent=this.cartItems.length;
+                    this.updateImportTools();
+                    const count=this.root.querySelector('.px-count');if(count) count.textContent=this.cartCount();
                     const active=jobs.some(job=>['queued','running','retry'].includes(job.status));
                     if(this.pendingRefresh) {
                         const pending=this.pendingRefresh,job=jobs.find(job=>job.id===pending.id);

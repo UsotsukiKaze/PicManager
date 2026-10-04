@@ -83,7 +83,10 @@ class UIManager {
         document.addEventListener('keydown', (e) => {
             const modalOverlay = document.getElementById('modal-overlay');
             const modalVisible = modalOverlay?.style.display !== 'none';
+            const nativeTop = Array.from(document.querySelectorAll('dialog[open]')).at(-1);
+            if (nativeTop && nativeTop !== this.modalBridge) return;
             if (e.key === 'Escape' && modalVisible) {
+                e.preventDefault();
                 this.closeModal();
             }
             if (e.key === 'Tab' && modalVisible) this.trapModalFocus(e);
@@ -147,11 +150,15 @@ class UIManager {
         });
         const targetPage = document.getElementById(`page-${page}`);
         if (!targetPage) return;
+        const userButton = document.querySelector('.sidebar-user');
+        if (page === 'profile') userButton?.setAttribute('aria-current', 'page');
+        else userButton?.removeAttribute('aria-current');
         targetPage.style.display = 'block';
         targetPage.classList.remove('page-enter');
         void targetPage.offsetWidth;
         targetPage.classList.add('page-enter');
 
+        if (this.currentPage === 'pixiv-ol' && page !== 'pixiv-ol') window.pixivOL?.suspend();
         this.currentPage = page;
         
         // 重置到第一个标签页
@@ -312,8 +319,29 @@ class UIManager {
             case 'emoji-library':
                 this.activateEmojiLibraryPage();
                 break;
+            case 'pixiv-ol':
+                if (!window.auth.isAdmin()) {
+                    this.switchPage('home');
+                    return;
+                }
+                this.activateFeature('pixiv-ol-page', 'pixiv-ol', async () => {
+                    await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261004f');
+                    const feature = await window.auth.loadFeature('pixiv');
+                    await feature.init();
+                }, 'Pixiv-ol 加载失败，请重试');
+                break;
+            case 'profile':
+                window.PicManagerShell.openProfile();
+                break;
             case 'settings':
                 this.loadSystemStatus();
+                if (window.auth.isAdmin()) {
+                    this.activateFeature('pixiv-settings', 'settings', async () => {
+                        await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261004f');
+                        const feature = await window.auth.loadFeature('pixiv');
+                        await feature.initSettings();
+                    }, 'Pixiv 设置加载失败，请重试');
+                }
                 break;
             case 'rankings':
                 this.loadRankings();
@@ -545,7 +573,7 @@ class UIManager {
                     </div>
                 </div>
                 <div class="list-item-actions">
-                    <button class="action-btn edit" onclick="ui.editGroup(${group.id})">编辑</button>
+                    ${window.auth.isRoot()?`<button class="action-btn" onclick="managePixivMappings('group',${group.id})">Pixiv 标签</button>`:''}<button class="action-btn edit" onclick="ui.editGroup(${group.id})">编辑</button>
                     <button class="action-btn delete" onclick="ui.deleteGroup(${group.id})">删除</button>
                 </div>
             </div>
@@ -1025,7 +1053,7 @@ class UIManager {
                     </div>
                 </div>
                 <div class="list-item-actions">
-                    <button class="action-btn edit" onclick="ui.editCharacter(${character.id})">编辑</button>
+                    ${window.auth.isRoot()?`<button class="action-btn" onclick="managePixivMappings('character',${character.id})">Pixiv 标签</button>`:''}<button class="action-btn edit" onclick="ui.editCharacter(${character.id})">编辑</button>
                     <button class="action-btn delete" onclick="ui.deleteCharacter(${character.id})">删除</button>
                 </div>
             </div>
@@ -1063,6 +1091,7 @@ class UIManager {
                     </div>
                 </div>
                 <div class="list-item-actions">
+                    ${window.auth.isRoot()?`<button class="action-btn" onclick="managePixivMappings('feature',${tag.id})">Pixiv 标签</button>`:''}
                     <button class="action-btn edit" onclick="ui.editFeatureTag(${tag.id})">编辑</button>
                     <button class="action-btn delete" onclick="ui.deleteFeatureTag(${tag.id})">删除</button>
                 </div>
@@ -1534,6 +1563,7 @@ class UIManager {
             </form>
         `;
         this.showModal('编辑特征标签', content);
+        window.PicManagerShell.enhanceTagEditor('edit-feature-tag-form','feature',tagId);
         document.getElementById('edit-feature-tag-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             await this.updateFeatureTag(tagId);
@@ -1574,7 +1604,7 @@ class UIManager {
 
     async editGroup(groupId) {
         try {
-            const group = await api.getGroups();
+            const group = await this.loadGroupsData(true);
             const currentGroup = group.find(g => g.id === groupId);
             
             if (!currentGroup) {
@@ -1586,11 +1616,11 @@ class UIManager {
                 <form id="edit-group-form">
                     <div class="form-group">
                         <label for="edit-group-name">分组名称</label>
-                        <input type="text" id="edit-group-name" class="form-input" value="${currentGroup.name}" required>
+                        <input type="text" id="edit-group-name" class="form-input" value="${this.escapeHomeRankingText(currentGroup.name)}" required>
                     </div>
                     <div class="form-group">
                         <label for="edit-group-aliases">分组别称</label>
-                        <input type="text" id="edit-group-aliases" class="form-input" value="${(currentGroup.aliases || []).join(', ')}" placeholder="多个别称用英文逗号分隔">
+                        <input type="text" id="edit-group-aliases" class="form-input" value="${this.escapeHomeRankingText((currentGroup.aliases || []).join(', '))}" placeholder="多个别称用英文逗号分隔">
                     </div>
                     <div class="form-group">
                         <label>分组头像</label>
@@ -1598,7 +1628,7 @@ class UIManager {
                     </div>
                     <div class="form-group">
                         <label for="edit-group-description">备注</label>
-                        <textarea id="edit-group-description" class="form-textarea">${currentGroup.description || ''}</textarea>
+                        <textarea id="edit-group-description" class="form-textarea">${this.escapeHomeRankingText(currentGroup.description || '')}</textarea>
                     </div>
                     <div class="form-actions">
                         <button type="button" class="btn btn-secondary" onclick="ui.closeModal()">取消</button>
@@ -1608,6 +1638,7 @@ class UIManager {
             `;
             
             this.showModal('编辑分组', content);
+            window.PicManagerShell.enhanceTagEditor('edit-group-form','group',groupId);
             
             document.getElementById('edit-group-form').addEventListener('submit', async (e) => {
                 e.preventDefault();
@@ -1670,9 +1701,7 @@ class UIManager {
     // 角色编辑和删除
     async editCharacter(characterId) {
         try {
-            const characters = await api.getCharacters();
-            const groups = await api.getGroups();
-            const featureTags = await api.getFeatureTags();
+            const [characters,groups,featureTags] = await Promise.all([this.loadCharactersData(true),this.loadGroupsData(true),this.loadFeatureTagsData(true)]);
             const currentCharacter = characters.find(c => c.id === characterId);
             
             if (!currentCharacter) {
@@ -1722,6 +1751,7 @@ class UIManager {
             `;
             
             this.showModal('编辑角色', content);
+            window.PicManagerShell.enhanceTagEditor('edit-character-form','character',characterId);
             const featureSelector = new ImageTagSelector('edit-character-feature-selector', {
                 title: '选择角色特征标签',
                 allowedTypes: ['feature_tag']
@@ -1800,7 +1830,7 @@ class UIManager {
         `).join('');
     }
 
-    renderImageMeta(image) {
+    renderImageMeta(image, compact = false) {
         const size = image.file_size ? `${(image.file_size / 1024 / 1024).toFixed(2)} MB` : '未知';
         const resolution = image.width && image.height ? `${image.width} x ${image.height}` : '未知';
         return [
@@ -1810,13 +1840,22 @@ class UIManager {
             ['分辨率', resolution],
             ['年龄分级', image.age_rating === 'all' ? '全年龄' : String(image.age_rating || 'all').toUpperCase()],
             ['PID', image.pid || '无'],
+            ['画师', image.artist?.name || '未校验'],
+            ['Pixiv 标签', (image.pixiv_tags || []).map(tag=>tag.translated_name || tag.name).join(' · ') || '无'],
             ['创建时间', new Date(image.created_at).toLocaleString()]
-        ].map(([label, value]) => `
+        ].filter(([label]) => !compact || !['画师', 'Pixiv 标签'].includes(label)).map(([label, value]) => `
             <div class="detail-meta-item">
                 <span>${label}</span>
-                <strong>${this.escapeHomeRankingText(value)}</strong>
+                <strong>${label==='画师'&&image.artist?`<button type="button" class="px-text-button" data-artist="${this.escapeHomeRankingText(image.artist.id)}" onclick="ui.showArtistImages(this.dataset.artist)">${this.escapeHomeRankingText(value)}</button>`:this.escapeHomeRankingText(value)}</strong>
             </div>
         `).join('');
+    }
+
+    showArtistImages(artist) {
+        this.closeImageDetail(false);
+        this.closeModal();this.pagination.currentPage=1;this.switchPage('management');
+        const field=document.getElementById('search-artist');if(field)field.value=artist;
+        this.loadImages({artist});
     }
     
     // 图片编辑和删除
@@ -1828,16 +1867,43 @@ class UIManager {
                 api.getCharacters(),
                 api.getFeatureTags()
             ]);
+            const pixiv = await auth.loadFeature('pixiv');
+            await auth.loadStyle('/static/css/pixiv-ol.css?v=20261004f');
+            const rawTags = (image.pixiv_tags || []).filter(tag => tag && tag.name);
+            let mappings = [], mappingError = '';
+            if (rawTags.length) {
+                try {
+                    mappings = await api.request('/pixiv-ol/tag-mappings');
+                    if (!Array.isArray(mappings)) throw new Error('Invalid mappings');
+                }
+                catch (_) { mappings = []; mappingError = '关联记录暂时无法加载，图片标签仍可编辑。'; }
+            }
+            const draft = {
+                group_ids: (image.groups || []).map(group => group.id),
+                character_ids: (image.characters || []).map(character => character.id),
+                feature_tag_ids: (image.feature_tags || []).map(tag => tag.id)
+            };
+            const normalize = value => String(value).normalize('NFKC').trim().toLocaleLowerCase();
+            const evidence = rawTags.flatMap(tag => {
+                const candidates = mappings.filter(row => normalize(row.tag) === normalize(tag.name) && row.target_type !== 'ignore');
+                const selected = candidates.find(row => draft[`${row.target_type === 'feature' ? 'feature_tag' : row.target_type}_ids`]?.includes(row.target_id));
+                const mapping = selected || candidates[0];
+                return mapping ? [{pixiv_tag:tag.name, type:mapping.target_type, id:mapping.target_id}] : [];
+            });
             
             const content = `
                 <form id="edit-image-form" onsubmit="event.preventDefault(); ui.updateImage('${imageId}');">
-                    <div class="form-group">
-                        <label>标签</label>
+                    <div class="image-edit-intro"><img src="${this.getThumbnailUrl(image)}" alt="" onerror="ui.handleImageFallback(this)"><div><strong>${this.escapeHomeRankingText(image.pid || image.image_id)}</strong><p>确认图片的分组、角色与特征</p></div></div>
+                    <section class="image-edit-section">
+                        <h4>图片标签</h4>
                         <div id="edit-image-tag-selector"></div>
-                        <button type="button" class="btn-link" onclick="showCreateGroupModal(true)">添加分组</button>
-                        <button type="button" class="btn-link" onclick="showCreateCharacterModal(true)">添加角色</button>
-                        <button type="button" class="btn-link" onclick="ui.showCreateFeatureTagModal(true)">添加特征</button>
-                    </div>
+                        <div class="px-legacy-tags" hidden></div>
+                    </section>
+                    <section class="image-edit-section image-edit-pixiv" ${rawTags.length ? '' : 'hidden'}>
+                        <h4>Pixiv 原始标签</h4><p class="image-edit-hint">点击标签或拖到上方已选标签，建立可复用的关联。</p>
+                        <div class="px-source-tags"></div><p class="px-tag-feedback" role="status"></p>
+                    </section>
+                    <div class="image-edit-fields">
                     <div class="form-group">
                         <label for="edit-image-pid">PID</label>
                         <input type="text" id="edit-image-pid" class="form-input" value="${this.escapeHomeRankingText(image.pid || '')}">
@@ -1848,9 +1914,10 @@ class UIManager {
                             ${['all', 'r12', 'r16', 'r18'].map(value => `<option value="${value}" ${value === (image.age_rating || 'all') ? 'selected' : ''}>${value === 'all' ? '全年龄' : value.toUpperCase()}</option>`).join('')}
                         </select>
                     </div>
+                    </div>
                     <div class="form-group">
                         <label for="edit-image-description">备注</label>
-                        <textarea id="edit-image-description" class="form-textarea">${this.escapeHomeRankingText(image.description || '')}</textarea>
+                        <textarea id="edit-image-description" class="form-textarea" rows="3">${this.escapeHomeRankingText(image.description || '')}</textarea>
                     </div>
                     <div class="form-actions">
                         <button type="button" class="btn btn-secondary" onclick="ui.closeModal()">取消</button>
@@ -1860,14 +1927,12 @@ class UIManager {
             `;
             
             this.showModal('编辑图片', content);
-            const tagSelector = new ImageTagSelector('edit-image-tag-selector', { title: '编辑图片标签' });
-            window.imageTagSelectors['edit-image-tag-selector'] = tagSelector;
-            tagSelector.setData({ groups, characters, featureTags });
-            tagSelector.setSelected({
-                group_ids: (image.groups || []).map(group => group.id),
-                character_ids: (image.characters || []).map(character => character.id),
-                feature_tag_ids: (image.feature_tags || []).map(tag => tag.id)
+            const layer = document.querySelector('#modal-body > .modal-layer:last-child');
+            const editor = pixiv.cartTagEditor(layer, {tags:rawTags,match:{evidence}}, draft, {
+                selectorId:'edit-image-tag-selector', title:'编辑图片标签', data:{groups,characters,featureTags}
             });
+            layer._onModalClose = () => editor.destroy();
+            if (mappingError) layer.querySelector('.px-tag-feedback').textContent = mappingError;
             
         } catch (error) {
             this.showToast(`加载图片信息失败: ${error.message}`, 'error');
@@ -1922,6 +1987,7 @@ class UIManager {
             const status = result && result.status ? result.status : null;
             const toastType = status === 'pending' || message.includes('审核') ? 'info' : 'success';
             this.showToast(message, toastType);
+            if (this.libraryReader?.dataset.imageId === imageId) this.closeImageDetail();
             this.closeModal();
             this.loadImages(null);
             this.loadSystemStatus();
@@ -1930,86 +1996,8 @@ class UIManager {
         }
     }
 
-    async showImageDetail(imageId) {
-        try {
-            const image = await api.getImage(imageId);
-            const rating = this.normalizeAgeRating(image.age_rating);
-            const restricted = rating === 'r16' || rating === 'r18';
-            const ratingLabel = rating.toUpperCase();
-            const content = `
-                <div class="image-detail-card">
-                    <div class="image-detail-media ${restricted ? `is-age-restricted-detail is-${rating}` : ''}" data-age-revealed="false">
-                        <img class="image-detail-preview" src="${restricted ? this.getThumbnailUrl(image) : this.getPreviewUrl(image)}" alt="" aria-hidden="true" onerror="ui.handleImageFallback(this)">
-                        <img class="image-detail-original" src="${restricted ? this.getThumbnailUrl(image) : this.getImageUrl(image)}" ${restricted ? `data-sensitive-src="${this.getImageUrl(image)}"` : ''} loading="eager" decoding="async" fetchpriority="high" alt="图片 ${image.image_id}" onload="ui.handleOriginalLoad(this)" onerror="ui.handleOriginalError(this)">
-                        <span class="image-detail-loading" role="status">正在加载原图…</span>
-                        ${restricted ? `
-                            <span class="age-rating-badge age-rating-badge-detail">${ratingLabel}</span>
-                            <button type="button" class="detail-age-reveal" aria-expanded="false" onclick="ui.toggleDetailAgeReveal(this)">揭示 ${ratingLabel} 内容</button>
-                        ` : ''}
-                    </div>
-                    <div class="image-detail-panel">
-                        <div class="image-detail-head">
-                            <div>
-                                <span>图片名片</span>
-                                <div class="image-detail-title-row">
-                                    <h3>${this.formatImageTags(image)}</h3>
-                                    <div class="image-detail-character-avatars" aria-label="角色头像">
-                                        ${(image.characters || []).map(character => `
-                                            <img src="${this.getEntityAvatar(character)}" alt="${this.escapeHomeRankingText(character.name)}的头像" title="${this.escapeHomeRankingText(character.name)}" loading="lazy" decoding="async" onerror="ui.handleEntityAvatarFallback(this)">
-                                        `).join('')}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="detail-meta-grid">
-                            ${this.renderImageMeta(image)}
-                        </div>
-                        <div class="detail-tag-section">
-                            <label>分组</label>
-                            <div class="detail-chip-row">${this.renderDetailChips(image.groups, 'group')}</div>
-                        </div>
-                        <div class="detail-tag-section">
-                            <label>角色</label>
-                            <div class="detail-chip-row">${this.renderDetailChips(image.characters, 'character')}</div>
-                        </div>
-                        <div class="detail-tag-section">
-                            <label>特征</label>
-                            <div class="detail-chip-row">${this.renderDetailChips(image.feature_tags, 'feature_tag')}</div>
-                        </div>
-                        <div class="detail-note">
-                            <span>备注</span>
-                            <p>${this.escapeHomeRankingText(image.description || '无')}</p>
-                        </div>
-                    </div>
-                    
-                    <div class="detail-actions">
-                        <button class="btn btn-secondary detail-protected-download" onclick="ui.downloadImage('${image.image_id}')" ${restricted ? 'disabled title="请先揭示受限内容"' : ''}>下载原图</button>
-                        <button class="btn btn-primary" onclick="ui.editImage('${image.image_id}')">编辑</button>
-                        <button class="btn btn-danger" onclick="ui.deleteImage('${image.image_id}')">删除</button>
-                        <button class="btn btn-secondary" onclick="ui.closeModal()">关闭</button>
-                    </div>
-                </div>
-            `;
-            
-            this.showModal('图片详情', content);
-        } catch (error) {
-            if (String(error.message || '').includes('404') || String(error.message || '').includes('Image not found')) {
-                const resyncAction = this.isAdminView()
-                    ? '<button class="btn btn-primary" onclick="syncImageStatus()">重新检查</button>'
-                    : '';
-                this.showModal('这张图现在打不开', `
-                    <div class="empty-state">
-                        <p>这张图的原文件找不到了，可以重新检查一下。</p>
-                        <div class="form-actions" style="margin-top: 16px;">
-                            <button class="btn btn-secondary" onclick="ui.closeModal()">关闭</button>
-                            ${resyncAction}
-                        </div>
-                    </div>
-                `);
-                return;
-            }
-            this.showToast(`加载图片详情失败: ${error.message}`, 'error');
-        }
+    async showImageDetail(imageId, source = null) {
+        return this.openLibraryReader(imageId, source);
     }
 
     toggleDetailAgeReveal(button) {
@@ -2023,6 +2011,9 @@ class UIManager {
         button.textContent = reveal ? `隐藏 ${rating} 内容` : `揭示 ${rating} 内容`;
         const original = media.querySelector('.image-detail-original');
         if (reveal && original?.dataset.sensitiveSrc) {
+            media.classList.remove('is-original-loaded', 'is-original-error');
+            media.querySelector('.library-preview-loader')?.removeAttribute('hidden');
+            original.onerror = () => this.handleOriginalError(original);
             original.src = original.dataset.sensitiveSrc;
             delete original.dataset.sensitiveSrc;
         }
@@ -2059,6 +2050,7 @@ function clearSearch() {
     document.getElementById('search-character-input').value = '';
     document.getElementById('search-character').value = '';
     document.getElementById('search-pid').value = '';
+    if(document.getElementById('search-artist'))document.getElementById('search-artist').value='';
     const ageRatingInput = document.getElementById('search-age-rating');
     if (ageRatingInput) ageRatingInput.value = '';
     document.querySelectorAll('.age-filter-tab').forEach(button => {
@@ -2255,7 +2247,7 @@ async function scanStoreOrphans() {
     }
 }
 
-async function scanExistingDuplicates() {
+async function scanExistingDuplicates(localValidation=false) {
     if (!ui.isAdminView()) {
         ui.showToast('只有管理员可以执行维护操作', 'warning');
         return;
@@ -2275,18 +2267,21 @@ async function scanExistingDuplicates() {
         }
         const uploadFeature = await window.auth.loadFeature('upload');
         while (true) {
-            const result = await api.scanExistingDuplicates(25, excludedPairs);
+            if (localValidation && window.localValidationStop) return {status:'stopped',deferred};
+            const result = await api.scanExistingDuplicates(25, excludedPairs, localValidation);
             scanned = Math.max(scanned, Number(result.scanned_images || 0));
             const groups = result.groups || [];
             if (groups.length === 0) break;
 
             for (const group of groups) {
+                if (localValidation && window.localValidationStop) return {status:'stopped',deferred};
                 const decision = await uploadFeature.resolveDuplicateChoice({
                     duplicates: group.images || [],
                 });
+                if (localValidation && window.localValidationStop) return {status:'stopped',deferred};
                 if (!decision) {
                     ui.showToast(`已停止；本次删除 ${deleted} 份重复文件`, 'info');
-                    return;
+                    return {status:'stopped',deferred};
                 }
                 if (decision.action === 'later') {
                     excludedPairs.push(group.image_ids || []);
@@ -2310,8 +2305,9 @@ async function scanExistingDuplicates() {
         );
         ui.loadImages(null);
         ui.loadSystemStatus();
+        return {status:'complete',deferred,deleted,distinguished};
     } catch (error) {
-        ui.showToast(`重复比对失败: ${error.message}`, 'error');
+        ui.showToast(`重复比对失败: ${error.message}`, 'error');return {status:'error',message:error.message};
     } finally {
         if (button) {
             button.disabled = false;
@@ -2333,6 +2329,58 @@ function formatMaintenanceBytes(value) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+async function reviewPixivCheck(result) {
+    await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261004f');
+    return new Promise(resolve=>{
+        const safe=value=>ui.escapeHomeRankingText(value??'');
+        const autoAllowed=result.auto_review_safe&&result.artwork.page_count===1;const art=result.artwork, pages=Array.from({length:Math.min(art.page_count,1000)},(_,index)=>index);
+        const dialog=document.createElement('dialog');dialog.className='px-dialog px-reader px-check-reader';
+        dialog.innerHTML=`<button class="px-icon-button px-dialog-close" aria-label="关闭" data-close>×</button><div class="px-detail-cover"><img alt="校验作品原图"><button class="px-reader-arrow px-reader-prev" aria-label="上一页">‹</button><button class="px-reader-arrow px-reader-next" aria-label="下一页">›</button><span class="px-reader-status"></span></div><div class="px-detail-body"><h3>${safe(art.title)}</h3><p>画师 · ${safe(art.author)}</p><p>当前车牌 · ${safe(result.current.pid)}</p><div class="px-tags">${art.tags.map(tag=>`<span>${safe(tag.translated_name||tag.name)}</span>`).join('')}</div><div class="px-reader-pagination"><button class="px-button" data-view-local>查看库内原图</button><select data-view-page aria-label="查看 Pixiv 页码">${pages.map(page=>`<option value="${page}">第 ${page+1} 页</option>`).join('')}</select></div><label>库内现图对应哪一页<select data-current-page required><option value="">请确认对应页</option>${pages.map(page=>`<option value="${page}">${art.pid}_p${page} · 第 ${page+1} 页</option>`).join('')}</select></label><p class="px-help">保留库内现图，并补全车牌、画师和 Pixiv 来源标签。勾选其他页可补入库，沿用现图的分组与标签；已入库的页会自动跳过。</p><div class="px-pages">${pages.map(page=>`<label><input type="checkbox" data-extra-page value="${page}" ${result.imported_pages.includes(page)?'disabled':''}><button class="px-text-button" data-page="${page}">第 ${page+1} 页${result.imported_pages.includes(page)?' · 已入库':''}</button></label>`).join('')}</div><label><input type="checkbox" data-upgrade ${pixivAutoReviewEnabled&&autoAllowed?'checked':''}>匹配内容且存在高清版本时替换现图</label><label class="px-check-auto"><input type="checkbox" data-auto-choice ${autoAllowed?'':'disabled'} ${pixivAutoReviewEnabled&&autoAllowed?'checked':''}>自动审核 · 加载完成后 10 秒确认</label><p class="px-help" data-auto-status>${autoAllowed?'可取消倒计时或修改选择，页面隐藏时暂停。':'多页或对应关系不明确，需手动确认。'}</p><p class="px-error" role="alert" data-error></p><button class="px-button px-primary" data-confirm>确认校验</button></div>`;
+        dialog.querySelector('.px-detail-body').prepend(dialog.querySelector('[data-close]'));
+        document.body.appendChild(dialog);dialog.showModal();
+        const image=dialog.querySelector('img'), status=dialog.querySelector('.px-reader-status');
+        const view=dialog.querySelector('[data-view-page]'), current=dialog.querySelector('[data-current-page]');let page=0,previewReady=false,autoTimer=null,seconds=10;
+        const auto=dialog.querySelector('[data-auto-choice]'),autoStatus=dialog.querySelector('[data-auto-status]');
+        const showPage=value=>{
+            previewReady=false;stopAuto();
+            page=Math.max(0,Math.min(pages.length-1,value));view.value=String(page);
+            status.textContent=`第 ${page+1} 页 · 正在加载原图…`;
+            image.onload=()=>{status.textContent=`第 ${page+1} / ${pages.length} 页 · Pixiv 原图`;previewReady=true;startAuto();};
+            image.onerror=()=>status.textContent='原图加载失败，可重选页码重试';
+            image.src=`/api/system/pixiv-check/${result.review_id}/original?page=${page}`;
+            dialog.querySelector('.px-reader-prev').disabled=page===0;dialog.querySelector('.px-reader-next').disabled=page===pages.length-1;
+        };
+        const finish=choice=>{stopAuto();window.cancelPixivCheckReview=null;dialog.close();dialog.remove();resolve(choice);};
+        const stopAuto=()=>{clearInterval(autoTimer);autoTimer=null;seconds=10;};
+        const startAuto=()=>{stopAuto();if(!autoAllowed||!auto.checked||!previewReady)return;autoStatus.textContent='10 秒后确认，可随时取消自动审核';autoTimer=setInterval(()=>{if(window.pixivValidationStop){finish(null);return;}if(document.hidden){autoStatus.textContent='页面隐藏，倒计时已暂停';return;}seconds--;autoStatus.textContent=`${seconds} 秒后确认`;if(seconds<=0)dialog.querySelector('[data-confirm]').click();},1000);};
+        auto.onchange=()=>{if(auto.checked)startAuto();else{stopAuto();autoStatus.textContent='已取消自动审核';}};
+        dialog.addEventListener('change',event=>{if(event.target===auto)return;stopAuto();auto.checked=false;autoStatus.textContent='选择已修改，请手动确认';});
+        window.cancelPixivCheckReview=()=>finish(null);
+        dialog.querySelector('[data-close]').onclick=()=>finish(null);
+        dialog.addEventListener('cancel',event=>{event.preventDefault();finish(null);});
+        dialog.querySelector('.px-reader-prev').onclick=()=>showPage(page-1);
+        dialog.querySelector('.px-reader-next').onclick=()=>showPage(page+1);
+        view.onchange=()=>showPage(Number(view.value));
+        dialog.querySelectorAll('[data-page]').forEach(node=>node.onclick=()=>showPage(Number(node.dataset.page)));
+        dialog.querySelector('[data-view-local]').onclick=()=>{stopAuto();auto.checked=false;autoStatus.textContent='正在查看库内图片，请手动确认';image.onload=()=>status.textContent='库内现图 · 原图';image.src=result.current.preview_url;};
+        const updateSelection=()=>dialog.querySelectorAll('[data-extra-page]').forEach(node=>{
+            node.disabled=result.imported_pages.includes(Number(node.value))||(current.value!==''&&node.value===current.value);
+            if(node.disabled) node.checked=false;
+        });
+        current.value=result.suggested_page==null?'':String(result.suggested_page);
+        current.onchange=()=>{updateSelection();if(current.value!=='')showPage(Number(current.value));};updateSelection();
+        dialog.querySelector('[data-confirm]').onclick=()=>{
+            const selected=Array.from(dialog.querySelectorAll('[data-extra-page]:checked'),node=>Number(node.value));
+            const error=dialog.querySelector('[data-error]');
+            if(current.value===''){error.textContent='请先确认库内现图对应的页码';return;}
+            if(selected.length>100){error.textContent='每次最多补入 100 页';return;}
+            if(selected.length&&!result.current.group_ids.length){error.textContent='请先为库内现图设置分组，再补入其他页';return;}
+            finish({review_id:result.review_id,current_page:Number(current.value),pages:selected,upgrade:dialog.querySelector('[data-upgrade]').checked});
+        };
+        showPage(result.suggested_page??0);
+    });
+}
+
 let pixivAutoReviewEnabled = false;
 
 function reviewPixivUpgrade(result) {
@@ -2340,7 +2388,7 @@ function reviewPixivUpgrade(result) {
     const candidate = result.candidate || {};
     const safe = escapeMaintenanceHtml;
     return new Promise(resolve => {
-        ui.showModal(`Pixiv 高清原图 · PID ${safe(current.pid)}`, `
+        ui.showModal(`Pixiv 原图 · PID ${safe(current.pid)}`, `
             <section class="duplicate-review duplicate-review-large pixiv-upgrade-review">
                 <p>右侧是 Pixiv 找到的更高分辨率原图。只有选择“覆盖原图”才会替换库内文件。</p>
                 <div class="duplicate-compare-grid">
@@ -2462,11 +2510,11 @@ function updatePixivUpgradeProgress({ checked = 0, total = null, state = 'runnin
     if (!panel || !label || !count || !bar || !detailElement) return;
 
     const labels = {
-        running: 'Pixiv 高清检查中',
+        running: 'Pixiv 校验中',
         review: 'Pixiv 候选图待审核',
-        stopped: 'Pixiv 高清检查已停止',
-        complete: 'Pixiv 高清检查完成',
-        error: 'Pixiv 高清检查失败',
+        stopped: 'Pixiv 校验已停止',
+        complete: 'Pixiv 校验完成',
+        error: 'Pixiv 校验失败',
     };
     panel.hidden = false;
     panel.dataset.state = state;
@@ -2493,25 +2541,53 @@ async function scanPixivUpgrades() {
     }
     const button = document.getElementById('scan-pixiv-upgrades-button');
     if (button?.disabled) return;
+    window.pixivValidationStop=false;pixivAutoReviewEnabled=!!document.getElementById('pixiv-check-auto')?.checked;const stopButton=document.getElementById('pixiv-check-stop');if(stopButton)stopButton.hidden=false;
     let checked = 0;
     let replaced = 0;
     let skipped = 0;
     let total = null;
+    let fingerprints = 0;
     try {
         if (button) button.disabled = true;
-        updatePixivUpgradeProgress({ detail: '正在统计待检查的纯数字 PID 图片…' });
+        updatePixivUpgradeProgress({ detail: '正在统计带 Pixiv PID 且未校验的图片…' });
         while (true) {
+            if(window.pixivValidationStop){updatePixivUpgradeProgress({checked,total,state:'stopped',detail:'已停止，完成的校验保留'});return;}
             if (button) button.textContent = `Pixiv 检查中… ${checked}`;
             if (total !== null) {
                 updatePixivUpgradeProgress({ checked, total, detail: '正在检查下一张图片…' });
             }
             const result = await api.scanNextPixivUpgrade();
+            if (result.status === 'fingerprinted') {
+                fingerprints += Number(result.processed || 0);
+                updatePixivUpgradeProgress({checked,total,detail:`已为 ${fingerprints} 张无 PID 图片生成轻量指纹${result.failed ? `，本批 ${result.failed} 张文件暂不可读` : ''}`});
+                continue;
+            }
             const remaining = Math.max(0, Number(result.remaining || 0));
             if (total === null) total = checked + remaining;
             else total = Math.max(total, checked + remaining);
             if (result.status === 'complete') {
                 total = Math.max(checked, total || 0);
                 break;
+            }
+            if (result.status === 'review') {
+                updatePixivUpgradeProgress({checked,total,state:'review',detail:`PID ${result.current.pid}：确认页码与补页`});
+                const choice=await reviewPixivCheck(result);
+                if(!choice){updatePixivUpgradeProgress({checked,total,state:'stopped',detail:'未确认的图片保持原状，下次可继续校验'});return;}
+                const saved=await api.resolvePixivCheck(choice);
+                checked+=1;
+                if(saved.upgraded) replaced+=1;else skipped+=1;
+                updatePixivUpgradeProgress({checked,total,detail:`${saved.pid}：已补全画师与 Pixiv 标签${saved.pages.length?`，${saved.pages.length} 页正在后台入库`:''}`});
+                continue;
+            }
+            if(result.status==='unavailable'){
+                checked+=1;skipped+=1;
+                updatePixivUpgradeProgress({checked,total,detail:`PID ${result.pid}：作品不可用，保留原图，不添加未经确认的画师或标签`});
+                continue;
+            }
+            if(result.status==='validated'){
+                checked+=1;skipped+=1;
+                updatePixivUpgradeProgress({checked,total,detail:`${result.pid}：已补全画师与 Pixiv 标签，保留现图`});
+                continue;
             }
             if (result.status === 'checked') {
                 checked += 1;
@@ -2556,18 +2632,20 @@ async function scanPixivUpgrades() {
             checked,
             total: Math.max(checked, total || 0),
             state: 'complete',
-            detail: `覆盖 ${replaced} 张，保留 ${skipped} 张`,
+            detail: `覆盖 ${replaced} 张，保留 ${skipped} 张；为 ${fingerprints} 张无 PID 图片生成指纹；精确同名映射已与分组、角色数据联动`,
         });
-        ui.showToast(`Pixiv 检查完成：检查 ${checked} 张，覆盖 ${replaced} 张，保留 ${skipped} 张`, 'success');
+        ui.showToast(`Pixiv 检查完成：检查 ${checked} 张，覆盖 ${replaced} 张，保留 ${skipped} 张，生成 ${fingerprints} 张指纹`, 'success');
+        window.pixivOL?.similaritySeen?.clear();
         ui.loadImages(null);
         ui.loadSystemStatus();
     } catch (error) {
         updatePixivUpgradeProgress({ checked, total, state: 'error', detail: error.message });
-        ui.showToast(`Pixiv 高清检查失败: ${error.message}`, 'error');
+        ui.showToast(`Pixiv 校验失败: ${error.message}`, 'error');
     } finally {
+        if(stopButton)stopButton.hidden=true;
         if (button) {
             button.disabled = false;
-            button.textContent = 'Pixiv 高清补全';
+            button.textContent = 'Pixiv 校验';
         }
     }
 }

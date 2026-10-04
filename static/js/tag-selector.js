@@ -8,6 +8,8 @@ class ImageTagSelector {
         this.featureTags = [];
         this.selected = { group_ids: [], character_ids: [], feature_tag_ids: [] };
         this.onChange = options.onChange || null;
+        this.addLabel = options.addLabel || '+';
+        this.allowCreate = Boolean(options.allowCreate);
         this.searchTimer = null;
         this.render();
     }
@@ -79,7 +81,7 @@ class ImageTagSelector {
     renderTag(type, id) {
         const labelMap = { group: '分组', character: '角色', feature_tag: '特征' };
         return `
-            <button type="button" class="pm-tag pm-tag-${type}" onclick="window.imageTagSelectors['${this.container.id}'].remove('${type}', ${id})">
+            <button type="button" class="pm-tag pm-tag-${type}" data-tag-type="${type}" data-tag-id="${id}" onclick="window.imageTagSelectors['${this.container.id}'].remove('${type}', ${id})">
                 <span>${this.escapeHTML(this.getLabel(type, id))}</span>
                 <small>${labelMap[type]}</small>
                 <b aria-hidden="true">×</b>
@@ -94,7 +96,7 @@ class ImageTagSelector {
                 ${this.allowedTypes.includes('group') ? this.selected.group_ids.map(id => this.renderTag('group', id)).join('') : ''}
                 ${this.allowedTypes.includes('character') ? this.selected.character_ids.map(id => this.renderTag('character', id)).join('') : ''}
                 ${this.allowedTypes.includes('feature_tag') ? this.selected.feature_tag_ids.map(id => this.renderTag('feature_tag', id)).join('') : ''}
-                <button type="button" class="pm-tag-add" onclick="window.imageTagSelectors['${this.container.id}'].openPicker()">+</button>
+                <button type="button" class="pm-tag-add" aria-label="添加标签" onclick="window.imageTagSelectors['${this.container.id}'].openPicker()">${this.escapeHTML(this.addLabel)}</button>
             </div>
         `;
     }
@@ -149,21 +151,23 @@ class ImageTagSelector {
     async openPicker() {
         await this.refreshData();
         const modalId = `tag-picker-${this.container.id}`;
+        this.pickerState = { ...structuredClone(this.getValue()), groupId: this.selected.group_ids[0] || null };
+        const createButton = (method, label) => this.allowCreate ? `<button type="button" class="btn-link" onclick="window.imageTagSelectors['${this.container.id}'].createInPicker('${method}')">新建${label}</button>` : '';
         const isNested = Boolean(this.container && this.container.closest('#modal-body') && document.getElementById('modal-overlay')?.style.display !== 'none');
         const sections = [
             this.allowedTypes.includes('group') ? `
                     <section>
-                        <h4>分组</h4>
+                        <h4>分组${createButton('showCreateGroupModal', '分组')}</h4>
                         <div class="tag-picker-list" data-type="group"></div>
                     </section>` : '',
             this.allowedTypes.includes('character') ? `
                     <section>
-                        <h4>角色</h4>
+                        <h4>角色${createButton('showCreateCharacterModal', '角色')}</h4>
                         <div class="tag-picker-list" data-type="character"></div>
                     </section>` : '',
             this.allowedTypes.includes('feature_tag') ? `
                     <section>
-                        <h4>特征</h4>
+                        <h4>特征${createButton('showCreateFeatureTagModal', '特征')}</h4>
                         <div class="tag-picker-list" data-type="feature_tag"></div>
                     </section>` : ''
         ].filter(Boolean).join('');
@@ -171,7 +175,7 @@ class ImageTagSelector {
             ? '搜索特征标签'
             : '搜索分组、角色或特征';
         const content = `
-            <div class="tag-picker" id="${modalId}">
+            <div class="tag-picker" id="${modalId}" data-selector-owner="${this.container.id}">
                 <input class="form-input tag-picker-search" placeholder="${placeholder}" autocomplete="off">
                 <div class="tag-picker-columns tag-picker-columns-${this.allowedTypes.length}">
                     ${sections}
@@ -189,9 +193,29 @@ class ImageTagSelector {
             window.clearTimeout(this.searchTimer);
             this.searchTimer = window.setTimeout(() => this.renderPicker(modalId, search.value), 90);
         });
-        const groupList = document.querySelector(`#${modalId} [data-type="group"]`);
-        if (groupList) {
-            groupList.addEventListener('change', () => this.renderPicker(modalId, search.value, ['character']));
+        document.getElementById(modalId).addEventListener('change', event => {
+            const type = event.target.closest('[data-type]')?.dataset.type;
+            if (!type || event.target.tagName !== 'INPUT') return;
+            const id = Number(event.target.value);
+            if (type === 'group') {
+                this.pickerState.groupId = id;
+                this.renderPicker(modalId, search.value, ['character']);
+                document.querySelectorAll(`#${modalId} [data-type="group"] label`).forEach(label => label.classList.toggle('selected', label.querySelector('input').checked));
+            } else {
+                const key = `${type}_ids`;
+                this.pickerState[key] = this.pickerState[key].filter(value => value !== id);
+                if (event.target.checked) this.pickerState[key].push(id);
+            }
+            event.target.closest('label')?.classList.toggle('selected', event.target.checked);
+        });
+    }
+
+    async createInPicker(method) {
+        if (!this.allowCreate || !['showCreateGroupModal', 'showCreateCharacterModal', 'showCreateFeatureTagModal'].includes(method)) return;
+        await ui[method](true);
+        if (method === 'showCreateCharacterModal' && this.pickerState.groupId) {
+            const group = document.getElementById('character-group');
+            if (group && Array.from(group.options).some(option => Number(option.value) === this.pickerState.groupId)) group.value = String(this.pickerState.groupId);
         }
     }
 
@@ -199,8 +223,7 @@ class ImageTagSelector {
         const root = document.getElementById(modalId);
         if (!root) return;
         const shouldRender = type => !sections || sections.includes(type);
-        const selectedGroupInput = root.querySelector('[data-type="group"] input:checked');
-        const selectedGroupId = selectedGroupInput ? Number(selectedGroupInput.value) : null;
+        const selectedGroupId = this.pickerState.groupId;
         const groups = this.filterItems(this.groups, query);
         const charactersSource = selectedGroupId ? this.characters.filter(c => c.group_id === selectedGroupId) : this.characters;
         const characters = this.filterItems(charactersSource, query);
@@ -208,19 +231,15 @@ class ImageTagSelector {
         const groupList = root.querySelector('[data-type="group"]');
         const characterList = root.querySelector('[data-type="character"]');
         const featureList = root.querySelector('[data-type="feature_tag"]');
-        if (groupList && shouldRender('group')) groupList.innerHTML = groups.map(item => this.option(item, 'group', selectedGroupId ? item.id === selectedGroupId : this.selected.group_ids.includes(item.id))).join('');
-        if (characterList && shouldRender('character')) characterList.innerHTML = characters.map(item => this.option(item, 'character', this.selected.character_ids.includes(item.id))).join('');
-        if (featureList && shouldRender('feature_tag')) featureList.innerHTML = featureTags.map(item => this.option(item, 'feature_tag', this.selected.feature_tag_ids.includes(item.id))).join('');
+        if (groupList && shouldRender('group')) groupList.innerHTML = groups.map(item => this.option(item, 'group', item.id === selectedGroupId)).join('');
+        if (characterList && shouldRender('character')) characterList.innerHTML = characters.map(item => this.option(item, 'character', this.pickerState.character_ids.includes(item.id))).join('');
+        if (featureList && shouldRender('feature_tag')) featureList.innerHTML = featureTags.map(item => this.option(item, 'feature_tag', this.pickerState.feature_tag_ids.includes(item.id))).join('');
     }
 
     confirmPicker(modalId) {
-        const root = document.getElementById(modalId);
-        const group = root.querySelector('[data-type="group"] input:checked');
-        const characters = Array.from(root.querySelectorAll('[data-type="character"] input:checked')).map(input => Number(input.value));
-        const featureTags = Array.from(root.querySelectorAll('[data-type="feature_tag"] input:checked')).map(input => Number(input.value));
-        if (group) this.addUnique('group_ids', [Number(group.value)]);
-        this.addUnique('character_ids', characters);
-        this.addUnique('feature_tag_ids', featureTags);
+        if (!document.getElementById(modalId)) return;
+        if (this.pickerState.groupId) this.addUnique('group_ids', [this.pickerState.groupId]);
+        for (const key of ['group_ids', 'character_ids', 'feature_tag_ids']) this.addUnique(key, this.pickerState[key]);
         this.notify();
         ui.closeModal();
     }

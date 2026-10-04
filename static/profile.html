@@ -1223,6 +1223,9 @@
                 justify-self: start;
             }
         }
+        .profile-embedded .profile-container { min-height:0; background:transparent; }
+        .profile-embedded .profile-header { display:none; }
+        .profile-embedded .profile-content { max-width:none; padding:0 0 20px; }
     </style>
 </head>
 <body>
@@ -1460,6 +1463,7 @@
     <div class="toast" id="toast"></div>
 
     <script>
+        if(new URLSearchParams(location.search).get('embedded')==='1')document.documentElement.classList.add('profile-embedded');
         let currentUser = null;
         const lazyLoaded = {
             profileStats: false,
@@ -1526,7 +1530,7 @@
             try {
                 const response = await fetch('/auth/me');
                 if (!response.ok) {
-                    window.location.href = '/login';
+                    if(window.parent!==window)window.top.location.href='/login';else window.location.href='/login';
                     return;
                 }
 
@@ -1588,7 +1592,7 @@
                 }
             } catch (error) {
                 console.error('Failed to load user info:', error);
-                window.location.href = '/login';
+                if(window.parent!==window)window.top.location.href='/login';else window.location.href='/login';
             }
         }
 
@@ -1838,6 +1842,7 @@
 
                 const user = data.user;
                 document.getElementById('user-nickname').textContent = user.nickname;
+                if(window.parent!==window)window.parent.postMessage({type:'picmanager-profile-updated'},location.origin);
                 showToast(data.message);
                 toggleEditNickname();
             } catch (error) {
@@ -2358,9 +2363,9 @@
         async function handleLogout() {
             try {
                 await fetch('/auth/logout', { method: 'POST' });
-                window.location.href = '/login';
+                if(window.parent!==window)window.top.location.href='/login';else window.location.href='/login';
             } catch (error) {
-                window.location.href = '/login';
+                if(window.parent!==window)window.top.location.href='/login';else window.location.href='/login';
             }
         }
 

@@ -9,8 +9,10 @@ def test_duplicate_maintenance_reuses_existing_comparison_dialog():
     api_source = (PROJECT_ROOT / "static/js/api.js").read_text(encoding="utf-8")
     ui_source = (PROJECT_ROOT / "static/js/ui.js").read_text(encoding="utf-8")
 
-    assert 'id="scan-duplicates-button"' in html
-    assert "api.scanExistingDuplicates(25, excludedPairs)" in ui_source
+    assert 'id="local-check-button"' in html
+    shell_source = (PROJECT_ROOT / "static/js/workspace-shell.js").read_text(encoding="utf-8")
+    assert "scanExistingDuplicates(true)" in shell_source
+    assert "api.scanExistingDuplicates(25, excludedPairs, localValidation)" in ui_source
     assert "uploadFeature.resolveDuplicateChoice" in ui_source
     assert "if (decision.action === 'later')" in ui_source
     assert "excludedPairs.push(group.image_ids || [])" in ui_source
@@ -18,7 +20,7 @@ def test_duplicate_maintenance_reuses_existing_comparison_dialog():
     assert "/system/duplicates/scan" in api_source
     assert "'/system/duplicates/resolve'" in api_source
     assert "删除" in ui_source
-    for label in ("校验文件", "补缩略图", "整理孤立文件", "查重", "归档缺失图片", "删除档案"):
+    for label in ("本地校验", "Pixiv 校验", "疑似重复图片", "删除档案"):
         assert label in html
     assert "async function deleteInvalidRecords()" in ui_source
     assert "api.cleanupOrphaned('delete')" in ui_source

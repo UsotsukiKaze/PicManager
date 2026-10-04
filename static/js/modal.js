@@ -6,6 +6,18 @@
         const modalOverlay = document.getElementById('modal-overlay');
         const modalBody = document.getElementById('modal-body');
         const modalDialog = modalOverlay.querySelector('.modal');
+        // A native artwork dialog makes sibling overlays inert. Lift the shared
+        // picker into the top layer while retaining its nested form stack.
+        if (!this.modalBridge && document.querySelector('dialog[open]')) {
+            const bridge = document.createElement('dialog');
+            bridge.className = 'pm-modal-bridge';
+            this.modalOverlayParent = modalOverlay.parentNode;
+            bridge.append(modalOverlay);
+            document.body.append(bridge);
+            this.modalBridge = bridge;
+            bridge.addEventListener('cancel', event => { event.preventDefault(); this.closeModal(); });
+            bridge.showModal();
+        }
         const nextLayer = document.createElement('div');
         nextLayer.className = 'modal-layer modal-body';
         nextLayer.innerHTML = content;
@@ -69,6 +81,12 @@
             modalOverlay.setAttribute('aria-hidden', 'true');
             document.querySelector('.app-container')?.removeAttribute('inert');
             this.isNestedModal = false;
+            if (this.modalBridge) {
+                this.modalOverlayParent.append(modalOverlay);
+                this.modalBridge.close();
+                this.modalBridge.remove();
+                this.modalBridge = null;
+            }
             const restoreTarget = this.modalPreviousFocus;
             this.modalPreviousFocus = null;
             if (restoreTarget?.isConnected) restoreTarget.focus({ preventScroll: true });
@@ -245,12 +263,13 @@
         if (window.imageTagSelectors) {
             await Promise.all(Object.values(window.imageTagSelectors).map(async selector => {
                 if (selector && selector.refreshData) {
-                    await selector.refreshData();
+                    await selector.refreshData({ forceRefresh: true });
                 }
             }));
             Object.entries(window.imageTagSelectors).forEach(([id, selector]) => {
                 const container = document.getElementById(id);
-                if (!container || !container.closest('#modal-body') || !selector) return;
+                const picker = document.getElementById(`tag-picker-${id}`);
+                if (!container || (!container.closest('#modal-body') && !picker) || !selector) return;
                 if (itemType === 'group') {
                     selector.addUnique('group_ids', [newItemId]);
                     selector.notify();
@@ -261,6 +280,12 @@
                 } else if (itemType === 'feature_tag') {
                     selector.addUnique('feature_tag_ids', [newItemId]);
                     selector.notify();
+                }
+                if (picker && selector.pickerState) {
+                    const key = `${itemType}_ids`;
+                    selector.pickerState[key] = selector.unique([...selector.pickerState[key], newItemId]);
+                    if (itemType === 'group' || groupId) selector.pickerState.groupId = groupId || newItemId;
+                    selector.renderPicker(picker.id, picker.querySelector('.tag-picker-search').value);
                 }
             });
         }

@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function initializeApp() {
     try {
+        window.PicManagerShell.init();
         // 页面外壳已可用，首页模块并行加载且各自独立降级。
         const homeModules = [
             ['system status', () => ui.loadSystemStatus()],
@@ -24,6 +25,9 @@ async function initializeApp() {
 
         ui.applyRolePreferences();
         ui.updateSidebarIndicator();
+        if (window.location.pathname === '/pixiv-ol' && window.auth.isAdmin()) {
+            ui.switchPage('pixiv-ol');
+        }
         
         // 只在上传页可见时更新temp计数
         setInterval(async () => {

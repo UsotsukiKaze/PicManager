@@ -51,7 +51,7 @@ def test_failed_uploads_remain_retryable_and_completed_items_are_explicitly_clea
 def test_r16_and_r18_are_hidden_until_each_card_or_detail_is_revealed():
     assert "rating === 'r16' || rating === 'r18'" in UI_JS
     assert "is-age-restricted is-${rating}" in UI_JS
-    assert "data-sensitive-src" in UI_JS
+    assert "dataset.sensitiveSrc" in UI_JS
     assert "toggleAgeReveal(card" in UI_JS
     assert "toggleDetailAgeReveal(button)" in UI_JS
     assert '.image-card.is-r18:not(.age-revealed) .image-card-img' in STYLE_CSS
@@ -101,7 +101,7 @@ def test_image_derivative_urls_change_when_image_content_version_changes():
     assert "?v=${this.getImageVersion(image)}" in UI_JS
     assert "encodeURIComponent(image.image_id)" in UI_JS
     assert "/resource/previews/${encodeURIComponent(image.image_id)}.webp" in UI_JS
-    assert "restricted ? this.getThumbnailUrl(image) : this.getPreviewUrl(image)" in UI_JS
+    assert "blocked ? this.getThumbnailUrl(image) : url" in UI_JS
 
 
 def test_r2_direct_upload_uses_presigned_put_and_falls_back_to_review_flow():

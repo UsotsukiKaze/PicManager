@@ -511,8 +511,8 @@ class API {
         });
     }
 
-    async scanExistingDuplicates(limit = 25, excludedPairs = []) {
-        return this.request(`/system/duplicates/scan?limit=${encodeURIComponent(limit)}`, {
+    async scanExistingDuplicates(limit = 25, excludedPairs = [], localValidation = false) {
+        return this.request(`/system/duplicates/scan?limit=${encodeURIComponent(limit)}&local_validation=${localValidation}`, {
             method: 'POST',
             body: JSON.stringify({ excluded_pairs: excludedPairs }),
         });
@@ -531,7 +531,7 @@ class API {
     }
 
     async scanNextPixivUpgrade() {
-        return this.request('/system/pixiv-upgrades/next', {
+        return this.request('/system/pixiv-check/next', {
             method: 'POST',
         });
     }
@@ -541,6 +541,10 @@ class API {
             method: 'POST',
             body: JSON.stringify({ token, action }),
         });
+    }
+
+    async resolvePixivCheck(choice) {
+        return this.request('/system/pixiv-check/resolve', {method:'POST',body:JSON.stringify(choice)});
     }
 
     // 榜单

@@ -25,7 +25,7 @@ def test_anonymous_shell_only_eagerly_loads_auth_bootstrap():
     html = INDEX_HTML.read_text(encoding="utf-8")
     eager_scripts = re.findall(r'<script\b[^>]*\bsrc="([^"]+)"', html)
 
-    assert eager_scripts == ["/static/js/auth.js?v=20260927a"]
+    assert eager_scripts == ["/static/js/auth.js?v=20261004f"]
     assert 'class="app-booting"' in html
     assert '<noscript><meta http-equiv="refresh" content="0; url=/login"></noscript>' in html
     assert 'rel="stylesheet" href="/static/css/style.css' not in html
@@ -44,19 +44,19 @@ def test_authenticated_bootstrap_loads_application_only_after_auth_success():
     assert auth_check < auth_guard < application_load
 
     for asset in (
-        "/static/css/style.css?v=20260927a",
+        "/static/css/style.css?v=20261004f",
         "/static/js/security.js?v=20260820a",
         "/static/vendor/pinyin-pro-3.29.2.min.js?v=3.29.2",
         "/static/js/pinyin-search.js?v=20260820c",
         "/static/js/character-selector.js?v=20260820b",
-        "/static/js/tag-selector.js?v=20260820e",
-        "/static/js/api.js?v=20260820h",
+        "/static/js/tag-selector.js?v=20261004f",
+        "/static/js/api.js?v=20261004f",
         "/static/js/entity-cache.js?v=20260820a",
         "/static/js/search-selector.js?v=20260820d",
-        "/static/js/image-list.js?v=20260820b",
-        "/static/js/modal.js?v=20260820a",
-        "/static/js/ui.js?v=20260820e",
-        "/static/js/main.js?v=20260812c",
+        "/static/js/image-list.js?v=20261004f",
+        "/static/js/modal.js?v=20261004f",
+        "/static/js/ui.js?v=20261004f",
+        "/static/js/main.js?v=20261004f",
     ):
         assert asset in source
 
@@ -95,7 +95,7 @@ def test_all_management_entity_fields_are_escaped_at_html_render_sinks():
         "this.escapeHomeRankingText(tag.name)",
         "this.escapeHomeRankingText(tag.description || '')",
         "this.escapeHomeRankingText(image.pid || '')",
-        "this.escapeHomeRankingText(image.description || '无')",
+        "esc(image.description)",
         "this.escapeHomeRankingText(value)",
     ):
         assert expression in ui_source

@@ -6,6 +6,10 @@ class AuthManager {
         this.guestInfo = null;
         this.featureLoadPromises = {};
         this.featureAssets = {
+            pixiv: {
+                src: '/static/js/pixiv-ol.js?v=20261004f',
+                resolve: () => window.pixivOL,
+            },
             upload: {
                 src: '/static/js/upload.js?v=20260820d',
                 resolve: () => window.upload,
@@ -119,24 +123,26 @@ class AuthManager {
         this.applicationLoadPromise = (async () => {
             await this.waitForDocumentBody();
             const stylesReady = Promise.all([
-                this.loadStyle('/static/css/style.css?v=20260927a'),
+                this.loadStyle('/static/css/style.css?v=20261004f'),
                 this.loadStyle('/static/css/icons.css?v=20260812a'),
+                this.loadStyle('/static/css/workspace-shell.css?v=20261004f'),
             ]);
             const scripts = [
                 '/static/js/security.js?v=20260820a',
                 '/static/vendor/pinyin-pro-3.29.2.min.js?v=3.29.2',
                 '/static/js/pinyin-search.js?v=20260820c',
                 '/static/js/character-selector.js?v=20260820b',
-                '/static/js/tag-selector.js?v=20260820e',
-                '/static/js/api.js?v=20260820h',
+                '/static/js/tag-selector.js?v=20261004f',
+                '/static/js/api.js?v=20261004f',
                 '/static/js/upload-queue.js?v=20260820j',
                 '/static/js/query-panel.js?v=20260820d',
                 '/static/js/entity-cache.js?v=20260820a',
                 '/static/js/search-selector.js?v=20260820d',
-                '/static/js/image-list.js?v=20260820b',
-                '/static/js/modal.js?v=20260820a',
-                '/static/js/ui.js?v=20260820e',
-                '/static/js/main.js?v=20260812c',
+                '/static/js/image-list.js?v=20261004f',
+                '/static/js/modal.js?v=20261004f',
+                '/static/js/workspace-shell.js?v=20261004f',
+                '/static/js/ui.js?v=20261004f',
+                '/static/js/main.js?v=20261004f',
             ];
 
             // async=false 的动态 classic script 按插入顺序执行；一次性插入可让网络抓取并行。
@@ -257,6 +263,14 @@ class AuthManager {
         document.querySelectorAll('.admin-maintenance').forEach(section => {
             section.style.display = isAdmin ? '' : 'none';
         });
+        document.querySelectorAll('.pixiv-admin-only').forEach(section => {
+            section.style.display = isAdmin ? '' : 'none';
+        });
+        if (isAdmin) {
+            document.querySelectorAll('img[data-pixiv-src]').forEach(image => {
+                image.src = image.dataset.pixivSrc;
+            });
+        }
 
         if (window.ui && typeof window.ui.applyRolePreferences === 'function') {
             window.ui.applyRolePreferences();

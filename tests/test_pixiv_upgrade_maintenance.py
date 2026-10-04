@@ -289,9 +289,9 @@ def test_frontend_exposes_review_before_pixiv_replace():
 
     assert 'id="scan-pixiv-upgrades-button"' in html
     assert 'id="pixiv-upgrade-progress-bar"' in html
-    assert "/system/pixiv-upgrades/next" in api_source
+    assert "/system/pixiv-check/next" in api_source
     assert "/system/pixiv-upgrades/resolve" in api_source
-    assert "await reviewPixivUpgrade(result)" in ui_source
+    assert "await reviewPixivCheck(result)" in ui_source
     assert "updatePixivUpgradeProgress" in ui_source
     assert "result.remaining" in ui_source
     assert 'data-pixiv-action="replace"' in ui_source
@@ -300,7 +300,7 @@ def test_frontend_exposes_review_before_pixiv_replace():
     assert "finish('replace')" in ui_source
     assert "pixivAutoReviewEnabled" in ui_source
     assert "await api.resolvePixivUpgrade(result.token, action)" in ui_source
-    assert '/static/js/auth.js?v=20260927a' in html
-    assert '/static/js/api.js?v=20260820h' in auth_source
-    assert '/static/js/ui.js?v=20260820e' in auth_source
-    assert '/static/css/style.css?v=20260927a' in auth_source
+    assert '/static/js/auth.js?v=20261004f' in html
+    assert '/static/js/api.js?v=20261004f' in auth_source
+    assert '/static/js/ui.js?v=20261004f' in auth_source
+    assert '/static/css/style.css?v=20261004f' in auth_source

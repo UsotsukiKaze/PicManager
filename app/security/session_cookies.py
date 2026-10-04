@@ -4,6 +4,7 @@ from fastapi import Request, Response
 
 from ..config import Settings, settings
 from .lan_debug import is_lan_debug_request
+from .debug_login import is_local_debug_root_request
 
 
 COOKIE_PATH = "/"
@@ -12,14 +13,14 @@ COOKIE_SAMESITE = "lax"
 
 def auth_cookie_secure(request: Request, config: Settings = settings) -> bool:
     """Keep production cookies secure; relax only for an explicit HTTP LAN debug host."""
-    if is_lan_debug_request(request, config):
+    if is_lan_debug_request(request, config) or is_local_debug_root_request(request, config):
         return False
     return bool(config.SESSION_COOKIE_SECURE)
 
 
 def auth_cookie_domain(request: Request, config: Settings = settings) -> str | None:
     # A production domain cookie is invalid for an IP-address LAN origin.
-    if is_lan_debug_request(request, config):
+    if is_lan_debug_request(request, config) or is_local_debug_root_request(request, config):
         return None
     return str(config.SESSION_COOKIE_DOMAIN or "").strip() or None
 

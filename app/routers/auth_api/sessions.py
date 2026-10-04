@@ -6,6 +6,7 @@ from ...database import get_db_context
 from ...models import GuestLimit, User, UserRole, UserSession
 from ...security.tickets import consume_login_ticket
 from ...security.session_cookies import delete_auth_cookie, set_auth_cookie
+from ...security.debug_login import is_local_debug_root_request
 from ...security.guest_identity import (
     GUEST_IDENTITY_COOKIE,
     GUEST_IDENTITY_MAX_AGE,
@@ -24,9 +25,14 @@ from ..auth import (
     get_client_ip,
     get_session,
     ROOT_QQ,
+    init_root_user,
 )
 
 router = APIRouter()
+
+
+def local_debug_root_login(request: Request) -> bool:
+    return is_local_debug_root_request(request, settings)
 
 
 @router.post("/login")
@@ -93,6 +99,20 @@ async def guest_login(request: Request, response: Response):
     with get_db_context() as db:
         # 清理过期session
         cleanup_expired_sessions(db)
+
+        if local_debug_root_login(request):
+            root_user = init_root_user(db)
+            session_id = create_session(db, root_user, timeout=GUEST_SESSION_TIMEOUT)
+            set_auth_cookie(
+                response, request, key="session_id", value=session_id,
+                max_age=GUEST_SESSION_TIMEOUT, config=settings,
+            )
+            return {
+                "message": "本地调试：已登录 Root",
+                "is_guest": False,
+                "debug_login": True,
+                "user": schemas.UserInfo.model_validate(root_user),
+            }
 
         guest_cookie = request.cookies.get(GUEST_IDENTITY_COOKIE)
         guest_name = read_guest_identity(guest_cookie)

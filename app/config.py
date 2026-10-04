@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     DEBUG: bool = False
+    DEBUG_GUEST_ROOT: bool = False  # Explicit local debug login; requires DEBUG too.
     ENABLE_API_DOCS: bool = False
     
     # 安全配置

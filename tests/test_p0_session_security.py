@@ -58,6 +58,7 @@ def test_debug_defaults_to_false_without_env_file():
 async def test_debug_loopback_guest_login_never_becomes_root(monkeypatch):
     session_factory = _database_context(monkeypatch, sessions)
     monkeypatch.setattr(sessions.settings, "DEBUG", True)
+    monkeypatch.setattr(sessions.settings, "DEBUG_GUEST_ROOT", False)
 
     result = await sessions.guest_login(_request(), Response())
 
@@ -68,6 +69,42 @@ async def test_debug_loopback_guest_login_never_becomes_root(monkeypatch):
         assert saved.is_guest == "true"
         assert saved.user_id is None
         assert db.query(models.User).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_explicit_local_debug_guest_login_becomes_root(monkeypatch):
+    session_factory = _database_context(monkeypatch, sessions)
+    monkeypatch.setattr(sessions.settings, "DEBUG", True)
+    monkeypatch.setattr(sessions.settings, "DEBUG_GUEST_ROOT", True)
+    monkeypatch.setattr(sessions.settings, "SESSION_COOKIE_SECURE", True)
+    monkeypatch.setattr(sessions.settings, "SESSION_COOKIE_DOMAIN", "pic.usotsuki-kaze.com")
+    request = _request()
+    request.scope["server"] = ("localhost", 8778)
+    response = Response()
+    result = await sessions.guest_login(request, response)
+    assert result["is_guest"] is False
+    assert result["user"].role == "root"
+    cookie = response.headers["set-cookie"]
+    assert "Domain=" not in cookie and "Secure" not in cookie
+    assert "HttpOnly" in cookie
+    with session_factory() as db:
+        saved = db.query(models.UserSession).one()
+        assert saved.is_guest == "false" and saved.user_id is not None
+
+
+@pytest.mark.parametrize("debug,client,host,headers", [
+    (False, "127.0.0.1", "localhost", []),
+    (True, "192.168.1.2", "localhost", []),
+    (True, "127.0.0.1", "pic.usotsuki-kaze.com", []),
+    (True, "127.0.0.1", "localhost", [(b"x-forwarded-for", b"192.168.1.2")]),
+])
+def test_debug_root_login_requires_direct_loopback(monkeypatch, debug, client, host, headers):
+    monkeypatch.setattr(sessions.settings, "DEBUG", debug)
+    monkeypatch.setattr(sessions.settings, "DEBUG_GUEST_ROOT", True)
+    request = _request(client=client)
+    request.scope["server"] = (host, 8778)
+    request.scope["headers"] = headers
+    assert sessions.local_debug_root_login(request) is False
 
 
 def test_ordinary_write_without_session_returns_401(monkeypatch):

@@ -25,6 +25,93 @@ import uuid
 
 router = APIRouter()
 
+
+def _temp_pixiv_error(exc):
+    raise HTTPException(409 if exc.code.startswith('temp_') or exc.code in ('account_changed', 'invalid_page', 'invalid_temp_file') else 502,
+                        detail=exc.code) from None
+
+
+@router.post('/upload/temp-pixiv/start')
+def start_temp_pixiv(request: Request):
+    from ... import temp_pixiv
+    from ..integrations.pixiv_ol import write_guard
+    write_guard(request)
+    actor = require_admin_user_id(request)
+    try:
+        return temp_pixiv.start(actor, _duplicate_owner(request))
+    except temp_pixiv.PixivError as exc:
+        _temp_pixiv_error(exc)
+
+
+@router.post('/upload/temp-pixiv/check')
+def check_temp_pixiv(body: schemas.TempPixivCheck, request: Request):
+    from ... import temp_pixiv
+    from ..integrations.pixiv_ol import write_guard
+    write_guard(request)
+    actor = require_admin_user_id(request)
+    try:
+        return temp_pixiv.check(body.run_id, body.filename, actor, _duplicate_owner(request))
+    except temp_pixiv.PixivError as exc:
+        _temp_pixiv_error(exc)
+    except (OSError, ValueError, UnidentifiedImageError):
+        raise HTTPException(409, 'temp_file_changed') from None
+
+
+@router.post('/upload/temp-pixiv/stop')
+def stop_temp_pixiv(body: schemas.TempPixivStop, request: Request):
+    from ... import temp_pixiv
+    from ..integrations.pixiv_ol import write_guard
+    write_guard(request)
+    return temp_pixiv.stop(body.run_id, require_admin_user_id(request), _duplicate_owner(request))
+
+
+@router.get('/upload/temp-preview')
+def temp_preview(request: Request, filename: str = Query(min_length=1, max_length=1024)):
+    from ... import temp_pixiv
+    from ...integrations.pixiv_ol import viewer
+    from ..integrations.pixiv_ol import private_media
+    from PIL import ImageOps
+    require_admin_user_id(request)
+    try:
+        source = temp_pixiv.safe_path(filename)
+        before = temp_pixiv.snapshot(source)
+        identity = hashlib.sha256(repr(before).encode()).hexdigest()
+        root = Path(settings.TEMP_PATH) / '.picmanager-previews'
+        folder = root / 'temp'
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f'{identity}.img'
+        with viewer.file_lock(path):
+            if not path.is_file():
+                stage = path.with_suffix('.part')
+                try:
+                    with viewer.cache_space(root, path, 2 * 1024 * 1024), viewer.ENCODE_SLOTS, Image.open(source) as image:
+                        image.thumbnail((500, 500))
+                        image = ImageOps.exif_transpose(image)
+                        image.convert('RGBA' if 'A' in image.getbands() else 'RGB').save(stage, format='WEBP', quality=82)
+                        if temp_pixiv.snapshot(source) != before:
+                            raise temp_pixiv.PixivError('temp_file_changed')
+                        stage.replace(path)
+                finally:
+                    stage.unlink(missing_ok=True)
+        return private_media(path, 'image/webp', request, identity)
+    except temp_pixiv.PixivError as exc:
+        _temp_pixiv_error(exc)
+    except (OSError, ValueError, UnidentifiedImageError):
+        raise HTTPException(409, 'temp_file_changed') from None
+
+
+@router.get('/upload/temp-original')
+def temp_original(request: Request, filename: str = Query(min_length=1, max_length=1024)):
+    from ... import temp_pixiv
+    from fastapi.responses import FileResponse
+    require_admin_user_id(request)
+    try:
+        path = temp_pixiv.safe_path(filename)
+        _verify_image_file(str(path))
+        return FileResponse(path, headers={'Cache-Control': 'private, no-store'})
+    except temp_pixiv.PixivError as exc:
+        _temp_pixiv_error(exc)
+
 Image.MAX_IMAGE_PIXELS = 50_000_000
 
 
@@ -66,15 +153,11 @@ def _verify_image_file(path: str) -> None:
 
 
 def _safe_temp_image_path(filename: str) -> Path:
-    if not filename or "/" in filename or "\\" in filename or "\x00" in filename:
-        raise HTTPException(status_code=400, detail="Invalid filename")
-    temp_root = Path(settings.TEMP_PATH).resolve()
-    image_path = (temp_root / filename).resolve()
+    from ... import temp_pixiv
     try:
-        image_path.relative_to(temp_root)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Invalid filename") from exc
-    return image_path
+        return temp_pixiv.safe_path(filename)
+    except temp_pixiv.PixivError as exc:
+        raise HTTPException(404 if exc.code == 'temp_file_changed' else 400, 'Invalid or missing temp image') from None
 
 
 def _validate_upload_tags(db, character_ids: List[int], group_ids: List[int], feature_tag_ids: List[int]) -> None:
@@ -654,24 +737,17 @@ def upload_single_image(
 def get_temp_images_count(request: Request):
     """Return temp image count for admins."""
     require_admin_user_id(request)
-    temp_path = settings.TEMP_PATH
-    if not os.path.exists(temp_path):
-        return {"count": 0}
-    allowed_extensions = {f".{ext}" for ext in _allowed_image_extensions()}
-    count = len([f for f in os.listdir(temp_path) if any(f.lower().endswith(ext) for ext in allowed_extensions)])
-    return {"count": count}
+    from ... import temp_pixiv
+    return {"count": len(temp_pixiv.files())}
 
 
 @router.get("/upload/temp-images")
 def get_temp_images(request: Request):
     """Return temp image filenames for admins."""
     require_admin_user_id(request)
-    temp_path = settings.TEMP_PATH
-    if not os.path.exists(temp_path):
-        return {"images": []}
-    allowed_extensions = {f".{ext}" for ext in _allowed_image_extensions()}
-    images = [f for f in os.listdir(temp_path) if any(f.lower().endswith(ext) for ext in allowed_extensions)]
-    return {"images": images}
+    from ... import temp_pixiv
+    items = temp_pixiv.files()
+    return {"images": [item['filename'] for item in items], "items": items}
 
 
 @router.post("/upload/temp-duplicates/scan")
@@ -679,12 +755,7 @@ def scan_temp_duplicates(request: Request, limit: int = Query(25, ge=1, le=100))
     """Scan temp files against stored and archived images without requiring temp metadata."""
     require_admin_user_id(request)
     with get_db_context() as db:
-        results = ImageService.scan_temp_directory_duplicates(
-            db,
-            settings.TEMP_PATH,
-            _allowed_image_extensions(),
-            limit=limit,
-        )
+        results = ImageService.scan_temp_directory_duplicates(db, settings.TEMP_PATH, _allowed_image_extensions(), limit=limit)
         matches = []
         for result in results:
             filename = result["filename"]
@@ -701,8 +772,9 @@ def scan_temp_duplicates(request: Request, limit: int = Query(25, ge=1, le=100))
             })
             matches.append({
                 "filename": filename,
-                "filename_stem": Path(filename).stem,
-                "temp": _incoming_duplicate_match(db, str(image_path), {}, filename),
+                "display_name": image_path.name,
+                "filename_stem": image_path.stem,
+                "temp": _incoming_duplicate_match(db, str(image_path), {}, image_path.name),
                 "stored": stored,
                 "duplicate_algorithm": "dhash64",
                 "duplicate_threshold": min(64, max(0, settings.DUPLICATE_DHASH_DISTANCE)),
@@ -787,7 +859,7 @@ def resolve_temp_duplicate(choice: schemas.TempDuplicateResolveRequest, request:
                     db,
                     metadata,
                     str(source_path),
-                    filename,
+                    source_path.name,
                     file_extension,
                     settings.STORE_PATH,
                 )
@@ -823,7 +895,7 @@ def resolve_temp_duplicate(choice: schemas.TempDuplicateResolveRequest, request:
 @router.post("/upload/temp", response_model=schemas.UploadImageResponse)
 def upload_temp_image(temp_upload: schemas.TempImageUpload, request: Request):
     """Import an existing temp image into the managed store. Admin only."""
-    require_admin_user_id(request)
+    actor_id = require_admin_user_id(request)
     image_path = _safe_temp_image_path(temp_upload.filename)
     if not image_path.exists():
         raise HTTPException(status_code=404, detail="Image not found in temp directory")
@@ -861,6 +933,11 @@ def upload_temp_image(temp_upload: schemas.TempImageUpload, request: Request):
                 missing_ids = set(temp_upload.feature_tag_ids) - set(t.id for t in existing_tags)
                 raise HTTPException(status_code=400, detail=f"Selected feature tags do not exist: {missing_ids}")
 
+        from ... import temp_pixiv
+        try:
+            evidence = temp_pixiv.proof(db, temp_upload.pixiv_token, temp_upload.filename, actor_id, temp_upload.pid, temp_upload.identity_confirmed)
+        except temp_pixiv.PixivError as exc:
+            _temp_pixiv_error(exc)
         image_create = schemas.ImageCreate(
             character_ids=temp_upload.character_ids,
             group_ids=temp_upload.group_ids,
@@ -879,16 +956,17 @@ def upload_temp_image(temp_upload: schemas.TempImageUpload, request: Request):
                     request,
                     "temp",
                     temp_upload.filename,
-                    temp_upload.filename,
+                    image_path.name,
                     file_extension,
                     metadata,
                     upload_hash,
                     duplicate_matches,
                 )
-                return _duplicate_response(db, duplicate_matches, token, str(image_path), metadata, temp_upload.filename)
+                return _duplicate_response(db, duplicate_matches, token, str(image_path), metadata, image_path.name)
             image = ImageService.create_image(
-                db, image_create, str(image_path), temp_upload.filename, file_extension, settings.STORE_PATH
+                db, image_create, str(image_path), image_path.name, file_extension, settings.STORE_PATH
             )
+            temp_pixiv.attach(db, image, evidence)
 
         if is_admin and user_id:
             pending_request = PendingRequest(
@@ -912,7 +990,7 @@ def upload_temp_image(temp_upload: schemas.TempImageUpload, request: Request):
             db.commit()
 
         try:
-            image_path.unlink()
+            image_path.unlink(missing_ok=True)
         except Exception as e:
             log_error(f"Failed to delete temp file: {e}")
         return schemas.UploadImageResponse(
@@ -972,6 +1050,12 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                 status="cancelled",
             )
 
+        from ... import temp_pixiv
+        try:
+            evidence = temp_pixiv.proof(db, metadata.get('pixiv_token'), str(payload.get('filename')), user_id, metadata.get('pid'), metadata.get('identity_confirmed', False)) if source == 'temp' else None
+        except temp_pixiv.PixivError as exc:
+            _temp_pixiv_error(exc)
+
         current_hash, current_matches = _duplicate_upload_scan(db, str(source_path), character_ids)
         if current_hash != payload.get("upload_hash"):
             raise HTTPException(status_code=409, detail="Staged image changed; submit the image again")
@@ -1029,6 +1113,8 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                     ImageService.mark_file_status(db, existing, exists=False)
                     raise HTTPException(status_code=409, detail="Selected existing image file is missing")
                 ImageService.merge_incoming_image_metadata(db, selected_id, metadata, choice.metadata_sources)
+                if evidence and existing.pid == metadata.get('pid'):
+                    temp_pixiv.attach(db, existing, evidence)
                 source_path.unlink(missing_ok=True)
                 db.commit()
             return schemas.UploadImageResponse(
@@ -1077,6 +1163,8 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                     ImageService.remember_distinct_duplicate_pair(
                         db, image.image_id, confirmed_ids[0], decided_by=user_id,
                     )
+                if evidence and image.pid == metadata.get('pid'):
+                    temp_pixiv.attach(db, image, evidence)
                 if user_id:
                     db.add(PendingRequest(
                         request_type="add",

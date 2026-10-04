@@ -98,7 +98,7 @@
         const activeLayer = document.getElementById('modal-body')?.lastElementChild;
         if (!modal || !activeLayer) return;
         const selector = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-        const closeButton = modal.querySelector('.modal-close');
+        const closeButton = activeLayer.querySelector('#temp-upload-form') ? null : modal.querySelector('.modal-close');
         const focusable = [closeButton, ...activeLayer.querySelectorAll(selector)]
             .filter((element, index, list) => element && !element.hidden && list.indexOf(element) === index);
         if (focusable.length === 0) {

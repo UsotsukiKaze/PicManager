@@ -6,7 +6,6 @@ import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from PIL import Image as PILImage
 from sqlalchemy import select, update
 
 from ... import models
@@ -17,7 +16,7 @@ from ...services import ImageService
 from ...storage import get_image_storage
 from . import service
 from .provider import PixivError, download
-from .recommendations import TagIndex
+from .image_limits import open_image
 
 ACCOUNT_LOCK = threading.RLock()
 ACTIVE = ("queued", "running", "retry", "awaiting_duplicate")
@@ -115,7 +114,7 @@ def add_source(db, image_id, pid, page, sha, art, *, apply_tag_matches=False):
 
 
 def import_pages(provider, job_id, revision, actor_id, draft):
-    from . import cart
+    from . import cart, import_review
 
     if draft.get("cart_id"):
         with get_db_context() as db:
@@ -161,12 +160,10 @@ def import_pages(provider, job_id, revision, actor_id, draft):
         else:
             download(art["originals"][page], stage)
         try:
-            with PILImage.open(stage) as image:
+            with open_image(stage) as image:
                 image.verify()
-            with PILImage.open(stage) as image:
+            with open_image(stage) as image:
                 width, height = image.size
-                if width * height > 50_000_000:
-                    raise PixivError("image_too_large")
                 extension = {"JPEG": "jpg", "PNG": "png", "WEBP": "webp", "GIF": "gif", "BMP": "bmp"}.get(image.format)
             if not extension:
                 raise PixivError("invalid_image")
@@ -183,36 +180,36 @@ def import_pages(provider, job_id, revision, actor_id, draft):
                     .filter(models.PixivImageSource.sha256 == digest)
                     .first()
                 )
-                duplicates = (
-                    db.query(models.Image.image_id, models.Image.perceptual_hash)
-                    .filter(
-                        models.Image.file_status == "available",
-                        models.Image.perceptual_hash.isnot(None),
-                        models.Image.groups.any(models.Group.id.in_(tags["group_ids"])),
-                    )
-                    .all()
-                )
-                near = [
-                    {"image_id": image_id, "distance": ImageService.dhash_distance(perceptual, phash)}
-                    for image_id, phash in duplicates
-                    if ImageService.dhash_distance(perceptual, phash) <= settings.DUPLICATE_DHASH_DISTANCE
-                ]
+                near = import_review.candidates(db, stage, perceptual, tags["group_ids"])
                 decision = draft.get("decisions", {}).get(str(page), {})
+                reason = None
+                selected = decision.get("image_id")
+                merge_new = decision.get("action") == "merge_new"
+                merging = decision.get("action") in ("merge_existing", "merge_new")
+                if decision.get("action") in ("existing", "merge_existing", "merge_new"):
+                    candidate = db.get(models.Image, selected)
+                    valid = selected in {row["image_id"] for row in near} and candidate is not None
+                    if valid and decision.get("candidate_signature"):
+                        valid = import_review.signature(candidate) == decision["candidate_signature"]
+                    if not valid:
+                        decision = {}; merging = merge_new = False; reason = "candidate_changed"
                 keep = same.image_id if same else None
-                if decision.get("action") == "existing":
-                    if decision.get("image_id") not in {x["image_id"] for x in near}:
-                        raise PixivError("invalid_duplicate_decision")
-                    keep = decision["image_id"]
-                if not keep and near and decision.get("action") != "different":
+                if decision.get("action") in ("existing", "merge_existing"):
+                    keep = selected
+                if not keep and near and decision.get("action") not in ("different", "merge_new"):
                     job = db.get(models.PixivJob, job_id)
                     job.status, job.locked_at = "awaiting_duplicate", None
-                    job.result = {
-                        "page": page,
-                        "duplicates": sorted(near, key=lambda x: x["distance"])[:20],
-                        "done": done,
-                    }
+                    job.result = import_review.review(db, art, page, tags, stage, near, done, draft.get("cart_id"), reason)
                     return None
                 if keep:
+                    if merging:
+                        if not ImageService.image_file_exists(db.get(models.Image, keep)):
+                            raise PixivError("duplicate_file_missing")
+                        ImageService.merge_incoming_image_metadata(db, keep, {
+                            **tags, "feature_tag_ids": import_review.feature_ids(db, tags),
+                            "pid": f"{art['pid']}_p{page}", "description": art["title"],
+                            "age_rating": "r18" if art["x_restrict"] else tags.get("age_rating", "all"),
+                        }, decision.get("metadata_sources", {}))
                     if art["x_restrict"]:
                         db.get(models.Image, keep).age_rating = "r18"
                     # Keeping an existing image must preserve its confirmed page labels.
@@ -236,19 +233,7 @@ def import_pages(provider, job_id, revision, actor_id, draft):
                     validate_draft(db, tags)
                     if source_for(db, art["pid"], page):
                         raise PixivError("source_conflict")
-                    feature_ids = list(tags.get("feature_tag_ids", []))
-                    index = TagIndex(db)
-                    for name in tags.get("new_tags", []):
-                        matched = index.match([{"name": name}])
-                        if matched["feature_tag_ids"]:
-                            feature_ids.extend(matched["feature_tag_ids"])
-                        elif matched["group_ids"] or matched["character_ids"] or matched["conflicts"]:
-                            raise PixivError("tag_conflict")
-                        else:
-                            tag = models.FeatureTag(name=name)
-                            db.add(tag)
-                            db.flush()
-                            feature_ids.append(tag.id)
+                    feature_ids = import_review.feature_ids(db, tags)
                     rating = "r18" if art["x_restrict"] else tags.get("age_rating", "all")
                     image = models.Image(
                         image_id=image_id,
@@ -273,6 +258,18 @@ def import_pages(provider, job_id, revision, actor_id, draft):
                     )
                     db.add(image)
                     db.flush()
+                    if merge_new:
+                        previous = db.get(models.Image, selected)
+                        if not previous or import_review.signature(previous) != decision.get("candidate_signature"):
+                            raise PixivError("duplicate_changed")
+                        # Commit the replacement and metadata before deleting any old file.
+                        ImageService.merge_duplicate_image_metadata(db, image_id, selected,
+                            decision.get("metadata_sources", {}), delete_files=False)
+                    elif decision.get("action") == "different":
+                        for match in near:
+                            if match["image_id"] != decision.get("image_id"):
+                                continue
+                            ImageService.remember_distinct_duplicate_pair(db, image_id, match["image_id"], decided_by=actor_id)
                     # The import draft already contains the user's chosen labels.
                     add_source(db, image_id, art["pid"], page, digest, art)
                     for tag_id in set(feature_ids):
@@ -292,6 +289,14 @@ def import_pages(provider, job_id, revision, actor_id, draft):
             except Exception:
                 backend.delete(key)
                 raise
+            if merge_new:
+                try:
+                    with get_db_context() as db:
+                        ImageService.delete_superseded_image_files(db.get(models.Image, image_id), db.get(models.Image, selected))
+                except (OSError, ValueError):
+                    # The committed replacement remains authoritative; maintenance
+                    # can clean an archived file that could not be disposed.
+                    done[-1]["cleanup_pending"] = True
         finally:
             stage.unlink(missing_ok=True)
     with get_db_context() as db:

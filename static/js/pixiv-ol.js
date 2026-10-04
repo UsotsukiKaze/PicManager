@@ -12,7 +12,7 @@
     const errors = {reauth_required:'账号登录已失效，请前往设置重新登录', account_changed:'账号已更换，请刷新页面',
         group_required:'请为所选作品确认至少一个分组', content_filtered:'作品不符合当前内容偏好',
         pages_unconfirmed:'请逐页确认分 P 作品的标签后再入库',invalid_page_draft:'分 P 标签草稿不完整，请重新确认',
-        artwork_unavailable:'找不到该作品，可能已删除、私密或不可访问',external_error:'Pixiv 暂时不可用，请稍后重试', download_failed:'下载失败，请重试缓存', cache_full:'暂存空间已满，请入库或移除部分作品',
+        artwork_unavailable:'找不到该作品，可能已删除、私密或不可访问',external_error:'Pixiv 暂时不可用，请稍后重试', download_failed:'下载失败，请重试缓存', cache_full:'暂存空间已满，请入库或移除部分作品',image_too_large:'原图的文件大小或像素数量超过服务端上限',
         cache_missing:'缓存文件缺失，请移除后重新加入', cache_changed:'缓存文件已变化，请移除后重新加入',
         tag_conflict:'新标签存在歧义，请在优选夹或标签管理中确认映射', cart_removed:'暂存作品已被移除',
         processing_failed:'处理失败，可以重试', login_browser_failed:'登录窗口无法完成授权，请尝试普通浏览器授权',
@@ -78,6 +78,7 @@
             this.importJobs=[];this.submittingCartIds=new Set();this.submittedCartIds=new Set();this.importSubmitting=false;
             this.media=new MediaCache();
             this.readingStates=new Map();this.readerPages=new Map();
+            this.importReviewSeen=new Set();
             this.lookupItems=new Map();this.similarityPending=new Set();this.similaritySeen=new Set();this.similarityEpoch=0;
         }
         bind(node) {
@@ -414,6 +415,7 @@
                 } else if(action==='import-progress') {
                     await this.showImportProgress();
                 } else if(action==='retry') {await request(`/jobs/${Number(button.dataset.id)}/retry`,{method:'POST'});this.watch();}
+                else if(action==='merge-review') {await this.reviewImportJob(Number(button.dataset.id));}
                 else if(action==='resolve') {await request(`/imports/${Number(button.dataset.id)}/resolve`,{method:'POST',body:JSON.stringify({action:button.dataset.choice,image_id:button.dataset.image || null})});this.watch();}
                 else if(action==='login') await this.login();
                 else if(action==='disconnect') {await request('/account',{method:'DELETE'});await this.loadAccount();await this.loadCart();await this.settings();}
@@ -458,7 +460,7 @@
             const split=row.draft.import_mode==='split',confirmed=row.draft.pages.filter(page=>(row.draft.confirmed_pages||[]).includes(page)).length;
             const label=row.status==='ready'?(split?`已确认 ${confirmed} / ${row.draft.pages.length} 页`:!row.draft.group_ids.length?'待确认分组':statuses.ready):(statuses[job?.status==='awaiting_duplicate'?'awaiting_duplicate':row.status]||row.status);
             const tags=split?['分 P 加入']:row.draft.group_ids.map(id=>this.groups?.find(g=>g.id===id)?.name || item.match.evidence.find(g=>g.type==='group'&&g.id===id)?.name || '作品分组');
-            return `<article class="px-cart-row ${split?'px-cart-split':''}"><label class="px-cart-select"><input type="checkbox" name="pixiv-cart-check" value="${row.id}" ${this.selection.has(row.id)?'checked':''} ${row.status==='ready'?'':'disabled'} aria-label="选择 ${esc(item.title)}"></label><img class="px-cart-preview" src="${esc(row.preview_url)}" alt="${esc(item.title)}" loading="lazy"><div class="px-cart-info"><h4>${esc(item.title)}</h4><p>${esc(item.author)}${row.pages.length>1?` · ${row.pages.length} 页`:''} · ${bytes(row.bytes)}</p><div class="px-tags">${tags.map(tag=>`<span>${esc(tag)}</span>`).join('')}<span class="px-state ${row.status==='ready'?'is-ready':''}">${esc(label)}</span></div>${split?this.cartPageRows(row):''}${job?.error?`<p class="px-error">${esc(errors[job.error]||job.error)}</p>`:''}${job?.status==='awaiting_duplicate'?`<div class="px-duplicate"><p>第 ${job.result.page+1} 页可能已收录：</p>${job.result.duplicates.map(image=>`<button class="px-button" data-action="resolve" data-id="${job.id}" data-choice="existing" data-image="${esc(image.image_id)}">保留 ${esc(image.image_id)}</button>`).join('')}<button class="px-button" data-action="resolve" data-id="${job.id}" data-choice="different">确认为不同图片</button></div>`:''}</div><div class="px-cart-controls">${row.status!=='importing'?`${!split?`<button class="px-text-button" data-action="cart-edit" data-id="${row.id}">确认标签</button>`:''}<button class="px-text-button px-remove" data-action="cart-remove" data-id="${row.id}">移除</button>`:''}${job&&['failed','partial'].includes(job.status)?`<button class="px-text-button" data-action="retry" data-id="${job.id}">重试</button>`:''}</div></article>`;
+            return `<article class="px-cart-row ${split?'px-cart-split':''}"><label class="px-cart-select"><input type="checkbox" name="pixiv-cart-check" value="${row.id}" ${this.selection.has(row.id)?'checked':''} ${row.status==='ready'?'':'disabled'} aria-label="选择 ${esc(item.title)}"></label><img class="px-cart-preview" src="${esc(row.preview_url)}" alt="${esc(item.title)}" loading="lazy"><div class="px-cart-info"><h4>${esc(item.title)}</h4><p>${esc(item.author)}${row.pages.length>1?` · ${row.pages.length} 页`:''} · ${bytes(row.bytes)}</p><div class="px-tags">${tags.map(tag=>`<span>${esc(tag)}</span>`).join('')}<span class="px-state ${row.status==='ready'?'is-ready':''}">${esc(label)}</span></div>${split?this.cartPageRows(row):''}${job?.error?`<p class="px-error">${esc(errors[job.error]||job.error)}</p>`:''}${job?.status==='awaiting_duplicate'?`<div class="px-duplicate"><p>第 ${job.result.page+1} 页 · 有 ${job.result.duplicates.length} 张相似库图</p><button class="px-button" data-action="merge-review" data-id="${job.id}">比对并合并</button></div>`:''}</div><div class="px-cart-controls">${row.status!=='importing'?`${!split?`<button class="px-text-button" data-action="cart-edit" data-id="${row.id}">确认标签</button>`:''}<button class="px-text-button px-remove" data-action="cart-remove" data-id="${row.id}">移除</button>`:''}${job&&['failed','partial'].includes(job.status)?`<button class="px-text-button" data-action="retry" data-id="${job.id}">重试</button>`:''}</div></article>`;
         }
         cartPageRows(row) {
             return `<div class="px-cart-page-list">${row.draft.pages.map(page=>{
@@ -554,18 +556,42 @@
             const list=this.importDialog.querySelector('[data-import-jobs]'),jobs=this.currentImportJobs();
             list.innerHTML=(this.submittingCartIds.size?'<p class="px-help">正在提交入库任务…</p>':'')+jobs.map(job=>{
                 const total=Number(job.page_count)||0,done=job.result?.done?.length||0;
-                return `<article class="px-import-task"><div class="px-import-task-heading"><strong>${esc(job.title||job.pid||`入库任务 ${job.id}`)}</strong><span class="px-state">${esc(statuses[job.status]||job.status)}</span></div>${total?`<progress max="${total}" value="${done}"></progress><p>${done} / ${total} 页</p>`:''}${job.error?`<p class="px-error">${esc(errors[job.error]||job.error)}</p>`:''}${job.status==='awaiting_duplicate'?`<div class="px-import-duplicates"><p>第 ${Number(job.result.page)+1} 页可能已收录，请选择：</p>${(job.result.duplicates||[]).map(image=>`<button class="px-button" data-import-choice="existing" data-job="${Number(job.id)}" data-image="${esc(image.image_id)}">保留 ${esc(image.image_id)}</button>`).join('')}<button class="px-button" data-import-choice="different" data-job="${Number(job.id)}">确认为不同图片，继续入库</button></div>`:''}${['failed','partial'].includes(job.status)?`<button class="px-button" data-import-choice="retry" data-job="${Number(job.id)}">重试入库</button>`:''}</article>`;
+                return `<article class="px-import-task"><div class="px-import-task-heading"><strong>${esc(job.title||job.pid||`入库任务 ${job.id}`)}</strong><span class="px-state">${esc(statuses[job.status]||job.status)}</span></div>${total?`<progress max="${total}" value="${done}"></progress><p>${done} / ${total} 页</p>`:''}${job.error?`<p class="px-error">${esc(errors[job.error]||job.error)}</p>`:''}${job.status==='awaiting_duplicate'?`<div class="px-import-duplicates"><p>第 ${Number(job.result.page)+1} 页 · 需要确认相似图片</p><button class="px-button" data-import-choice="review" data-job="${Number(job.id)}">比对并合并</button></div>`:''}${['failed','partial'].includes(job.status)?`<button class="px-button" data-import-choice="retry" data-job="${Number(job.id)}">重试入库</button>`:''}</article>`;
             }).join('')||'<p class="px-help">暂无入库任务。</p>';
             list.querySelectorAll('[data-import-choice]').forEach(button=>button.onclick=async()=>{
                 if(this.importJobAction)return;this.importJobAction=true;button.disabled=true;
                 try {
                     const id=Number(button.dataset.job),action=button.dataset.importChoice;
-                    if(action==='retry')await request(`/jobs/${id}/retry`,{method:'POST'});
+                    if(action==='review')await this.reviewImportJob(id);
+                    else if(action==='retry')await request(`/jobs/${id}/retry`,{method:'POST'});
                     else await request(`/imports/${id}/resolve`,{method:'POST',body:JSON.stringify({action,image_id:button.dataset.image||null})});
                     await this.loadImportJobs();this.updateImportTools();this.watch();
                 }catch(error){ui.showToast(error.message,'error');}
                 finally{this.importJobAction=false;button.disabled=false;}
             });
+        }
+        importReviewKey(job) { return `${job.id}:${job.result?.page}:${job.result?.review_key||'legacy'}`; }
+        offerImportReviews() {
+            if(this.importReviewBusy||ui.currentPage!=='pixiv-ol'||document.getElementById('modal-overlay')?.style.display==='flex'||document.querySelector('dialog[open]:not(.px-import-progress)'))return;
+            const job=this.currentImportJobs().find(job=>job.status==='awaiting_duplicate'&&!this.importReviewSeen.has(this.importReviewKey(job)));
+            if(job)this.reviewImportJob(job.id).catch(error=>ui.showToast(error.message,'error'));
+        }
+        async reviewImportJob(id) {
+            if(this.importReviewBusy)return;
+            const job=this.currentImportJobs().find(job=>job.id===id);if(!job)return;
+            this.importReviewBusy=true;this.importReviewSeen.add(this.importReviewKey(job));
+            const epoch=this.similarityEpoch;
+            try {
+                const [upload,comparison]=await Promise.all([window.auth.loadFeature('upload'),request(`/imports/${id}/comparison`)]);
+                if(ui.currentPage!=='pixiv-ol'||epoch!==this.similarityEpoch)return;
+                this.importReviewSeen.add(`${id}:${comparison.page}:${comparison.review_key||'legacy'}`);
+                const decision=await upload.resolveDuplicateChoice(comparison,comparison.incoming.thumbnail_url,{pixiv:true,title:`第 ${Number(comparison.page)+1} 页 · 相似图片合并`});
+                if(!decision||decision.action==='later')return;
+                if(epoch!==this.similarityEpoch)throw new Error('账号已变化，请重新比对');
+                const action=decision.action==='distinct'?'different':decision.keep==='new'?'merge_new':'merge_existing';
+                await request(`/imports/${id}/resolve`,{method:'POST',body:JSON.stringify({action,image_id:decision.action==='distinct'||decision.keep==='new'?decision.otherImageId:decision.keep||null,metadata_sources:decision.metadataSources||{},page:comparison.page,review_key:comparison.review_key})});
+                await this.loadImportJobs();this.updateImportTools();this.watch();
+            } finally {this.importReviewBusy=false;}
         }
         setLiked(pid,liked) {
             const lists=[this.items||[],[...this.lookupItems.values()],...Array.from(this.readingStates.values(),state=>state.items),this.cartItems.map(row=>row.artwork)];
@@ -597,12 +623,12 @@
                 this.setLiked(pid,!liked);
             } finally {button.disabled=false;}
         }
-        expandReader(dialog,sourceRect) {
+        expandReader(dialog,sourceRect,parts={}) {
             if(matchMedia('(prefers-reduced-motion:reduce)').matches)return Promise.resolve();
-            const cover=dialog.querySelector('.px-detail-cover'),target=cover.getBoundingClientRect();
+            const cover=parts.cover||dialog.querySelector('.px-detail-cover'),target=cover.getBoundingClientRect();
             const from=sourceRect?.width&&sourceRect?.height?`translate(${sourceRect.left-target.left}px,${sourceRect.top-target.top}px) scale(${sourceRect.width/target.width},${sourceRect.height/target.height})`:'scale(.92)';
             const picture=cover.animate([{transform:from,opacity:.7},{transform:'none',opacity:1}],{duration:380,easing:'cubic-bezier(.2,.8,.2,1)'});
-            const details=dialog.querySelector('.px-detail-body').animate([{transform:'translateY(14px) scale(.97)',opacity:0},{transform:'none',opacity:1}],{duration:280,delay:100,fill:'backwards',easing:'ease-out'});
+            const details=(parts.details||dialog.querySelector('.px-detail-body')).animate([{transform:'translateY(14px) scale(.97)',opacity:0},{transform:'none',opacity:1}],{duration:280,delay:100,fill:'backwards',easing:'ease-out'});
             dialog.addEventListener('close',()=>{picture.cancel();details.cancel();},{once:true});
             return picture.finished.catch(()=>{});
         }
@@ -960,7 +986,7 @@
                     }
                     await this.loadCart();const changed=before!==JSON.stringify(this.cartItems.map(row=>[row.id,row.status,row.cached_pages,row.job?.status]));
                     if(this.view==='cart'&&changed) await this.render();
-                    this.updateImportTools();
+                    this.updateImportTools();this.offerImportReviews();
                     const count=this.root.querySelector('.px-count');if(count) count.textContent=this.cartCount();
                     const active=jobs.some(job=>['queued','running','retry'].includes(job.status));
                     if(this.pendingRefresh) {

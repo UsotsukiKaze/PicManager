@@ -55,6 +55,8 @@ async def lifespan(app: FastAPI):
         image_job_worker.stop()
         pixiv_ol_worker.stop()
         PixivUpgradeService.close_client()
+        from app.temp_pixiv import shutdown as stop_temp_prechecks
+        stop_temp_prechecks()
         media_clients.close()
         create_db_snapshot()
 
@@ -215,7 +217,7 @@ def _restricted_derivative(request: Request, image_id: str) -> bool:
 @app.middleware("http")
 async def prevent_stale_ui_cache(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith("/api/pixiv-ol") or request.url.path == "/pixiv-ol":
+    if request.url.path.startswith(("/api/pixiv-ol", "/api/upload/temp")) or request.url.path == "/pixiv-ol":
         conditional_media = (
             response.status_code in (200, 304)
             and response.headers.get("Cache-Control") == "private, no-cache, must-revalidate"

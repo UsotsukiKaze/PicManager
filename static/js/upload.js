@@ -6,7 +6,6 @@ class UploadManager {
         this.singleFile = null;
         this.singleCharacterSelector = null;
         this.singleTagSelector = null;
-        this.tempLoadTimer = null;
         this.singlePreviewUrl = null;
         this.singleSubmitting = false;
         this.batchSubmitting = false;
@@ -14,6 +13,15 @@ class UploadManager {
         this.nextBatchItemId = 1;
         this.batchOptions = null;
         this.duplicateChoiceQueue = Promise.resolve();
+        this.tempResults = new Map();
+        this.tempLabels = new Map();
+        this.tempDrafts = new Map();
+        this.tempSelection = new Set();
+        this.tempUploading = new Set();
+        this.tempGeneration = 0;
+        this.tempFilter = 'all';
+        this.tempSearch = '';
+        window.addEventListener('pagehide', () => this.suspendTemp());
     }
 
     initializeEventListeners() {
@@ -429,111 +437,51 @@ class UploadManager {
         const container = layer.querySelector('[data-duplicate-merge-preview]');
         if (!container) return;
         const merged = this.mergedDuplicateItem(items, layer);
-        const title = (merged.character_names || []).join('、') || '合并后图片';
-        container.innerHTML = `
-            <article class="duplicate-compare-card duplicate-result-card">
-                <header><strong>${this.escapeHtml(title)}</strong><span>最终保留 · ${merged.image_id === 'new' ? '新上传' : `ID ${this.escapeHtml(merged.image_id)}`}</span></header>
-                <img src="${this.escapeHtml(merged.thumbnail_url)}" alt="合并后保留图片" loading="lazy">
-                ${this.duplicateMetadataRows(merged)}
-            </article>
-        `;
+        layer.querySelectorAll('[data-image-id]').forEach(card=>card.classList.toggle('is-kept',card.dataset.imageId===String(merged.image_id)));
+        container.innerHTML=`<div class="duplicate-result-summary"><span>最终保留</span><strong>${merged.image_id==='new'?'新图片':`库图 ${this.escapeHtml(merged.image_id)}`}</strong><small>${merged.width||'—'} × ${merged.height||'—'} · ${this.formatDuplicateFileSize(merged.file_size)}</small></div>${this.duplicateMetadataRows(merged)}`;
     }
 
-    resolveDuplicateChoice(result, newPreviewUrl = '') {
+    resolveDuplicateChoice(result, newPreviewUrl = '', options = {}) {
         const choose = () => new Promise(resolve => {
-            const existing = (result.duplicates || [])[0];
-            const incoming = result.incoming || null;
-            const items = incoming ? [existing, { ...incoming, image_id: 'new', thumbnail_url: newPreviewUrl }] : (result.duplicates || []).slice(0, 2);
-            if (items.length !== 2 || items.some(item => !item)) {
-                resolve(null);
-                return;
-            }
-            const cards = items.map((item, index) => {
-                const title = (item.character_names || []).join('、') || (index === 0 ? '图片 A' : '图片 B');
-                const preview = item.thumbnail_url || newPreviewUrl;
-                return `
-                    <article class="duplicate-compare-card" data-image-id="${this.escapeHtml(item.image_id)}">
-                        <header><strong>${this.escapeHtml(title)}</strong><span>${item.image_id === 'new' ? '新上传' : `ID ${this.escapeHtml(item.image_id)}`}</span></header>
-                        <img src="${this.escapeHtml(preview)}" alt="${this.escapeHtml(title)}" loading="lazy">
-                        ${this.duplicateMetadataRows(item)}
-                    </article>
-                `;
-            }).join('');
-            const mergeFields = [
-                ['pid', 'PID'], ['description', '描述'], ['age_rating', '年龄分级'],
-                ['groups', '分组标签'], ['characters', '角色标签'], ['feature_tags', '特征标签'],
-            ].map(([field, label]) => `
-                <label>${label}
-                    <select data-merge-field="${field}">
-                        <option value="merge">合并两侧</option>
-                        <option value="keep">采用保留图</option>
-                        <option value="other">采用另一张</option>
-                    </select>
-                </label>
-            `).join('');
-            const overlay = document.getElementById('modal-overlay');
-            const nested = overlay?.style.display === 'flex' && overlay.getAttribute('aria-hidden') !== 'true';
-            ui.showModal('相似图片比对', `
-                <div class="duplicate-review duplicate-review-large" role="group" aria-label="相似图片比对">
-                    <p>dHash 差异 ${items[1].distance ?? items[0].distance}/64。请判断它们是不同图片、同一图片，或稍后再处理。</p>
-                    <div class="duplicate-compare-grid">${cards}</div>
-                    <section class="duplicate-merge-panel" hidden>
-                        <h4>选择保留文件与信息来源</h4>
-                        <div class="duplicate-file-choice">
-                            ${items.map((item, index) => `<label><input type="radio" name="duplicate-file-keep" value="${this.escapeHtml(item.image_id)}" ${index === 0 ? 'checked' : ''}> 保留${index === 0 ? '左侧' : '右侧'}文件</label>`).join('')}
-                        </div>
-                        <div class="duplicate-merge-fields">${mergeFields}</div>
-                        <h4 class="duplicate-result-title">修改后保留图片</h4>
-                        <div class="duplicate-merge-preview" data-duplicate-merge-preview></div>
-                        <p class="duplicate-merge-note duplicate-delete-warning">确认后会永久删除另一份原图及缩略图，无法从系统恢复。</p>
-                    </section>
-                    <div class="duplicate-decision-actions">
-                        <button type="button" class="btn btn-secondary" data-duplicate-action="later">暂不处理</button>
-                        <button type="button" class="btn btn-secondary" data-duplicate-action="distinct">保存全部</button>
-                        <button type="button" class="btn btn-primary" data-duplicate-action="show-merge">合并检查</button>
-                        <button type="button" class="btn btn-primary" data-duplicate-action="confirm-merge" hidden>确认合并</button>
-                    </div>
-                </div>
-            `, nested);
-            const layer = document.getElementById('modal-body')?.lastElementChild;
-            let settled = false;
-            const finish = value => {
-                if (settled) return;
-                settled = true;
-                if (layer) delete layer._onModalClose;
-                ui.closeModal();
-                resolve(value);
+            const incoming=result.incoming;
+            const candidates=result.duplicates||[];
+            let items=incoming?[candidates[0],{...incoming,image_id:'new',thumbnail_url:newPreviewUrl||incoming.thumbnail_url}]:candidates.slice(0,2);
+            if(items.length!==2||items.some(item=>!item)){resolve(null);return;}
+            const esc=value=>this.escapeHtml(value);
+            const fileCard=(item,index)=>`<article class="duplicate-compare-card" data-image-id="${esc(item.image_id)}"><header><label class="duplicate-keep-option"><input type="radio" name="duplicate-file-keep" value="${esc(item.image_id)}" ${index===0?'checked':''}><span><strong>${item.image_id==='new'?(options.pixiv?'Pixiv 原图':'新图片'):`库内图片${incoming?'':index===0?' A':' B'}`}</strong><small>${esc(item.original_filename||item.image_id)}</small></span></label></header><div class="duplicate-image-frame"><img src="${esc(item.comparison_url||item.thumbnail_url||newPreviewUrl)}" alt="${esc(item.original_filename||item.image_id)}" decoding="async" ${item.image_id!=='new'?`data-original-src="/resource/originals/${esc(item.image_id)}"`:''}></div><p class="duplicate-file-spec">${item.width||'—'} × ${item.height||'—'} <span>${this.formatDuplicateFileSize(item.file_size)}</span></p><details class="duplicate-file-details"><summary>查看原有标签与信息</summary>${this.duplicateMetadataRows(item)}</details></article>`;
+            const fields=[['pid','PID'],['description','备注'],['age_rating','年龄分级'],['groups','分组'],['characters','角色'],['feature_tags','特征']];
+            const controls=fields.map(([field,label])=>`<label><span>${label}</span><select data-merge-field="${field}" ${field==='pid'&&options.pixiv?'disabled':''}>${field==='pid'&&options.pixiv?'<option value="other">采用本次 Pixiv PID</option>':`<option value="keep" ${field==='characters'?'selected':''}>采用保留图</option><option value="other">采用另一张</option><option value="merge" ${field==='characters'?'':'selected'}>合并两侧</option>`}</select></label>`).join('');
+            const overlay=document.getElementById('modal-overlay'),nested=overlay?.style.display==='flex'&&overlay.getAttribute('aria-hidden')!=='true';
+            ui.showModal(options.title||'相似图片合并',`<div class="duplicate-review duplicate-review-large duplicate-workbench" role="group" aria-label="相似图片比对"><header class="duplicate-review-heading"><div><span class="temp-eyebrow">COMPARE & MERGE</span><h3>选择保留的图片</h3><p data-duplicate-match-label></p></div>${incoming&&candidates.length>1?`<label class="duplicate-candidate-picker">相似候选<select data-existing-choice>${candidates.map((item,index)=>`<option value="${index}">库图 ${esc(item.image_id)}${item.score?' · '+item.score+'%':''}</option>`).join('')}</select></label>`:''}</header><div class="duplicate-workspace"><div class="duplicate-compare-grid" data-comparison-cards>${items.map(fileCard).join('')}</div><section class="duplicate-merge-panel"><h4>信息来源</h4><p class="duplicate-panel-hint">角色默认采用保留图，可按当前图片调整。</p><div class="duplicate-merge-fields">${controls}</div><h4 class="duplicate-result-title">合并结果</h4><div class="duplicate-merge-preview" data-duplicate-merge-preview></div></section></div><footer class="duplicate-workbench-footer"><p>确认合并后，只保留选定的文件，另一份文件将被删除。</p><div class="duplicate-decision-actions"><button type="button" class="btn btn-secondary" data-duplicate-action="later">稍后处理</button><button type="button" class="btn btn-secondary" data-duplicate-action="distinct">保留两张</button><button type="button" class="btn btn-primary" data-duplicate-action="confirm-merge">确认合并</button></div></footer></div>`,nested);
+            const layer=document.getElementById('modal-body')?.lastElementChild;
+            let settled=false;
+            const finish=value=>{if(settled)return;settled=true;if(layer)delete layer._onModalClose;ui.closeModal();resolve(value);};
+            layer._onModalClose=()=>{if(!settled){settled=true;resolve(null);}};
+            const render=()=>{
+                const match=items[0],hint=layer.querySelector('[data-duplicate-match-label]');
+                hint.textContent=match.algorithm==='visual64-grid-v1'?`画面相似度 ${match.score}% · 请核对截图边缘与对应页`:`dHash 差异 ${match.distance??items[1].distance??0} / 64 · 请确认是否为同一张图片`;
+                if(options.pixiv){const keep=layer.querySelector('input[name="duplicate-file-keep"]:checked')?.value;const pid=layer.querySelector('[data-merge-field="pid"]');pid.innerHTML=`<option value="${keep==='new'?'keep':'other'}">采用本次 Pixiv PID</option>`;}
+                this.renderMergedDuplicatePreview(items,layer);
             };
-            if (layer) {
-                layer._onModalClose = () => {
-                    if (settled) return;
-                    settled = true;
-                    resolve(null);
-                };
-            }
-            layer?.querySelector('[data-duplicate-action="later"]')?.addEventListener('click', () => finish({ action: 'later' }));
-            layer?.querySelector('[data-duplicate-action="distinct"]')?.addEventListener('click', () => finish({ action: 'distinct' }));
-            layer?.querySelector('[data-duplicate-action="show-merge"]')?.addEventListener('click', event => {
-                layer.querySelector('.duplicate-merge-panel').hidden = false;
-                event.currentTarget.hidden = true;
-                layer.querySelector('[data-duplicate-action="confirm-merge"]').hidden = false;
-                this.renderMergedDuplicatePreview(items, layer);
-            });
-            layer?.querySelectorAll('input[name="duplicate-file-keep"], [data-merge-field]').forEach(control => {
-                control.addEventListener('change', () => this.renderMergedDuplicatePreview(items, layer));
-            });
-            layer?.querySelector('[data-duplicate-action="confirm-merge"]')?.addEventListener('click', () => {
-                const keep = layer.querySelector('input[name="duplicate-file-keep"]:checked')?.value;
-                const metadataSources = {};
-                layer.querySelectorAll('[data-merge-field]').forEach(select => {
-                    metadataSources[select.dataset.mergeField] = select.value;
+            const bindFiles=()=>{
+                layer.querySelectorAll('input[name="duplicate-file-keep"]').forEach(input=>input.onchange=render);
+                layer.querySelectorAll('.duplicate-image-frame img[data-original-src]').forEach(image=>{
+                    const fallback=()=>{image.onerror=null;image.src=image.dataset.originalSrc;};
+                    image.onerror=fallback;if(image.complete&&!image.naturalWidth)fallback();
                 });
-                finish({ action: 'merge', keep, metadataSources });
-            });
+            };
+            bindFiles();render();
+            layer.querySelector('[data-existing-choice]')?.addEventListener('change',event=>{items=[candidates[Number(event.target.value)],items[1]];layer.querySelector('[data-comparison-cards]').innerHTML=items.map(fileCard).join('');bindFiles();render();});
+            layer.querySelectorAll('[data-merge-field]').forEach(select=>select.onchange=render);
+            layer.querySelector('[data-duplicate-action="later"]').onclick=()=>finish({action:'later'});
+            layer.querySelector('[data-duplicate-action="distinct"]').onclick=()=>finish({action:'distinct',otherImageId:items.find(item=>item.image_id!=='new')?.image_id});
+            layer.querySelector('[data-duplicate-action="confirm-merge"]').onclick=()=>{
+                const keep=layer.querySelector('input[name="duplicate-file-keep"]:checked').value,metadataSources={};
+                layer.querySelectorAll('[data-merge-field]').forEach(select=>metadataSources[select.dataset.mergeField]=select.value);
+                finish({action:'merge',keep,otherImageId:items.find(item=>item.image_id!=='new')?.image_id,metadataSources});
+            };
         });
-        const queued = this.duplicateChoiceQueue.then(choose, choose);
-        this.duplicateChoiceQueue = queued.catch(() => null);
-        return queued;
+        const queued=this.duplicateChoiceQueue.then(choose, choose);this.duplicateChoiceQueue=queued.catch(()=>null);return queued;
     }
 
     async uploadWithDuplicateChoice(file, metadata, onProgress, previewUrl = '', onStage = null) {
@@ -846,75 +794,151 @@ class UploadManager {
         this.singleFile = null;
     }
 
-    async loadTempImages() {
-        if (this.tempLoadTimer) {
-            clearTimeout(this.tempLoadTimer);
-        }
+    tempVisible() { return this.tempActive && ui.currentPage === 'upload' && ui.currentTab === 'temp-upload'; }
 
-        this.tempLoadTimer = setTimeout(async () => {
-            try {
-                const result = await api.getTempImages();
-                if (result && result.images) {
-                    this.renderTempImages(result.images);
-                    
-                    // 更新计数
-                    const countEl = document.getElementById('temp-image-count');
-                    if (countEl) {
-                        countEl.textContent = result.images.length;
-                    }
-                } else {
-                    this.renderTempImages([]);
+    async enterTemp() {
+        if (this.tempVisible()) return;
+        this.tempActive = true;
+        await this.loadTempImages();
+    }
+
+    stopTempRun(runId) {
+        if (!runId) return;
+        fetch('/api/upload/temp-pixiv/stop', {method:'POST', credentials:'same-origin', keepalive:true,
+            headers:{'Content-Type':'application/json','X-Pixiv-OL':'1'}, body:JSON.stringify({run_id:runId})}).catch(()=>{});
+    }
+
+    suspendTemp() {
+        this.tempActive = false;
+        this.tempGeneration++;
+        this.tempAbort?.abort();
+        this.stopTempRun(this.tempRun);
+        this.tempRun = null;
+        if(document.getElementById('temp-upload-form'))ui.closeModal();
+    }
+
+    async loadTempImages() {
+        if (!this.tempVisible()) return;
+        const oldRun=this.tempRun;
+        this.tempAbort?.abort();this.stopTempRun(oldRun);this.tempRun=null;
+        const generation=++this.tempGeneration,controller=this.tempAbort=new AbortController();
+        try {
+            const result=await api.request('/upload/temp-images',{signal:controller.signal});
+            if(generation!==this.tempGeneration||!this.tempVisible())return;
+            this.tempNames=result.images||[];
+            this.tempLabels=new Map((result.items||[]).map(item=>[item.filename,item]));
+            const present=new Set(this.tempNames);
+            for(const name of this.tempSelection)if(!present.has(name))this.tempSelection.delete(name);
+            for(const name of this.tempDrafts.keys())if(!present.has(name))this.tempDrafts.delete(name);
+            this.renderTempImages(this.tempNames);
+            document.getElementById('temp-image-count').textContent=this.tempNames.length;
+            this.precheckTemp(generation,controller).catch(()=>{});
+        } catch(error) {
+            if(error.name!=='AbortError'&&generation===this.tempGeneration)ui.showToast('加载待处理图片失败','error');
+        }
+    }
+
+    async precheckTemp(generation,controller) {
+        const status=document.getElementById('temp-precheck-status');
+        if(status)status.textContent='准备 Pixiv 预校验…';
+        let runId;
+        try {
+            // Let a late start return its ID so it can still be stopped after navigation.
+            const started=await api.request('/upload/temp-pixiv/start',{method:'POST',headers:{'Content-Type':'application/json','X-Pixiv-OL':'1'}});
+            runId=started.run_id;
+            if(generation!==this.tempGeneration||!this.tempVisible()){this.stopTempRun(runId);return;}
+            this.tempRun=runId;
+            let done=0;
+            const names=[...this.tempNames];
+            for(const name of names) {
+                if(generation!==this.tempGeneration||!this.tempVisible())break;
+                if(this.tempUploading.has(name)){done++;continue;}
+                if(status)status.textContent=`按列表顺序预校验 ${done} / ${names.length} · 已完成的可立即编辑`;
+                try {
+                    const result=await api.request('/upload/temp-pixiv/check',{method:'POST',headers:{'Content-Type':'application/json','X-Pixiv-OL':'1'},signal:controller.signal,body:JSON.stringify({run_id:runId,filename:name})});
+                    if(generation!==this.tempGeneration||!this.tempVisible())break;
+                    this.tempResults.set(name,result);this.updateTempCard(name);
+                    this.tempResultChanged?.(name,result);
+                } catch(error) {
+                    if(error.name==='AbortError'||generation!==this.tempGeneration)break;
+                    if(['account_changed','auth_required','permission_revoked','temp_precheck_stopped'].includes(error.message))throw error;
+                    this.tempResults.set(name,{filename:name,status:'unavailable',error:error.message});this.updateTempCard(name);
                 }
-            } catch (error) {
-                console.error('加载temp图片失败:', error);
-                ui.showToast('加载temp图片失败: ' + (error.message || '未知错误'), 'error');
+                done++;
             }
-        }, 200);
+            if(generation===this.tempGeneration&&this.tempVisible()&&status)status.textContent=`预校验完成 · ${done} 张`;
+        } catch(error) {
+            if(generation===this.tempGeneration&&this.tempVisible()&&status)status.textContent='Pixiv 未连接或暂时不可用，可继续手动确认标签';
+        } finally {
+            this.stopTempRun(runId);
+            if(this.tempRun===runId)this.tempRun=null;
+        }
     }
 
     renderTempImages(images) {
-        const grid = document.getElementById('temp-image-grid');
-        
-        if (!grid) {
-            return;
-        }
-        
-        if (images.length === 0) {
-            grid.innerHTML = '<div class="empty-state">待处理文件夹里没有图片</div>';
-            return;
-        }
-
-        // 使用encodeURIComponent处理特殊字符
-        const html = images.map(imageName => {
-            const encodedName = encodeURIComponent(imageName);
-            const escapedName = this.escapeHtml(imageName);
-            const escapedEncodedName = this.escapeHtml(encodedName);
-            return `
-                <div class="temp-image-item" data-image-name="${escapedEncodedName}">
-                    <img src="/resource/temp/${escapedEncodedName}" alt="${escapedName}" loading="lazy" decoding="async"
-                         style="width: 150px; height: 150px; object-fit: cover; border-radius: 8px;">
-                    <div class="temp-image-name">${escapedName}</div>
-                    <div class="temp-image-actions">
-                        <button type="button" class="btn btn-primary btn-sm temp-image-submit">提交</button>
-                        <button type="button" class="btn btn-danger btn-sm temp-image-delete">删除</button>
-                    </div>
-                </div>
-            `;
-        }).join('');
-        
-        grid.innerHTML = html;
-        grid.querySelectorAll('.temp-image-item').forEach(item => {
-            const encodedName = item.dataset.imageName;
+        const grid=document.getElementById('temp-image-grid');
+        if(!grid)return;
+        grid.innerHTML=images.length?images.map(imageName=>{
+            const label=this.tempLabels.get(imageName)?.display_name||imageName,encodedName=this.escapeHtml(encodeURIComponent(imageName));
+            const escapedName = this.escapeHtml(label);
+            return `<article class="temp-image-item" data-image-name="${encodedName}"><label class="temp-select"><input type="checkbox" ${this.tempSelection.has(imageName)?'checked':''} aria-label="选择 ${escapedName}"></label><button type="button" class="temp-image-submit temp-cover" aria-label="确认 ${escapedName} 的标签"><img src="/api/upload/temp-preview?filename=${encodedName}" alt="${escapedName}" loading="lazy" decoding="async"></button><div class="temp-card-footer"><div class="temp-image-name">${escapedName}</div><span class="temp-pixiv-state"></span><div class="temp-image-actions"><button type="button" class="temp-card-edit temp-image-submit">处理标签 <span aria-hidden="true">↗</span></button><button type="button" class="temp-image-delete" aria-label="删除 ${escapedName}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5m4-5v5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></div></article>`;
+        }).join(''):'<div class="empty-state">待处理文件夹里没有图片</div>';
+        this.tempCards=new Map(Array.from(grid.querySelectorAll('.temp-image-item'),card=>[decodeURIComponent(card.dataset.imageName),card]));
+        grid.querySelectorAll('.temp-image-item').forEach(item=>{
+            const encodedName=item.dataset.imageName,name=decodeURIComponent(encodedName);
             item.querySelector('.temp-image-submit')?.addEventListener('click', () => this.uploadTempImage(encodedName));
-            item.querySelector('.temp-image-delete')?.addEventListener('click', () => this.deleteTempFile(encodedName));
+            item.querySelector('.temp-image-actions .temp-image-submit')?.addEventListener('click',()=>this.uploadTempImage(encodedName));
+            item.querySelector('.temp-image-delete')?.addEventListener('click',()=>this.deleteTempFile(encodedName));
+            item.querySelector('input').onchange=event=>{
+                if(event.target.checked&&!this.tempDrafts.get(name)?.confirmed){event.target.checked=false;this.uploadTempImage(encodedName);return;}
+                event.target.checked?this.tempSelection.add(name):this.tempSelection.delete(name);this.updateTempCard(name);this.updateTempSelection();
+            };
+            this.updateTempCard(name);
         });
+        this.bindTempBrowse();this.applyTempFilter();this.updateTempSelection();
+    }
+
+    bindTempBrowse() {
+        const search=document.getElementById('temp-search');
+        if(search){search.value=this.tempSearch;search.oninput=()=>{this.tempSearch=search.value;this.applyTempFilter();};}
+        document.querySelectorAll('[data-temp-filter]').forEach(button=>{button.onclick=()=>{this.tempFilter=button.dataset.tempFilter;this.applyTempFilter();};});
+    }
+
+    applyTempFilter() {
+        const query=this.tempSearch.trim().toLocaleLowerCase();let visible=0;
+        document.querySelectorAll('#temp-image-grid .temp-image-item').forEach(card=>{
+            const name=decodeURIComponent(card.dataset.imageName),result=this.tempResults.get(name),draft=this.tempDrafts.get(name);
+            const text=[name,result?.artwork?.pid,result?.artwork?.title,result?.artwork?.author].filter(Boolean).join(' ').toLocaleLowerCase();
+            const matches=(!query||text.includes(query))&&(this.tempFilter==='selected'?this.tempSelection.has(name):this.tempFilter==='pending'?!draft?.confirmed:true);
+            card.hidden=!matches;if(matches)visible++;
+        });
+        document.querySelectorAll('[data-temp-filter]').forEach(button=>{const active=button.dataset.tempFilter===this.tempFilter;button.classList.toggle('is-active',active);button.setAttribute('aria-pressed',String(active));});
+        const empty=document.getElementById('temp-filter-empty');if(empty)empty.hidden=!!visible||!this.tempNames?.length;
+    }
+
+    updateTempCard(name) {
+        const card=this.tempCards?.get(name);
+        if(!card)return;
+        const result=this.tempResults.get(name),draft=this.tempDrafts.get(name);
+        const importing=this.tempUploading.has(name),selected=this.tempSelection.has(name);
+        card.querySelector('.temp-pixiv-state').textContent=importing?'后台入库中':selected?'已选 · 待入库':draft?.confirmed?'标签已确认':({verified:'Pixiv 已核对 · 可编辑',review:'对应页待确认',ordinary:'手动选择标签',unavailable:'可手动处理'}[result?.status]||'等待预校验');
+        card.querySelector('input').checked=selected;card.querySelector('input').disabled=importing;
+        card.classList.toggle('is-importing',importing);card.classList.toggle('is-selected',selected);card.classList.toggle('is-ready',!!draft?.confirmed);
+        card.dataset.state=importing?'importing':draft?.confirmed?'ready':result?.status||'pending';
+        const edit=card.querySelector('.temp-card-edit');if(edit){edit.disabled=importing;edit.firstChild.textContent=draft?.confirmed?'编辑标签 ':'处理标签 ';}
+        if(this.tempSearch||this.tempFilter!=='all')this.applyTempFilter();else card.hidden=false;
+    }
+
+    updateTempSelection() {
+        const button=document.getElementById('temp-import-selected');
+        if(button){button.disabled=!this.tempSelection.size;button.textContent=`入库所选${this.tempSelection.size?`（${this.tempSelection.size}）`:''}`;}
     }
 
     async showTempDuplicateEditor(result, catalogs) {
         const temp = {
             ...(result.temp || {}),
             image_id: 'temp',
-            thumbnail_url: `/resource/temp/${encodeURIComponent(result.filename)}`,
+            thumbnail_url: `/api/upload/temp-original?filename=${encodeURIComponent(result.filename)}`,
         };
         const stored = result.stored || {};
         const statusLabel = stored.file_status === 'archived' ? '已归档' : '已入库';
@@ -1084,181 +1108,63 @@ class UploadManager {
     }
 
     async uploadTempImage(imageNameEncoded) {
+        if(this.tempOpening||this.tempUploading.has(decodeURIComponent(imageNameEncoded)))return;
+        const card=this.tempCards?.get(decodeURIComponent(imageNameEncoded));
+        const sourceImage=card?.querySelector('.temp-cover img');
+        const source={rect:sourceImage?.getBoundingClientRect(),url:sourceImage?.currentSrc||sourceImage?.src,ratio:sourceImage?.naturalWidth&&sourceImage?.naturalHeight?sourceImage.naturalWidth/sourceImage.naturalHeight:1};
+        this.tempOpening=true;
         try {
-            const imageName = decodeURIComponent(imageNameEncoded);
-            const [groups, characters, featureTags] = await Promise.all([
-                api.getGroups(),
-                api.getCharacters(),
-                api.getFeatureTags()
-            ]);
-            
-            if (groups.length === 0 || characters.length === 0) {
-                ui.showToast('请先创建分组和角色', 'warning');
-                return;
-            }
-            
-            const groupOptions = '';
-            const safeImageName = this.escapeHtml(imageName);
-            const safeEncodedName = this.escapeHtml(imageNameEncoded);
-            
-            const content = `
-                <form id="temp-upload-form" data-image-name="${safeEncodedName}">
-                    <div class="temp-image-preview">
-                        <img src="/resource/temp/${safeEncodedName}" alt="${safeImageName}"
-                             style="max-width: 100%; max-height: 400px; border-radius: 8px; margin-bottom: 16px;">
-                    </div>
-                    <div class="form-group">
-                        <label for="temp-group-select">分组</label>
-                        <select id="temp-group-select" class="form-select" required>
-                            <option value="">先选分组</option>
-                            ${groupOptions}
-                        </select>
-                        <button type="button" class="btn-link" onclick="showCreateGroupModal(true)">添加分组</button>
-                    </div>
-                    <div class="form-group">
-                        <label>角色</label>
-                        <div id="temp-character-selector"></div>
-                        <button type="button" class="btn-link" onclick="showCreateCharacterModal(true)">添加角色</button>
-                    </div>
-                    <div class="form-group">
-                        <label for="temp-pid">PID（可不填）</label>
-                        <input type="text" id="temp-pid" class="form-input" placeholder="输入 PID">
-                    </div>
-                    <div class="form-group">
-                        <label for="temp-age-rating">年龄分级</label>
-                        <select id="temp-age-rating" class="form-select">
-                            <option value="all" selected>全年龄</option>
-                            <option value="r12">R12</option>
-                            <option value="r16">R16</option>
-                            <option value="r18">R18</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="temp-description">备注（可不填）</label>
-                        <textarea id="temp-description" class="form-textarea" placeholder="写点备注"></textarea>
-                    </div>
-                    <div class="form-actions">
-                        <button type="button" class="btn btn-secondary" onclick="ui.closeModal()">取消</button>
-                        <button type="button" class="btn btn-danger" id="temp-upload-delete">删除</button>
-                        <button type="submit" class="btn btn-primary">提交</button>
-                    </div>
-                </form>
-            `;
-            
-            ui.showModal(`提交图片: ${imageName}`, content);
+            if(!window.TempUploadWorkbench)await window.auth.loadScript('/static/js/temp-upload.js?v=20261004q');
+            this.tempWorkbench ||= new window.TempUploadWorkbench(this);
+            await this.tempWorkbench.open(imageNameEncoded,source);
+        } catch(error) {ui.showToast(error.message||'加载表单失败','error');}
+        finally {this.tempOpening=false;}
+    }
 
-            const tempForm = document.getElementById('temp-upload-form');
-            if (tempForm) {
-                tempForm.onsubmit = (e) => {
-                    e.preventDefault();
-                    const encoded = tempForm.dataset.imageName || imageNameEncoded;
-                    this.submitTempUpload(encoded);
-                };
-            }
-            document.getElementById('temp-upload-delete')?.addEventListener('click', () => {
-                const encoded = tempForm?.dataset.imageName || imageNameEncoded;
-                this.deleteTempImageFromModal(encoded);
-            });
-            
-            // 初始化temp角色选择器
-            const tempCharacterSelector = null;
-            
-            // 监听分组变化
-            const groupSelect = document.getElementById('temp-group-select');
-            
-            if (groupSelect) {
-                groupSelect.required = false;
-                groupSelect.closest('.form-group').style.display = 'none';
-            }
-            const oldCharacterContainer = document.getElementById('temp-character-selector');
-            if (oldCharacterContainer) {
-                oldCharacterContainer.closest('.form-group').style.display = 'none';
-            }
-            const previewBlock = document.querySelector('#temp-upload-form .temp-image-preview');
-            if (previewBlock) {
-                previewBlock.insertAdjacentHTML('afterend', `
-                    <div class="form-group">
-                        <label>标签</label>
-                        <div id="temp-tag-selector"></div>
-                        <button type="button" class="btn-link" onclick="showCreateGroupModal(true)">添加分组</button>
-                        <button type="button" class="btn-link" onclick="showCreateCharacterModal(true)">添加角色</button>
-                        <button type="button" class="btn-link" onclick="ui.showCreateFeatureTagModal(true)">添加特征</button>
-                    </div>
-                `);
-            }
-            const tempTagSelector = new ImageTagSelector('temp-tag-selector', { title: '添加temp图片标签' });
-            window.imageTagSelectors['temp-tag-selector'] = tempTagSelector;
-            tempTagSelector.setData({ groups, characters, featureTags });
-            
-        } catch (error) {
-            ui.showToast(`加载表单失败: ${error.message}`, 'error');
-        }
+    submitTempUpload() { return this.tempWorkbench?.confirm(); }
+
+    async importTempSelected() {
+        const names=[...this.tempSelection].filter(name=>this.tempDrafts.get(name)?.confirmed&&!this.tempUploading.has(name));
+        if(!names.length)return;
+        const pending=names.map(name=>({name,data:JSON.parse(JSON.stringify(this.tempDrafts.get(name))),taskId:window.uploadQueue?.add({name:this.tempLabels.get(name)?.display_name||name,status:'queued',message:'等待入库'})}));
+        for(const item of pending){this.tempSelection.delete(item.name);this.tempUploading.add(item.name);this.updateTempCard(item.name);}
+        this.updateTempSelection();
+        let next=0;
+        const worker=async()=>{while(next<pending.length){const item=pending[next++];await this.processTempDraft(item.name,item.data,item.taskId);}};
+        await Promise.all(Array.from({length:Math.min(2,pending.length)},worker));
+        if(this.tempVisible())await this.loadTempImages();
+        await ui.updateTempCount();ui.loadSystemStatus();
     }
-    
-    async submitTempUpload(imageNameEncoded) {
+
+    async processTempDraft(name,data,taskId=null) {
+        this.tempUploading.add(name);this.tempSelection.delete(name);this.updateTempCard(name);this.updateTempSelection();
+        taskId ??= window.uploadQueue?.add({name:this.tempLabels.get(name)?.display_name||name,status:'queued',message:'等待入库'});
+        window.uploadQueue?.update(taskId,{status:'processing',message:'正在入库',retry:null});
         try {
-            const encodedName = imageNameEncoded || document.getElementById('temp-upload-form')?.dataset?.imageName;
-            const imageName = decodeURIComponent(encodedName || '');
-            const selectedTags = window.imageTagSelectors['temp-tag-selector']
-                ? window.imageTagSelectors['temp-tag-selector'].getValue()
-                : { group_ids: [], character_ids: [], feature_tag_ids: [] };
-            const selectedCharacters = selectedTags.character_ids || [];
-            
-            if (selectedCharacters.length === 0) {
-                ui.showToast('请选择至少一个角色', 'error');
-                return;
+            let result=await api.uploadTempImage(data);
+            if(result?.status==='duplicate') {
+                window.uploadQueue?.update(taskId,{status:'attention',message:'请确认重复图片'});
+                const decision=await this.resolveDuplicateChoice(result,'/api/upload/temp-original?filename='+encodeURIComponent(name));
+                const choice=this.duplicateDecisionRequest(decision);
+                result=await api.resolveDuplicateImage(result.duplicate_token,choice.keep,choice.metadataSources);
             }
-            if ((selectedTags.group_ids || []).length === 0) {
-                ui.showToast('请至少添加一个分组标签', 'error');
-                return;
+            if(result.status==='cancelled') {
+                window.uploadQueue?.update(taskId,{status:'cancelled',message:'已取消入库'});
+                this.tempSelection.add(name);
+            } else {
+                window.uploadQueue?.update(taskId,{status:'success',progress:100,message:result.message||'入库完成'});
+                this.tempDrafts.delete(name);this.tempResults.delete(name);
+                this.tempNames=(this.tempNames||[]).filter(item=>item!==name);
+                const count=document.getElementById('temp-image-count');if(count)count.textContent=this.tempNames.length;
+                const card=Array.from(document.querySelectorAll('#temp-image-grid [data-image-name]')).find(node=>node.dataset.imageName===encodeURIComponent(name));card?.remove();
             }
-            
-            const data = {
-                filename: imageName,
-                character_ids: selectedCharacters,
-                group_ids: selectedTags.group_ids || [],
-                feature_tag_ids: selectedTags.feature_tag_ids || [],
-                age_rating: document.getElementById('temp-age-rating')?.value || 'all',
-                pid: document.getElementById('temp-pid').value || null,
-                description: document.getElementById('temp-description').value || null
-            };
-            
-            ui.showToast('正在提交图片...', 'info');
-            
-            let result = await api.uploadTempImage(data);
-            if (result?.status === 'duplicate') {
-                const decision = await this.resolveDuplicateChoice(
-                    result,
-                    `/resource/temp/${encodeURIComponent(imageName)}`
-                );
-                if (!decision) {
-                    await api.resolveDuplicateImage(result.duplicate_token, 'cancel');
-                    ui.showToast('已取消提交', 'info');
-                    return;
-                }
-                const request = this.duplicateDecisionRequest(decision);
-                result = await api.resolveDuplicateImage(
-                    result.duplicate_token,
-                    request.keep,
-                    request.metadataSources,
-                );
-            }
-            ui.showToast(result.message, 'success');
-            
-            ui.closeModal();
-            
-            // 刷新temp图片列表
-            await this.loadTempImages();
-            await ui.updateTempCount();
-            
-            // 刷新系统状态
-            ui.loadSystemStatus();
-            
-        } catch (error) {
-            ui.showToast(`上传失败: ${error.message}`, 'error');
-        }
+        } catch(error) {
+            this.tempSelection.add(name);
+            window.uploadQueue?.update(taskId,{status:'failed',message:error.message,retry:()=>this.processTempDraft(name,data,taskId)});
+            ui.showToast('入库失败：'+(error.message==='temp_precheck_expired'?'预校验已过期，请重新打开图片确认':error.message),'error');
+        } finally {this.tempUploading.delete(name);this.updateTempCard(name);this.updateTempSelection();}
     }
-    
+
     async deleteTempFile(imageNameEncoded) {
         const imageName = decodeURIComponent(imageNameEncoded);
         if (!confirm(`确定要删除 ${imageName} 吗？`)) {
@@ -1282,9 +1188,12 @@ class UploadManager {
     
     async deleteTempImageFromModal(imageNameEncoded) {
         const imageName = decodeURIComponent(imageNameEncoded);
+        const button=this.tempWorkbench?.name===imageName?this.tempWorkbench.form?.querySelector('#temp-upload-delete'):null;
+        if(button?.disabled)return;
         if (!confirm(`确定要删除 ${imageName} 吗？`)) {
             return;
         }
+        if(button)button.disabled=true;
         
         try {
             await api.deleteTempImage(imageName);
@@ -1301,6 +1210,8 @@ class UploadManager {
             ui.loadSystemStatus();
         } catch (error) {
             ui.showToast(`删除失败: ${error.message}`, 'error');
+        } finally {
+            if(button?.isConnected)button.disabled=false;
         }
     }
 

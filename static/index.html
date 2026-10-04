@@ -21,7 +21,7 @@
         html:not(.app-booting) .app-bootstrap-status { display: none; }
     </style>
     <noscript><meta http-equiv="refresh" content="0; url=/login"></noscript>
-    <script src="/static/js/auth.js?v=20261004l"></script>
+    <script src="/static/js/auth.js?v=20261004q"></script>
 </head>
 <body>
     <div class="app-bootstrap-status" role="status">正在验证登录状态…</div>
@@ -499,15 +499,16 @@
                     <!-- Temp目录上传 -->
                     <div class="tab-content" id="tab-temp-upload" style="display: none;">
                         <div class="temp-upload-section">
-                            <div class="temp-info">
-                                <p>待处理文件夹里有 <span id="temp-image-count">0</span> 张图片</p>
-                                <button class="btn btn-primary btn-sm" id="scan-temp-duplicates-button" onclick="scanTempDuplicates()">扫描重复</button>
-                                <button class="btn btn-secondary btn-sm" onclick="refreshTempImages()">刷新</button>
-                            </div>
+                            <header class="temp-page-heading">
+                                <div><span class="temp-eyebrow">TEMP COLLECTION</span><h3>待整理 <span id="temp-image-count">0</span></h3><p id="temp-precheck-status" class="temp-precheck-status" role="status" aria-live="polite">按顺序预校验，完成一张即可处理一张</p></div>
+                                <div class="temp-page-actions"><button type="button" class="btn btn-secondary btn-sm" onclick="refreshTempImages()"><span aria-hidden="true">↻</span> 刷新</button><button type="button" class="btn btn-secondary btn-sm" id="scan-temp-duplicates-button" onclick="scanTempDuplicates()">扫描重复</button><button type="button" class="btn btn-primary btn-sm" id="temp-import-selected" onclick="upload.importTempSelected()" disabled>入库所选</button></div>
+                            </header>
+                            <div class="temp-browse-toolbar"><div class="temp-filter-tabs" aria-label="筛选待整理图片"><button type="button" data-temp-filter="all" class="is-active" aria-pressed="true">全部</button><button type="button" data-temp-filter="pending" aria-pressed="false">待确认</button><button type="button" data-temp-filter="selected" aria-pressed="false">已选</button></div><label class="temp-search"><span aria-hidden="true">⌕</span><input type="search" id="temp-search" placeholder="查找文件名、PID 或作品" aria-label="查找待整理图片"></label></div>
 
                             <div class="temp-image-grid" id="temp-image-grid">
                                 <!-- Temp图片网格将通过JavaScript动态生成 -->
                             </div>
+                            <p id="temp-filter-empty" class="temp-filter-empty" hidden>没有符合条件的图片</p>
                         </div>
                     </div>
                 </div>

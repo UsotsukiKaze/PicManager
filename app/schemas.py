@@ -397,6 +397,17 @@ class TempImageUpload(BaseModel):
     pid: Optional[str] = None
     description: Optional[str] = None
     age_rating: str = "all"
+    pixiv_token: Optional[str] = Field(default=None, min_length=48, max_length=48, pattern="^[0-9a-f]+$")
+    identity_confirmed: bool = False
+
+
+class TempPixivCheck(BaseModel):
+    run_id: str = Field(min_length=48, max_length=48, pattern="^[0-9a-f]+$")
+    filename: str = Field(min_length=1, max_length=1024)
+
+
+class TempPixivStop(BaseModel):
+    run_id: str = Field(min_length=48, max_length=48, pattern="^[0-9a-f]+$")
 
 
 class TempDuplicateResolveRequest(BaseModel):

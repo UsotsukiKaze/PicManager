@@ -7,10 +7,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-from PIL import Image
-
 from ...config import settings
 from .provider import download, PixivError, trusted_image_url
+from .image_limits import open_image
 
 LOCK = threading.Lock()
 FILE_LOCKS = {}
@@ -21,8 +20,8 @@ TYPES = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp", "GIF": 
 
 
 def image_type(path):
-    with Image.open(path) as image:
-        if image.width * image.height > 50_000_000 or image.format not in TYPES:
+    with open_image(path) as image:
+        if image.format not in TYPES:
             raise PixivError("invalid_image")
         kind = TYPES[image.format]
         image.verify()
@@ -45,7 +44,7 @@ def file_lock(path):
 
 
 def make_webp(source, target):
-    with ENCODE_SLOTS, Image.open(source) as image:
+    with ENCODE_SLOTS, open_image(source) as image:
         if getattr(image, "is_animated", False):
             return False
         mode = "RGBA" if "A" in image.getbands() else "RGB"

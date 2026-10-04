@@ -15,6 +15,35 @@ function row(id='one'){
         artwork:{pid:'100',title:'Artwork',author:'Artist',match:{evidence:[]}},
         draft:{pages:[0],import_mode:'merged',group_ids:[1],character_ids:[],feature_tag_ids:[]}};
 }
+
+test('Pixiv duplicate review reuses the shared merger and submits the reviewed page and candidate',async()=>{
+    const {context,pol,calls}=harness();
+    pol.importJobs=[{id:7,kind:'import',status:'awaiting_duplicate',result:{page:2,review_key:'a'.repeat(32)}}];
+    const comparison={page:2,review_key:'a'.repeat(32),incoming:{thumbnail_url:'/clear-preview'},duplicates:[{image_id:'OLD'}]};
+    context.window.auth={loadFeature:async()=>({resolveDuplicateChoice:async(result,url,options)=>{
+        assert.equal(result.page,2);assert.equal(url,'/clear-preview');assert.equal(options.pixiv,true);
+        return {action:'merge',keep:'new',otherImageId:'OLD',metadataSources:{characters:'other'}};
+    }})};
+    context.ui.currentPage='pixiv-ol';
+    context.fetch=async(url,options={})=>{calls.push({url,body:options.body&&JSON.parse(options.body)});return {ok:true,json:async()=>comparison};};
+    pol.loadImportJobs=async()=>[];
+    await pol.reviewImportJob(7);
+    const submission=calls.find(call=>call.url.endsWith('/resolve')).body;
+    assert.equal(submission.action,'merge_new');assert.equal(submission.image_id,'OLD');assert.equal(submission.page,2);assert.equal(submission.review_key,comparison.review_key);
+    assert.equal(submission.metadata_sources.characters,'other');assert.equal(pol.importReviewBusy,false);
+});
+
+test('automatic merge reviews pause behind an open dialog and do not repeat a deferred review',async()=>{
+    const {context,pol}=harness();pol.importJobs=[{id:7,kind:'import',status:'awaiting_duplicate',result:{page:0,review_key:'b'.repeat(32)}}];
+    context.ui.currentPage='pixiv-ol';let open=true,shown=0;
+    context.document.getElementById=()=>({style:{display:'none'}});context.document.querySelector=()=>open?{}:null;
+    context.window.auth={loadFeature:async()=>({resolveDuplicateChoice:async()=>{shown++;return {action:'later'};}})};
+    context.fetch=async()=>({ok:true,json:async()=>({page:0,review_key:'b'.repeat(32),incoming:{thumbnail_url:'/preview'},duplicates:[]})});
+    pol.offerImportReviews();assert.equal(shown,0);
+    open=false;pol.offerImportReviews();await new Promise(resolve=>setImmediate(resolve));assert.equal(shown,1);
+    pol.offerImportReviews();await new Promise(resolve=>setImmediate(resolve));assert.equal(shown,1);
+    await pol.reviewImportJob(7);assert.equal(shown,2);
+});
 test('ready cart rows stay unchecked by default and confirmed selection survives rendering',()=>{
     const {pol,content}=harness();pol.cartItems=[row()];pol.renderCart(content);
     assert.equal(pol.selection.size,0);assert.doesNotMatch(content.innerHTML,/value="one" checked/);

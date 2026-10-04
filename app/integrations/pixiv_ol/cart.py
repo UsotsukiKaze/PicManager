@@ -6,14 +6,13 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from PIL import Image
-
 from ... import models
 from ...config import settings
 from ...database import get_db_context
 from . import service
 from .provider import PixivError, download
 from .recommendations import allowed
+from .image_limits import open_image
 
 
 def directory(cart_id):
@@ -53,11 +52,9 @@ def require_item(db, cart_id, revision, actor_id):
 
 
 def inspect_image(path):
-    with Image.open(path) as image:
+    with open_image(path) as image:
         image.verify()
-    with Image.open(path) as image:
-        if image.width * image.height > 50_000_000:
-            raise PixivError("image_too_large")
+    with open_image(path) as image:
         extension = {"JPEG": "jpg", "PNG": "png", "WEBP": "webp", "GIF": "gif", "BMP": "bmp"}.get(image.format)
         if not extension:
             raise PixivError("invalid_image")
@@ -129,7 +126,10 @@ def cache_pages(provider, job_id, revision, actor_id, payload):
             finally:
                 stage.unlink(missing_ok=True)
         if pages:
-            with Image.open(folder / f"{pages[0]}.img") as image:
+            from .viewer import ENCODE_SLOTS
+
+            with ENCODE_SLOTS, open_image(folder / f"{pages[0]}.img") as image:
+                image.draft("RGB", (800, 800))
                 image.thumbnail((800, 800))
                 image.convert("RGB").save(folder / "preview.webp", format="WEBP", quality=85)
         with get_db_context() as db:

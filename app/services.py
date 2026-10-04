@@ -1191,6 +1191,7 @@ class ImageService:
         keep_image_id: str,
         other_image_id: str,
         metadata_sources: Optional[dict] = None,
+        *, delete_files: bool = True,
     ) -> models.Image:
         """Merge selected metadata into the kept image, then archive the other record."""
         metadata_sources = metadata_sources or {}
@@ -1229,7 +1230,8 @@ class ImageService:
         keep.feature_tags = source_value("feature_tags", list(keep.feature_tags), list(other.feature_tags))
         other.file_status = ImageService.ARCHIVED
         db.flush()
-        ImageService.delete_superseded_image_files(keep, other)
+        if delete_files:
+            ImageService.delete_superseded_image_files(keep, other)
         return keep
 
     @staticmethod

@@ -108,9 +108,9 @@ def test_all_management_entity_fields_are_escaped_at_html_render_sinks():
 
 
 def test_temp_filenames_are_escaped_and_not_embedded_in_inline_handlers():
-    source = UPLOAD_JS.read_text(encoding="utf-8")
+    source = UPLOAD_JS.read_text(encoding="utf-8") + (PROJECT_ROOT / 'static/js/temp-upload.js').read_text(encoding='utf-8')
 
-    assert "const escapedName = this.escapeHtml(imageName)" in source
+    assert "const escapedName = this.escapeHtml(label)" in source
     assert '<div class="temp-image-name">${escapedName}</div>' in source
     assert "item.querySelector('.temp-image-submit')?.addEventListener" in source
     assert "document.getElementById('temp-upload-delete')?.addEventListener" in source
@@ -130,7 +130,7 @@ def test_page_features_are_lazy_loaded_and_deduplicated():
     core_scripts = core_script_block.group(1)
     assert "/static/js/upload.js" not in core_scripts
     assert "/static/js/emoji-library.js" not in core_scripts
-    assert "/static/js/upload.js?v=20260820d" in auth_source
+    assert "/static/js/upload.js?v=20261004q" in auth_source
     assert "/static/js/emoji-library.js?v=20260927a" in auth_source
     assert "if (this.featureLoadPromises[name])" in auth_source
     assert "this.featureLoadPromises[name] = loadPromise" in auth_source

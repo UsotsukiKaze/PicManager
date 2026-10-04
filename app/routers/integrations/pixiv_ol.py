@@ -15,6 +15,7 @@ from sqlalchemy import func
 
 from ... import models
 from ...config import settings
+from ...services import ImageService
 from ...database import get_db_context
 from ...pixiv_metadata import library_pixiv_pages
 from ...security.permissions import require_admin_user_id, require_root_user_id
@@ -94,8 +95,11 @@ class ImportBody(BaseModel):
 
 
 class ResolveBody(BaseModel):
-    action: Literal["different", "existing"]
-    image_id: str | None = None
+    action: Literal["different", "existing", "merge_existing", "merge_new"]
+    image_id: str | None = Field(default=None, max_length=64)
+    page: int | None = Field(default=None, ge=0, le=999)
+    review_key: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    metadata_sources: dict[Literal["pid", "description", "age_rating", "groups", "characters", "feature_tags"], Literal["merge", "keep", "other"]] = Field(default_factory=dict)
 
 
 class GroupPreference(BaseModel):
@@ -1088,16 +1092,74 @@ def imports(body: ImportBody, actor_id=Depends(require_admin_user_id)):
         raise HTTPException(409, "相同入库请求已创建") from None
 
 
-@router.post("/imports/{job_id}/resolve", status_code=202, dependencies=[Depends(write_guard)])
-def resolve(job_id: int, body: ResolveBody):
+@router.get("/imports/{job_id}/comparison")
+def import_comparison(job_id: int, actor_id=Depends(require_admin_user_id)):
+    from ...integrations.pixiv_ol import cart, import_review
+    from ...integrations.pixiv_ol.import_review import signature
     with get_db_context() as db:
         account = service.require_account(db)
+        service.require_actor(db, actor_id)
         job = db.get(models.PixivJob, job_id)
-        if not job or job.account_revision != account.revision or job.status != "awaiting_duplicate":
+        if not job or job.account_revision != account.revision or job.actor_id != actor_id or job.status != "awaiting_duplicate":
             raise HTTPException(409, "任务不在查重等待状态")
-        page = str(job.result["page"])
-        job.payload = {**job.payload, "decisions": {**job.payload.get("decisions", {}), page: body.model_dump()}}
-        job.status, job.error = "queued", None
+        signatures = job.result.get("candidate_signatures", {})
+        changed = any(not (image := db.get(models.Image, image_id)) or signature(image) != expected
+                      for image_id, expected in signatures.items())
+        if (changed or not job.result.get("incoming")) and not job.payload.get("cart_id"):
+            page = str(job.result['page'])
+            decisions = {key: value for key, value in job.payload.get('decisions', {}).items() if key != page}
+            job.payload = {**job.payload, 'decisions': decisions}
+            job.status = 'queued'
+            db.commit()
+            raise HTTPException(409, '图片或标签已变化，正在重新比对')
+        if not job.result.get("incoming") or changed:
+            # Upgrade an older durable waiting job when its cached cart survives.
+            item = cart.require_item(db, job.payload.get("cart_id"), account.revision, actor_id)
+            page = job.result["page"]
+            from ...integrations.pixiv_ol.jobs import page_draft
+            tags = page_draft({**job.payload, "actor_id": actor_id}, page)
+            source = cart.cached_path(item, page)
+            matches = import_review.candidates(db, source, ImageService.compute_dhash(str(source)), tags['group_ids']) if changed else job.result['duplicates']
+            if not matches:
+                job.status = 'queued'
+                db.commit()
+                raise HTTPException(409, '相似候选已变化，正在重新比对')
+            job.result = import_review.review(db, item.metadata_json, page, tags, source,
+                matches, job.result.get("done", []), item.id)
+        return job.result
+
+
+@router.post("/imports/{job_id}/resolve", status_code=202, dependencies=[Depends(write_guard)])
+def resolve(job_id: int, body: ResolveBody, actor_id=Depends(require_admin_user_id)):
+    from sqlalchemy import update
+    from ...integrations.pixiv_ol.import_review import signature
+    with get_db_context() as db:
+        account = service.require_account(db)
+        service.require_actor(db, actor_id)
+        job = db.get(models.PixivJob, job_id)
+        if not job or job.account_revision != account.revision or job.actor_id != actor_id or job.status != "awaiting_duplicate":
+            raise HTTPException(409, "任务不在查重等待状态")
+        result = job.result
+        if (body.page is not None and body.page != result["page"]) or (body.review_key and body.review_key != result.get("review_key")):
+            raise HTTPException(409, "比对页已变化，请重新打开")
+        decision = body.model_dump()
+        if body.action != "different":
+            if body.image_id not in {row["image_id"] for row in result.get("duplicates", [])}:
+                raise HTTPException(409, "相似候选已变化")
+            image = db.get(models.Image, body.image_id)
+            expected = result.get("candidate_signatures", {}).get(body.image_id)
+            if not image or image.file_status != "available" or expected and signature(image) != expected:
+                raise HTTPException(409, "图片或标签已变化，请重新比对")
+            if body.action.startswith("merge_") and not ImageService.image_file_exists(image):
+                raise HTTPException(409, "库内文件已缺失")
+            decision["candidate_signature"] = signature(image)
+        page = str(result["page"])
+        payload = {**job.payload, "decisions": {**job.payload.get("decisions", {}), page: decision}}
+        claimed = db.execute(update(models.PixivJob).where(models.PixivJob.id == job_id,
+            models.PixivJob.status == "awaiting_duplicate").values(payload=payload, status="queued", error=None).returning(models.PixivJob.id)).scalar_one_or_none()
+        if claimed is None:
+            raise HTTPException(409, "本次确认已处理")
+        db.expire(job)
         return job_json(job)
 
 

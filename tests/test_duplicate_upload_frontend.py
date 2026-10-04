@@ -29,12 +29,12 @@ def test_duplicate_dialog_serializes_batch_choices_and_handles_modal_close():
     assert "duplicate-compare-grid" in upload_source
     assert "文件" in upload_source and "大小" in upload_source and "分辨率" in upload_source
     assert "特征标签" in upload_source and "描述" in upload_source
-    assert ">暂不处理<" in upload_source
-    assert ">保存全部<" in upload_source
-    assert ">合并检查<" in upload_source
+    assert ">稍后处理<" in upload_source
+    assert ">保留两张<" in upload_source
+    assert "duplicate-workspace" in upload_source
     assert ">确认合并<" in upload_source
     assert "data-merge-field" in upload_source
     assert "mergedDuplicateItem(items, layer)" in upload_source
     assert "renderMergedDuplicatePreview(items, layer)" in upload_source
-    assert "修改后保留图片" in upload_source
-    assert "永久删除另一份原图及缩略图" in upload_source
+    assert "选择保留的图片" in upload_source
+    assert "另一份文件将被删除" in upload_source

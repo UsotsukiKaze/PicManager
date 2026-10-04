@@ -159,6 +159,7 @@ class UIManager {
         targetPage.classList.add('page-enter');
 
         if (this.currentPage === 'pixiv-ol' && page !== 'pixiv-ol') window.pixivOL?.suspend();
+        if (this.currentPage === 'upload' && page !== 'upload') window.upload?.suspendTemp();
         this.currentPage = page;
         
         // 重置到第一个标签页
@@ -282,6 +283,7 @@ class UIManager {
         return this.activateFeature('upload-page', 'upload', async () => {
             await window.auth.loadFeature('upload');
             await this.loadUploadData();
+            if(this.currentPage==='upload'&&this.currentTab==='temp-upload')await window.upload.enterTemp();
         }, '上传功能加载失败，请重试');
     }
 
@@ -352,6 +354,7 @@ class UIManager {
     switchTab(tab) {
         // 防止重复切换
         if (this.currentTab === tab) return;
+        if (this.currentTab === 'temp-upload' && tab !== 'temp-upload') window.upload?.suspendTemp();
         
         // 获取当前页面的标签页按钮
         const pageElement = document.getElementById(`page-${this.currentPage}`);
@@ -407,7 +410,7 @@ class UIManager {
             case 'temp-upload':
                 // 调用upload对象的loadTempImages方法
                 if (window.upload) {
-                    upload.loadTempImages();
+                    upload.enterTemp();
                 }
                 break;
             case 'emoji-upload':

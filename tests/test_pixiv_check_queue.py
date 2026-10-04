@@ -331,3 +331,60 @@ def test_same_artwork_concurrent_checks_recover_cache_insert_conflicts(queued, m
         assert all(image.pixiv_checked_at is not None for image in db.query(models.Image).all())
         assert db.query(models.PixivArtwork).filter_by(pid='101').count() == 1
         assert not db.query(models.PixivCheckItem).filter_by(status='failed').count()
+
+
+@pytest.mark.parametrize('pages', [1, 2])
+def test_validation_preserves_manual_labels_across_pages_and_duplicate_pids(queued, monkeypatch, pages):
+    context, _, add = queued
+    add(3)
+    with context() as db:
+        db.add(models.Group(id=2, name='另一个分组'))
+        db.add_all([models.Character(id=10, name='角色甲', group_id=1),
+                    models.Character(id=11, name='角色乙', group_id=2)])
+        db.flush()
+        for index in range(1, 4):
+            image = db.get(models.Image, f'{index:010d}')
+            image.pid = f'101_p{1 if pages == 2 and index == 2 else 0}'
+            image.characters = [db.get(models.Character, 11 if index == 2 else 10)] if index < 3 else []
+            image.groups = [db.get(models.Group, 2 if index == 2 else 1)]
+            image.feature_tags = [db.get(models.FeatureTag, 1)]
+    class Client:
+        def call(self, *_args, **kwargs):
+            raw = artwork('101', pages=pages, tags=[{'name': '角色甲'}, {'name': '角色乙'}])
+            raw.update(width=32, height=20)
+            return {'illust': raw}
+        def close(self): pass
+    monkeypatch.setattr(service, 'client_for_job', lambda *_: Client())
+    queue.start(1)
+    drain(queue.PixivCheckWorker())
+    details = [queue.get_review(1, review['id']) for review in queue.status(1)['reviews']]
+    for detail in sorted(details, key=lambda item: item['current']['image_id']):
+        pixiv_check.resolve(detail['review_id'], 1, detail['suggested_page'], [], False)
+    with context() as db:
+        for index, expected in enumerate(([10], [11], []), 1):
+            image = db.get(models.Image, f'{index:010d}')
+            assert [character.id for character in image.characters] == expected
+            assert [group.id for group in image.groups] == [2 if index == 2 else 1]
+            assert {tag.name for tag in image.feature_tags} == {'白发', 'Pixiv'}
+            assert image.pixiv_checked_at and [tag['name'] for tag in image.pixiv_metadata.tags] == ['角色甲', '角色乙']
+            assert image.pixiv_metadata.page_index == (1 if pages == 2 and index == 2 else 0)
+        assert db.query(models.PixivTagMapping).filter_by(target_type='character').count() == 2
+        assert db.query(models.PixivImageSource).filter_by(work_id='101', page_index=0).one().image_id == '0000000001'
+
+
+def test_non_cart_import_metadata_keeps_each_pages_confirmed_character(queued):
+    from app.integrations.pixiv_ol.jobs import add_source
+    context, _, add = queued
+    add(2)
+    with context() as db:
+        db.add_all([models.Character(id=10, name='角色甲', group_id=1),
+                    models.Character(id=11, name='角色乙', group_id=1)])
+        db.flush()
+        art = service.normalize_artwork(artwork('101', pages=2, tags=[{'name': '角色甲'}, {'name': '角色乙'}]))
+        for index, character in enumerate((10, 11), 1):
+            image = db.get(models.Image, f'{index:010d}')
+            image.characters = [db.get(models.Character, character)]
+            add_source(db, image.image_id, '101', index - 1, 'digest', art)
+    with context() as db:
+        assert [c.id for c in db.get(models.Image, '0000000001').characters] == [10]
+        assert [c.id for c in db.get(models.Image, '0000000002').characters] == [11]

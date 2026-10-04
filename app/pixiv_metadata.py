@@ -90,7 +90,8 @@ def library_pixiv_image(db, work_id, page):
     return db.query(models.Image).join(models.PixivImageMetadata).filter(models.PixivImageMetadata.work_id == work_id, models.PixivImageMetadata.page_index == page).first()
 
 
-def apply_metadata(db, image, art, page, *, apply_tag_matches=True):
+def apply_metadata(db, image, art, page, *, apply_tag_matches=False):
+    """Preserve page-specific manual labels; work tags are mapping suggestions."""
     if not 0 <= page < int(art["page_count"]):
         raise ValueError("页码不属于该作品")
     artist_id = str(art.get("author_id") or "")

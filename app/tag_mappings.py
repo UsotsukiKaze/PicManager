@@ -70,7 +70,7 @@ def sync_cached_exact(db):
     return exact_mappings(db,list(tags.values()),account.preferences)
 
 
-def check_image_tags(db,image,art,*,apply_matches=True):
+def check_image_tags(db,image,art,*,apply_matches=False):
     from .integrations.pixiv_ol.recommendations import TagIndex
     account=db.get(models.PixivAccount,1)
     if not account:return 0

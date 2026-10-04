@@ -98,7 +98,7 @@ def validate_import_draft(db, draft):
         validate_draft(db, draft)
 
 
-def add_source(db, image_id, pid, page, sha, art, *, apply_tag_matches=True):
+def add_source(db, image_id, pid, page, sha, art, *, apply_tag_matches=False):
     from ...pixiv_metadata import apply_metadata
 
     image = db.get(models.Image, image_id)
@@ -215,7 +215,8 @@ def import_pages(provider, job_id, revision, actor_id, draft):
                 if keep:
                     if art["x_restrict"]:
                         db.get(models.Image, keep).age_rating = "r18"
-                    add_source(db, keep, art["pid"], page, digest if same else "", art, apply_tag_matches=not bool(draft.get("cart_id")))
+                    # Keeping an existing image must preserve its confirmed page labels.
+                    add_source(db, keep, art["pid"], page, digest if same else "", art)
                     db.flush()
                     done.append({"page": page, "image_id": keep, "existing": True})
                     continue
@@ -272,7 +273,8 @@ def import_pages(provider, job_id, revision, actor_id, draft):
                     )
                     db.add(image)
                     db.flush()
-                    add_source(db, image_id, art["pid"], page, digest, art, apply_tag_matches=not bool(draft.get("cart_id")))
+                    # The import draft already contains the user's chosen labels.
+                    add_source(db, image_id, art["pid"], page, digest, art)
                     for tag_id in set(feature_ids):
                         db.add(
                             models.ImageTagEvidence(

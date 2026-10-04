@@ -65,7 +65,7 @@ def pending(db):
 
 
 def record_page(db, image, art, page):
-    apply_metadata(db, image, art, page)
+    apply_metadata(db, image, art, page, apply_tag_matches=False)
     db.flush()
     source = db.query(models.PixivImageSource).filter_by(provider="pixiv", work_id=art["pid"], page_index=page).first()
     if source is None:

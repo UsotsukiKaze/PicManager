@@ -1390,7 +1390,7 @@ def test_split_cart_confirms_each_page_and_imports_independent_tags_offline(envi
         assert [g.id for g in images["100_p1"].groups] == [2]
         assert {t.name for t in images["100_p0"].feature_tags} == {"Pixiv"}
         assert {t.name for t in images["100_p1"].feature_tags} == {"Pixiv", "白发"}
-        assert images["100_p0"].age_rating == "all" and images["100_p1"].age_rating == "r16"
+        assert images["100_p0"].age_rating == "r12" and images["100_p1"].age_rating == "r16"
         assert db.query(models.PixivCartItem).count() == 0
 
 

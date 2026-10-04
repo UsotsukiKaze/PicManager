@@ -1887,12 +1887,15 @@ class UIManager {
                 character_ids: (image.characters || []).map(character => character.id),
                 feature_tag_ids: (image.feature_tags || []).map(tag => tag.id)
             };
-            const normalize = value => String(value).normalize('NFKC').trim().toLocaleLowerCase();
+            const normalize = value => String(value).normalize('NFKC').trim().toLocaleLowerCase().replace(/\s+/g, ' ');
+            const mappingContext = new Set([...draft.group_ids, ...characters.filter(role=>draft.character_ids.includes(role.id)).map(role=>role.group_id)]);
             const evidence = rawTags.flatMap(tag => {
-                const candidates = mappings.filter(row => normalize(row.tag) === normalize(tag.name) && row.target_type !== 'ignore');
-                const selected = candidates.find(row => draft[`${row.target_type === 'feature' ? 'feature_tag' : row.target_type}_ids`]?.includes(row.target_id));
-                const mapping = selected || candidates[0];
-                return mapping ? [{pixiv_tag:tag.name, type:mapping.target_type, id:mapping.target_id}] : [];
+                const candidates = mappings.filter(row => normalize(row.tag) === normalize(tag.name));
+                const scoped = candidates.filter(row=>row.group_context&&mappingContext.has(row.group_context));
+                const choices = scoped.length ? scoped : candidates.filter(row=>!row.group_context);
+                const targets = new Set(choices.map(row=>`${row.target_type}:${row.target_id}`));
+                const mapping = targets.size===1 ? choices[0] : null;
+                return mapping && mapping.target_type!=='ignore' ? [{pixiv_tag:tag.name, type:mapping.target_type, id:mapping.target_id}] : [];
             });
             
             const content = `

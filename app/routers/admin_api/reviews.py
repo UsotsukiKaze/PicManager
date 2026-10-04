@@ -338,7 +338,7 @@ async def handle_pending_request(
                         feature_tag_ids=image_data.get("feature_tag_ids", []),
                         pid=image_data.get("pid"),
                         description=image_data.get("description"),
-                        age_rating=image_data.get("age_rating", "all"),
+                        age_rating=image_data.get("age_rating", "r12"),
                     )
 
                     with ImageService.DUPLICATE_WRITE_LOCK:

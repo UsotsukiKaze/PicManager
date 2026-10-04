@@ -135,7 +135,7 @@ def ensure_source_tag(db, image):
         image.feature_tags.append(source_tag)
 
 
-def backfill_checked_tags(db):
+def backfill_checked_tags(db, *, images=None):
     """Repair legacy checked records from local snapshots, without rematching roles.
 
     Preserve confirmed page-specific tags, identity and validation dates. Missing
@@ -143,14 +143,20 @@ def backfill_checked_tags(db):
     """
     from sqlalchemy.orm import selectinload
 
-    rows = db.query(models.Image).filter(
-        models.Image.pixiv_checked_at.isnot(None),
-        or_(
-            ~models.Image.feature_tags.any(func.lower(models.FeatureTag.name) == "pixiv"),
-            ~models.Image.pixiv_metadata.has(),
-            models.Image.pixiv_metadata.has(models.PixivImageMetadata.tags == []),
-        ),
-    ).options(selectinload(models.Image.pixiv_metadata), selectinload(models.Image.pixiv_sources), selectinload(models.Image.feature_tags)).all()
+    if images is None:
+        rows = db.query(models.Image).filter(
+            models.Image.pixiv_checked_at.isnot(None),
+            or_(
+                ~models.Image.feature_tags.any(func.lower(models.FeatureTag.name) == "pixiv"),
+                ~models.Image.pixiv_metadata.has(),
+                models.Image.pixiv_metadata.has(models.PixivImageMetadata.tags == []),
+            ),
+        ).options(selectinload(models.Image.pixiv_metadata), selectinload(models.Image.pixiv_sources),
+                  selectinload(models.Image.feature_tags)).all()
+    else:
+        rows = [image for image in images if image.pixiv_checked_at and (
+            not image.pixiv_metadata or not image.pixiv_metadata.tags
+            or not any(tag.name.lower() == "pixiv" for tag in image.feature_tags))]
     identities = {}
     for image in rows:
         meta = image.pixiv_metadata

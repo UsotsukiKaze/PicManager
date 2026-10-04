@@ -51,16 +51,16 @@ window.runLocalValidation=async()=>{
  if(!auth.isAdmin())return;
  const button=document.getElementById('local-check-button'),stop=document.getElementById('local-check-stop'),status=document.getElementById('local-check-status');if(button.disabled)return;
  button.disabled=true;stop.hidden=false;window.localValidationStop=false;
- let cursor='',processed=0,failed=0,archived=0,moved=0;
+ let cursor='',processed=0,failed=0,archived=0,moved=0,tagUpdated=0,tagLinks=0,tagMappings=0,tagPending=0;
  try{
   do{if(window.localValidationStop){status.textContent=`已停止，本次检查 ${processed} 张；已完成的校验保留。`;return;}
-   status.textContent=`正在检查文件和缩略图… ${processed} 张`;
-   const result=await api.request(`/system/local-check?after_id=${encodeURIComponent(cursor)}&limit=200`,{method:'POST'});cursor=result.cursor;processed+=result.processed;failed+=result.failed.length;archived+=result.archived;moved+=result.orphans_moved;if(!result.remaining)break;
+   status.textContent=`正在检查文件、缩略图与标签关联… ${processed} 张`;
+   const result=await api.request(`/system/local-check?after_id=${encodeURIComponent(cursor)}&limit=200`,{method:'POST'});cursor=result.cursor;processed+=result.processed;failed+=result.failed.length;archived+=result.archived;moved+=result.orphans_moved;tagUpdated+=result.tag_updated||0;tagLinks+=result.tag_links_added||0;tagMappings+=result.tag_mappings_created||0;tagPending+=result.tag_pending||0;if(!result.remaining)break;
   }while(true);
   if(window.localValidationStop){status.textContent='文件检查已停止，稍后可重新运行。';return;}
-  status.textContent='文件检查完成，正在审核疑似重复图片…';
+  status.textContent='文件与标签检查完成，正在审核疑似重复图片…';
   const duplicates=await scanExistingDuplicates(true);
-  status.textContent=`${duplicates?.status==='complete'?'本地校验完成':'本地校验待继续'}：检查 ${processed} 张，失败 ${failed} 张，归档 ${archived} 条，移回 ${moved} 个孤立文件${duplicates?.deferred?`，${duplicates.deferred} 对重复图片待确认`:''}。`;
+  status.textContent=`${duplicates?.status==='complete'?'本地校验完成':'本地校验待继续'}：检查 ${processed} 张，失败 ${failed} 张，归档 ${archived} 条，移回 ${moved} 个孤立文件，标签补充 ${tagUpdated} 张 / ${tagLinks} 项，新增 ${tagMappings} 项映射${tagPending?`，${tagPending} 张标签需手动确认`:''}${duplicates?.deferred?`，${duplicates.deferred} 对重复图片待确认`:''}。`;
   await ui.loadSystemStatus();
  }catch(error){status.textContent=`本地校验失败：${error.message}`;ui.showToast(status.textContent,'error');}
  finally{button.disabled=false;stop.hidden=true;}

@@ -4,7 +4,7 @@
         constructor(upload) { this.upload=upload; }
         matchedDraft(result) {
             const match=result?.artwork?.match||{},multiple=result?.artwork?.page_count>1&&(match.character_ids||[]).length>1;
-            return {group_ids:match.group_ids||[],character_ids:multiple?[]:match.character_ids||[],feature_tag_ids:match.feature_tag_ids||[],pid:result?.pid||'',age_rating:result?.artwork?.x_restrict?'r18':'all',description:'',confirmed:false};
+            return {group_ids:match.group_ids||[],character_ids:multiple?[]:match.character_ids||[],feature_tag_ids:match.feature_tag_ids||[],pid:result?.pid||'',age_rating:result?.artwork?.x_restrict?'r18':'r12',description:'',confirmed:false};
         }
         async open(encodedName,source={}) {
             const name=decodeURIComponent(encodedName),upload=this.upload;
@@ -107,7 +107,7 @@
             form.querySelector('.temp-check-note').textContent=result?.status==='verified'?'已核对对应页，确认标签后入库。':result?.status==='review'?'页码或画面尚需确认，请核对后勾选下方确认。':result?.status==='ordinary'?'未识别到 Pixiv PID，请手动选择标签。':result?.status==='unavailable'?'Pixiv 暂时不可用，可手动处理或刷新后重试。':'预校验进行中，结果会自动补充。';
             if(multiple)form.querySelector('.temp-check-note').textContent+=' 多角色作品请只选择当前图片的角色。';
             form.querySelector('#temp-pid').value=draft.pid||'';
-            form.querySelector('#temp-age-rating').value=draft.age_rating||'all';
+            form.querySelector('#temp-age-rating').value=draft.age_rating||'r12';
             const parsed=new RegExp(`^${art?.pid}_p(\\d+)$`).exec(draft.pid||''),page=parsed?Number(parsed[1]):result?.page;
             const selector=form.querySelector('#temp-page-select');
             form.querySelector('.temp-page-field').hidden=!art||art.page_count<=1;

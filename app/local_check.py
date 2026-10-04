@@ -26,6 +26,10 @@ def _run_batch(db, after_id='', limit=200, *, incremental=False):
         if incremental: db.commit()
         moved=ImageService.move_orphaned_files_to_temp(db,settings.STORE_PATH,settings.TEMP_PATH)
     rows=db.query(models.Image).filter(models.Image.image_id>after_id,models.Image.file_status!='archived',models.Image.file_status!='deleted').order_by(models.Image.image_id).limit(limit).all()
+    from .tag_mappings import CachedImageTagCheck
+    tags = CachedImageTagCheck(db)
+    tag_totals = dict(tag_checked=0, tag_updated=0, tag_links_added=0,
+                      tag_mappings_created=0, tag_pending=0)
     failed=[];ready=0
     for image in rows:
         image.local_checked_at=None
@@ -49,6 +53,8 @@ def _run_batch(db, after_id='', limit=200, *, incremental=False):
             image.file_checked_at=datetime.utcnow()
             if not ImageService.ensure_thumbnail(image):
                 failed.append(image.image_id);continue
+            for key, value in tags.check(image).items():
+                tag_totals[key] += value
             db.flush()
             ready+=1
         except (OSError,ValueError,RuntimeError):
@@ -60,4 +66,4 @@ def _run_batch(db, after_id='', limit=200, *, incremental=False):
     db.flush()
     cursor=rows[-1].image_id if rows else after_id
     more=db.query(models.Image).filter(models.Image.image_id>cursor,models.Image.file_status.notin_(['archived','deleted'])).count()
-    return {'cursor':cursor,'remaining':more,'processed':len(rows),'ready':ready,'failed':failed,'archived':archived,'orphans_moved':moved}
+    return {'cursor':cursor,'remaining':more,'processed':len(rows),'ready':ready,'failed':failed,'archived':archived,'orphans_moved':moved, **tag_totals}

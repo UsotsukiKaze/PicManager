@@ -315,7 +315,7 @@ class Image(Base):
     # 图片描述
     description = Column(Text, nullable=True)
     # 独立年龄分级，不与普通特征标签混用
-    age_rating = Column(String(10), nullable=False, default=AgeRating.ALL.value, index=True)
+    age_rating = Column(String(10), nullable=False, default=AgeRating.R12.value, index=True)
     # 原始文件名
     original_filename = Column(String(500), nullable=True)
     # 文件扩展名

@@ -72,6 +72,7 @@ class SyncBody(BaseModel):
     kind: Literal["sync", "following", "recommendations"] = "sync"
     restrict: Literal["public", "private"] = "public"
     mode: Literal["combined", "native"] = "combined"
+    first_page: bool = False
 
 
 class BrowseBody(BaseModel):
@@ -90,7 +91,7 @@ class ImportBody(BaseModel):
     character_ids: list[int] = Field(default_factory=list, max_length=50)
     feature_tag_ids: list[int] = Field(default_factory=list, max_length=100)
     new_tags: list[str] = Field(default_factory=list, max_length=100)
-    age_rating: Literal["all", "r12", "r16", "r18"] = "all"
+    age_rating: Literal["all", "r12", "r16", "r18"] = "r12"
     idempotency_key: str = Field(min_length=8, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
 
 
@@ -140,7 +141,7 @@ class CartTagBody(BaseModel):
     character_ids: list[int] = Field(default_factory=list, max_length=50)
     feature_tag_ids: list[int] = Field(default_factory=list, max_length=100)
     new_tags: list[str] = Field(default_factory=list, max_length=100)
-    age_rating: Literal["all", "r12", "r16", "r18"] = "all"
+    age_rating: Literal["all", "r12", "r16", "r18"] = "r12"
 
 
 class CartDraftBody(CartTagBody):
@@ -331,7 +332,7 @@ def cart_add(body: CartAddBody, actor_id=Depends(require_admin_user_id)):
                 "character_ids": match["character_ids"],
                 "feature_tag_ids": match["feature_tag_ids"],
                 "new_tags": [],
-                "age_rating": "r18" if row.metadata_json["x_restrict"] else "all",
+                "age_rating": "r18" if row.metadata_json["x_restrict"] else "r12",
                 "import_mode": body.import_mode,
             }
             if body.import_mode == "split":

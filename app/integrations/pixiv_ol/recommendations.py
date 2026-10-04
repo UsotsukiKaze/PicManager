@@ -43,8 +43,9 @@ class TagIndex:
             for x in db.query(models.PixivTagMapping).all()
         }
 
-    def match(self, tags):
-        matched = {"group": set(), "character": set(), "feature": set()}
+    def match(self, tags, *, group_context=()):
+        context = set(group_context) & self.groups.keys()
+        matched = {"group": set(context), "character": set(), "feature": set()}
         evidence, unmatched, conflicts = [], [], []
         tags = list({normalize(x.get("name", "")): x for x in tags if normalize(x.get("name", ""))}.values())
         for phase in (0, 1):
@@ -53,8 +54,15 @@ class TagIndex:
                 if any(x["pixiv_tag"] == name for x in evidence):
                     continue
                 mapping = self.mappings.get((normalize(name), 0))
-                for group_id in sorted(matched["group"]):
-                    mapping = self.mappings.get((normalize(name), group_id), mapping)
+                scoped = {self.mappings[(normalize(name), group_id)]
+                          for group_id in (context or matched["group"])
+                          if (normalize(name), group_id) in self.mappings}
+                if len(scoped) > 1:
+                    if phase:
+                        conflicts.append(name)
+                    continue
+                if scoped:
+                    mapping = next(iter(scoped))
                 choices = [mapping] if mapping else self.names.get(normalize(name), [])
                 basis = "confirmed_mapping" if mapping else "name_or_alias"
                 if not choices and tag.get("translated_name"):

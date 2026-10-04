@@ -134,12 +134,12 @@ class EmotionTag(EmotionTagBase):
 class ImageBase(BaseModel):
     pid: Optional[str] = None
     description: Optional[str] = None
-    age_rating: str = "all"
+    age_rating: str = "r12"
 
     @field_validator("age_rating")
     @classmethod
     def validate_age_rating(cls, value: str) -> str:
-        normalized = str(value or "all").strip().lower()
+        normalized = str(value or "r12").strip().lower()
         if normalized not in {"all", "r12", "r16", "r18"}:
             raise ValueError("age_rating must be one of: all, r12, r16, r18")
         return normalized
@@ -295,7 +295,7 @@ class UploadImageRequest(BaseModel):
     feature_tag_ids: List[int] = []
     pid: Optional[str] = None
     description: Optional[str] = None
-    age_rating: str = "all"
+    age_rating: str = "r12"
 
 class DuplicateImageMatch(BaseModel):
     image_id: str
@@ -396,7 +396,7 @@ class TempImageUpload(BaseModel):
     feature_tag_ids: List[int] = []
     pid: Optional[str] = None
     description: Optional[str] = None
-    age_rating: str = "all"
+    age_rating: str = "r12"
     pixiv_token: Optional[str] = Field(default=None, min_length=48, max_length=48, pattern="^[0-9a-f]+$")
     identity_confirmed: bool = False
 

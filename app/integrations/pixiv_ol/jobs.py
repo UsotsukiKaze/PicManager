@@ -208,7 +208,7 @@ def import_pages(provider, job_id, revision, actor_id, draft):
                         ImageService.merge_incoming_image_metadata(db, keep, {
                             **tags, "feature_tag_ids": import_review.feature_ids(db, tags),
                             "pid": f"{art['pid']}_p{page}", "description": art["title"],
-                            "age_rating": "r18" if art["x_restrict"] else tags.get("age_rating", "all"),
+                            "age_rating": "r18" if art["x_restrict"] else tags.get("age_rating", "r12"),
                         }, decision.get("metadata_sources", {}))
                     if art["x_restrict"]:
                         db.get(models.Image, keep).age_rating = "r18"
@@ -234,7 +234,7 @@ def import_pages(provider, job_id, revision, actor_id, draft):
                     if source_for(db, art["pid"], page):
                         raise PixivError("source_conflict")
                     feature_ids = import_review.feature_ids(db, tags)
-                    rating = "r18" if art["x_restrict"] else tags.get("age_rating", "all")
+                    rating = "r18" if art["x_restrict"] else tags.get("age_rating", "r12")
                     image = models.Image(
                         image_id=image_id,
                         pid=art["pid"],
@@ -357,14 +357,16 @@ class Worker:
                 if not (kind == "import" and payload.get("cart_id")):
                     provider = service.client_for_job(actor_id, revision)
                 if kind == "sync":
-                    result = service.sync_feed(provider, revision, actor_id, payload.get("restrict", "public"))
+                    result = service.sync_feed(provider, revision, actor_id, payload.get("restrict", "public"),
+                        first_page=payload.get("first_page", False))
                 elif kind == "following":
                     result = service.sync_following(provider, revision, actor_id, payload.get("restrict", "public"))
                 elif kind == "recommendations":
-                    result = service.refresh_candidates(provider, revision, actor_id, payload.get("mode", "combined"))
+                    result = service.refresh_candidates(provider, revision, actor_id, payload.get("mode", "combined"),
+                        progressive=payload.get("first_page", False))
                 elif kind == "browse_recommendations":
                     result = service.refresh_candidates(
-                        provider, revision, actor_id, payload.get("mode", "combined"), continuation=True
+                        provider, revision, actor_id, payload.get("mode", "combined"), continuation=True, progressive=True
                     )
                 elif kind == "browse_feed":
                     with get_db_context() as db:
@@ -373,7 +375,7 @@ class Worker:
                             ["public", "private"] if account.preferences.get("private_following") else ["public"]
                         )
                     continuations = [
-                        service.continue_feed(provider, revision, actor_id, restrict) for restrict in restrictions
+                        service.continue_feed(provider, revision, actor_id, restrict, progressive=True) for restrict in restrictions
                     ]
                     result = {
                         "count": sum(part["count"] for part in continuations),

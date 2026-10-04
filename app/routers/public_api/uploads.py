@@ -343,7 +343,7 @@ def _incoming_duplicate_match(db, file_path: str, metadata: dict, original_filen
         "feature_tag_names": [item.name for item in tags],
         "pid": metadata.get("pid"),
         "description": metadata.get("description"),
-        "age_rating": metadata.get("age_rating") or "all",
+        "age_rating": metadata.get("age_rating") or "r12",
         "original_filename": original_filename,
         "file_size": os.path.getsize(file_path),
         "width": width,
@@ -426,7 +426,7 @@ def upload_single_image(
     emotion_ids: Optional[str] = Form(None),
     pid: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
-    age_rating: str = Form("all"),
+    age_rating: str = Form("r12"),
 ):
     """单张图片上传"""
     # 解析角色ID列表
@@ -1148,7 +1148,7 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                         feature_tag_ids=feature_tag_ids,
                         pid=metadata.get("pid"),
                         description=metadata.get("description"),
-                        age_rating=metadata.get("age_rating", "all"),
+                        age_rating=metadata.get("age_rating", "r12"),
                     ),
                     str(source_path),
                     str(payload.get("original_filename") or source_path.name),

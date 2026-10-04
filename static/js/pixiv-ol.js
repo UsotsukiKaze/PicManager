@@ -45,6 +45,7 @@
         return data;
     }
     const bytes = value => value >= 1024*1024 ? `${(value/1024/1024).toFixed(1)} MB` : `${Math.round(value/1024)} KB`;
+    const galleryPageSize=20, galleryPreloadDistance=320;
 
     class MediaCache {
         constructor() {this.entries=new Map();this.bytes=0;}
@@ -155,7 +156,7 @@
         async render() {
             const generation=++this.generation;
             this.toolsObserver?.disconnect();
-            this.loadObserver?.disconnect();this.flow=null;
+            this.loadObserver?.disconnect();this.flowScrollAbort?.abort();this.flow=null;
             if (this.abort) this.abort.abort(); this.abort=new AbortController();
             this.root.innerHTML=this.heading()+'<div id="pixiv-content" class="px-content" aria-live="polite"></div>';
             const content=document.getElementById('pixiv-content');
@@ -180,10 +181,11 @@
             this.positionTools();this.updateImportTools();
             const avatar=content.querySelector('.px-account-profile img');
             if(this.account.avatar_url)this.media.load(this.account.avatar_url,'account-avatar').then(url=>{if(avatar.isConnected)avatar.src=url;}).catch(()=>avatar.remove());else avatar.remove();
-            const flow=this.flow={generation,view:this.view,mode:this.mode,offset:0,batch:null,cursor:null,seen:new Set(),busy:false,more:true,upstreamMore:true,emptyRounds:0};
+            const flow=this.flow={generation,view:this.view,mode:this.mode,offset:0,batch:null,cursor:null,seen:new Set(),busy:false,more:true,upstreamMore:true,emptyRounds:0,lazyReady:false};
             const mode=document.getElementById('pixiv-mode');
             if(mode) {mode.value=this.mode; mode.onchange=()=>{this.saveReading();this.mode=mode.value;this.render().catch(e=>ui.showToast(e.message,'error'));};}
             this.updateRefreshButton();
+            this.root.closest('.main-content')?.scrollTo({top:0,behavior:'instant'});
             await this.loadMore(flow);
             if(this.flow!==flow)return;
             this.root.closest('.main-content')?.scrollTo({top:0,behavior:'instant'});
@@ -209,8 +211,16 @@
             this.readingStates.set(this.readingKey(),{content,items:this.items,flow:{...this.flow,seen:new Set(this.flow.seen)},scrollTop:this.root.closest('.main-content')?.scrollTop||0});
         }
         observeFlow(flow) {
-            this.loadObserver=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting)&&ui.currentPage==='pixiv-ol')this.loadMore(flow);},{root:this.root.closest('.main-content'),rootMargin:'1200px 0px'});
+            this.flowScrollAbort?.abort();this.flowScrollAbort=new AbortController();
+            const scroll=this.root.closest('.main-content');
+            scroll?.addEventListener('scroll',()=>{if(scroll.scrollTop>0){flow.lazyReady=true;this.maybeLoadMore(flow);}},{passive:true,signal:this.flowScrollAbort.signal});
+            this.loadObserver=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting)&&ui.currentPage==='pixiv-ol'&&(flow.lazyReady||flow.seen.size<galleryPageSize))this.loadMore(flow);},{root:scroll,rootMargin:`0px 0px ${galleryPreloadDistance}px 0px`});
             this.loadObserver.observe(this.root.querySelector('.px-load-sentinel'));
+        }
+        maybeLoadMore(flow) {
+            if(this.flow!==flow||ui.currentPage!=='pixiv-ol'||(!flow.lazyReady&&flow.seen.size>=galleryPageSize))return;
+            const sentinel=this.root.querySelector('.px-load-sentinel'),root=this.root.closest('.main-content');
+            if(sentinel&&!sentinel.querySelector('button')&&sentinel.getBoundingClientRect().top<(root?.getBoundingClientRect().bottom||innerHeight)+galleryPreloadDistance)this.loadMore(flow);
         }
         syncCartButtons() {
             this.root?.querySelectorAll('[data-action="add"]').forEach(button=>{
@@ -247,7 +257,7 @@
             if(!flow||this.flow!==flow||flow.busy||flow.continueJob||flow.paused)return;
             if(!flow.more){await this.continueReading(flow);return;}
             flow.busy=true;const sentinel=this.root.querySelector('.px-load-sentinel');sentinel.textContent='正在加载画作…';
-            const params=new URLSearchParams({limit:'24',offset:String(flow.cursor?0:flow.offset)});
+            const params=new URLSearchParams({limit:String(galleryPageSize),offset:String(flow.cursor?0:flow.offset)});
             if(flow.view==='feed'){if(flow.cursor)params.set('cursor',flow.cursor);}else{params.set('mode',flow.mode);if(flow.batch)params.set('batch_id',flow.batch);}
             try {
                 const data=await request(`/${flow.view==='feed'?'feed':'recommendations'}?${params}`,{signal:this.abort.signal});
@@ -255,7 +265,7 @@
                 flow.batch=data.batch_id||flow.batch;this.batch=flow.batch;
                 flow.offset+=data.items.length;flow.cursor=data.next_cursor||data.tail_cursor||flow.cursor;
                 const fresh=data.items.filter(item=>{if(flow.seen.has(item.pid))return false;flow.seen.add(item.pid);return true;});
-                this.items.push(...fresh);this.root.querySelector('.px-gallery').insertAdjacentHTML('beforeend',fresh.map(item=>this.card(item)).join(''));
+                const firstScreen=!this.items.length;this.items.push(...fresh);this.root.querySelector('.px-gallery').insertAdjacentHTML('beforeend',fresh.map((item,index)=>this.card(item,firstScreen&&index<5)).join(''));
                 flow.more=flow.view==='feed'&&'next_cursor' in data?!!data.next_cursor:flow.offset<data.total&&data.items.length>0;
                 if(fresh.length)flow.emptyRounds=0;
                 sentinel.textContent='继续下滑加载';
@@ -264,7 +274,7 @@
             } finally {flow.busy=false;}
             if(this.flow===flow&&!sentinel.querySelector('button')){
                 const root=this.root.closest('.main-content');
-                if(sentinel.getBoundingClientRect().top<(root?.getBoundingClientRect().bottom||innerHeight)+1200)setTimeout(()=>this.loadMore(flow),0);
+                if((flow.lazyReady||flow.seen.size<galleryPageSize)&&sentinel.getBoundingClientRect().top<(root?.getBoundingClientRect().bottom||innerHeight)+galleryPreloadDistance)setTimeout(()=>this.maybeLoadMore(flow),0);
             }
         }
         async continueReading(flow) {
@@ -302,7 +312,7 @@
         }
         scrollTop() {this.root.closest('.main-content')?.scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'instant':'smooth'});}
         updateRefreshButton() {const button=this.root?.querySelector('[data-action="refresh"]');if(button){const busy=!!this.pendingRefresh||!!this.refreshStarting;button.disabled=busy;button.classList.toggle('is-refreshing',busy);}}
-        suspend() {this.saveReading();this.generation++;this.flow=null;this.abort?.abort();this.loadObserver?.disconnect();this.toolsObserver?.disconnect();clearTimeout(this.hoverTimer);clearTimeout(this.timer);}
+        suspend() {this.saveReading();this.generation++;this.flow=null;this.abort?.abort();this.loadObserver?.disconnect();this.flowScrollAbort?.abort();this.toolsObserver?.disconnect();clearTimeout(this.hoverTimer);clearTimeout(this.timer);}
         empty(title,description,action='') {
             return `<div class="px-empty"><div class="px-empty-art"><img src="/static/icon/pixiv-ol.svg" alt=""></div><h3>${esc(title)}</h3><p>${esc(description)}</p>${action}</div>`;
         }
@@ -367,10 +377,10 @@
                 finally{clearTimeout(timeout);if(dialog.isConnected){button.disabled=false;button.innerHTML=icon('search')+'查找作品';}}
             };
         }
-        card(item) {
+        card(item,eager=false) {
             const added=this.cartItems.some(row=>row.artwork.pid===item.pid);
             const library=this.libraryState(item);
-            return `<article class="px-card"><button class="px-image-button" data-action="detail" data-pid="${esc(item.pid)}" aria-label="查看 ${esc(item.title)}"><img src="${esc(item.preview_url)}" alt="${esc(item.title)}" loading="lazy" decoding="async" fetchpriority="low">${item.page_count>1?`<span class="px-page-count">${item.page_count} P</span>`:''}${this.libraryBadge(item)}${this.similarityBadge(item)}</button><div class="px-card-body"><h4 title="${esc(item.title)}">${esc(item.title)}</h4><p class="px-author">${esc(item.author)}</p><div class="px-card-actions"><button class="px-button ${added||library.complete?'px-added':'px-primary'}" data-action="add" data-pid="${esc(item.pid)}" ${added||library.complete?'disabled':''}>${icon(added||library.complete?'check':'plus')}${library.complete?'已入库':added?'已加入':'加入优选夹'}</button><button class="px-icon-button ${item.liked?'is-liked':''}" data-action="like" data-pid="${esc(item.pid)}" aria-pressed="${!!item.liked}" aria-label="${item.liked?'取消喜欢':'喜欢'}">${icon('heart')}</button></div></div></article>`;
+            return `<article class="px-card"><button class="px-image-button" data-action="detail" data-pid="${esc(item.pid)}" aria-label="查看 ${esc(item.title)}"><img src="${esc(item.preview_url)}" alt="${esc(item.title)}" loading="${eager?'eager':'lazy'}" decoding="async" fetchpriority="${eager?'high':'low'}">${item.page_count>1?`<span class="px-page-count">${item.page_count} P</span>`:''}${this.libraryBadge(item)}${this.similarityBadge(item)}</button><div class="px-card-body"><h4 title="${esc(item.title)}">${esc(item.title)}</h4><p class="px-author">${esc(item.author)}</p><div class="px-card-actions"><button class="px-button ${added||library.complete?'px-added':'px-primary'}" data-action="add" data-pid="${esc(item.pid)}" ${added||library.complete?'disabled':''}>${icon(added||library.complete?'check':'plus')}${library.complete?'已入库':added?'已加入':'加入优选夹'}</button><button class="px-icon-button ${item.liked?'is-liked':''}" data-action="like" data-pid="${esc(item.pid)}" aria-pressed="${!!item.liked}" aria-label="${item.liked?'取消喜欢':'喜欢'}">${icon('heart')}</button></div></div></article>`;
         }
         async click(event) {
             const button=event.target.closest('button'); if(!button) return;
@@ -391,7 +401,7 @@
                     if(this.pendingRefresh||this.refreshStarting)return;
                     const view=this.view,mode=this.mode;this.refreshStarting=true;this.updateRefreshButton();
                     try {
-                        const job=await request('/sync',{method:'POST',body:JSON.stringify({kind:view==='feed'?'sync':'recommendations',mode})});
+                        const job=await request('/sync',{method:'POST',body:JSON.stringify({kind:view==='feed'?'sync':'recommendations',mode,first_page:true})});
                         this.pendingRefresh={id:job.id,view,mode};this.watch();
                     } finally {this.refreshStarting=false;this.updateRefreshButton();}
                 } else if(action==='top') this.scrollTop();
@@ -643,7 +653,7 @@
             const library=this.libraryState(item);
             const split=cartRow?.draft.import_mode==='split';
             const editPage=cartPage??cartRow?.draft.pages.find(page=>!(cartRow.draft.confirmed_pages||[]).includes(page))??cartRow?.draft.pages[0];
-            const draft=(split?cartRow.draft.page_drafts?.[editPage]:cartRow?.draft) || {group_ids:item.match.group_ids,character_ids:item.match.character_ids,feature_tag_ids:item.match.feature_tag_ids,new_tags:[],age_rating:item.x_restrict?'r18':'all'};
+            const draft=(split?cartRow.draft.page_drafts?.[editPage]:cartRow?.draft) || {group_ids:item.match.group_ids,character_ids:item.match.character_ids,feature_tag_ids:item.match.feature_tag_ids,new_tags:[],age_rating:item.x_restrict?'r18':'r12'};
             const allPages=split?[editPage]:cartRow?cartRow.pages:Array.from({length:Math.min(item.page_count,1000)},(_,index)=>index);
             const pages=allPages.filter(page=>cartRow||!(item.imported_pages||[]).includes(page));
             const added=!cartRow&&this.cartItems.some(row=>row.artwork.pid===item.pid);
@@ -1002,7 +1012,7 @@
                     }
                     this.wasActive=active;this.watch();
                 } catch(error) {ui.showToast(error.message,'error');}
-            },2500);
+            },this.pendingRefresh?700:2500);
         }
     }
     window.pixivOL=new PixivOL();

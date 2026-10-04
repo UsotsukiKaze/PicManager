@@ -203,7 +203,7 @@ def save_artworks(revision, raws, source, actor_id, *, ranks=False, rank_offset=
             db.flush()
 
 
-def sync_feed(provider, revision, actor_id, restrict="public"):
+def sync_feed(provider, revision, actor_id, restrict="public", *, first_page=False):
     key = f"feed_{restrict}"
     with get_db_context() as db:
         account = require_account(db, revision)
@@ -218,7 +218,7 @@ def sync_feed(provider, revision, actor_id, restrict="public"):
         )
     )
     cursor, count = state.get("cursor") or {}, 0
-    for _ in range(5):
+    for _ in range(1 if first_page else 5):
         response = provider.call("illust_follow", restrict=restrict, **cursor)
         raws = response.get("illusts", [])
         save_artworks(revision, raws, f"feed_{restrict}", actor_id)
@@ -238,7 +238,7 @@ def sync_feed(provider, revision, actor_id, restrict="public"):
             account.sync_state = {**account.sync_state, key: state}
         if finished:
             return {"count": count, "partial": False}
-    return {"count": count, "partial": True}
+    return {"count": count, "partial": not first_page, "more": True}
 
 
 def sync_following(provider, revision, actor_id, restrict="public"):
@@ -279,7 +279,7 @@ def sync_following(provider, revision, actor_id, restrict="public"):
     return {"count": count, "partial": True}
 
 
-def continue_feed(provider, revision, actor_id, restrict="public"):
+def continue_feed(provider, revision, actor_id, restrict="public", *, progressive=False):
     """Read older following posts independently from incremental latest-post sync."""
     with get_db_context() as db:
         account = require_account(db, revision)
@@ -289,7 +289,7 @@ def continue_feed(provider, revision, actor_id, restrict="public"):
         return {"count": 0, "more": False}
     cursor = state.get("history_cursor") or {}
     count = 0
-    for _ in range(2):
+    for _ in range(1 if progressive else 2):
         response = provider.call("illust_follow", restrict=restrict, **cursor)
         raws = response.get("illusts", [])
         save_artworks(revision, raws, key, actor_id)
@@ -310,14 +310,15 @@ def continue_feed(provider, revision, actor_id, restrict="public"):
     return {"count": count, "more": not exhausted}
 
 
-def refresh_candidates(provider, revision, actor_id, mode="combined", *, continuation=False):
+def refresh_candidates(provider, revision, actor_id, mode="combined", *, continuation=False, progressive=False):
     with get_db_context() as db:
         account = require_account(db, revision)
         index = TagIndex(db)
         profile = build_profile(db, index, account.preferences)
         preferences = account.preferences
         stream = dict(account.sync_state.get(f"recommendation_stream_{mode}", {}))
-        if continuation and stream.get("exhausted"):
+        deferred = bool(stream.get("deferred_queries") or stream.get("deferred_seeds"))
+        if continuation and stream.get("exhausted") and not deferred:
             return {"count": 0, "more": False}
         queries = [
             (g, next((row.original_tag or row.normalized_tag for row in db.query(models.PixivTagMapping).filter_by(target_type="group", target_id=g).order_by(models.PixivTagMapping.id).all()), index.groups[g].name))
@@ -342,10 +343,17 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
     warnings = []
     source_batch = secrets.token_hex(16)
     platform_count = 0
-    exhausted = False
+    exhausted = bool(continuation and stream.get("exhausted"))
+    pending_queries = [tuple(row) for row in stream.get("deferred_queries", [])] if continuation else list(queries)
+    pending_queries = [(group, query) for group, query in pending_queries if group in profile["quotas"]]
+    pending_seeds = list(stream.get("deferred_seeds", [])) if continuation else list(seeds)
+    if mode == "native":
+        pending_queries, pending_seeds = [], []
+    local_count = 0
     try:
         cursor = (stream.get("cursor") or {}) if continuation else {}
-        for _ in range(3 if mode != "native" else 4):
+        pages = 1 if progressive else (3 if mode != "native" else 4)
+        for _ in range(0 if exhausted else pages):
             response = provider.call("illust_recommended", include_ranking_illusts="false", **cursor)
             raws = response.get("illusts", [])
             save_artworks(
@@ -365,26 +373,32 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
                 break
     except PixivError as exc:
         warnings.append(exc.code)
-    if continuation and not platform_count and warnings:
-        raise PixivError(warnings[0])
-    if mode != "native" and not continuation:
-        for group, query in queries:
+    if mode != "native" and (not continuation or progressive):
+        query_slice = pending_queries[:1] if progressive and continuation else ([] if progressive else list(pending_queries))
+        seed_slice = pending_seeds[:1] if progressive and continuation and not query_slice else ([] if progressive else list(pending_seeds))
+        for group, query in query_slice:
             try:
                 response = provider.call("search_illust", word=query, search_target="partial_match_for_tags")
                 budget = max(3, int(70 * profile["quotas"][group]))
                 save_artworks(
                     revision, response.get("illusts", [])[:budget], "search", actor_id, source_batch=source_batch
                 )
+                local_count += len(response.get("illusts", [])[:budget])
+                pending_queries.remove((group, query))
             except PixivError as exc:
                 warnings.append(exc.code)
-        for pid in seeds:
+        for pid in seed_slice:
             try:
                 response = provider.call("illust_related", illust_id=pid)
                 save_artworks(
                     revision, response.get("illusts", [])[:10], "related", actor_id, source_batch=source_batch
                 )
+                local_count += len(response.get("illusts", [])[:10])
+                pending_seeds.remove(pid)
             except PixivError as exc:
                 warnings.append(exc.code)
+    if continuation and not platform_count and not local_count and warnings:
+        raise PixivError(warnings[0])
     with get_db_context() as db:
         account = require_account(db, revision)
         require_actor(db, actor_id)
@@ -394,10 +408,12 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
                 "recommended": {"batch": source_batch, "last_success": datetime.utcnow().isoformat()},
             }
         account.sync_state = {**account.sync_state, "candidate_batch": source_batch}
-        if not warnings or platform_count:
+        if not warnings or platform_count or local_count:
             account.sync_state = {
                 **account.sync_state,
-                f"recommendation_stream_{mode}": {"cursor": cursor, "exhausted": exhausted},
+                f"recommendation_stream_{mode}": {"cursor": cursor, "exhausted": exhausted,
+                    "deferred_queries": pending_queries if progressive else [],
+                    "deferred_seeds": pending_seeds if progressive else []},
             }
         items, profile = rank_candidates(db, account, mode)
         batch_id = secrets.token_hex(16)
@@ -421,5 +437,5 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
         "batch_id": batch_id,
         "count": len(items),
         "warnings": sorted(set(warnings)),
-        "more": not exhausted if platform_count else bool(warnings),
+        "more": (not exhausted or bool(pending_queries or pending_seeds)) if progressive else (not exhausted if platform_count else bool(warnings)),
     }

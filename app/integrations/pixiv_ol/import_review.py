@@ -51,7 +51,7 @@ def review(db, art, page, tags, stage, near, done, cart_id=None, reason=None):
         extension = {'JPEG': 'jpg', 'PNG': 'png', 'WEBP': 'webp', 'GIF': 'gif', 'BMP': 'bmp'}.get(image.format, 'img')
     incoming = _incoming_duplicate_match(db, str(stage), {
         **tags, 'pid': canonical_pid(art['pid'], page), 'description': art['title'],
-        'age_rating': 'r18' if art['x_restrict'] else tags.get('age_rating', 'all'),
+        'age_rating': 'r18' if art['x_restrict'] else tags.get('age_rating', 'r12'),
     }, f"{art['pid']}_p{page}.{extension}")
     incoming['feature_tag_names'] = list(dict.fromkeys(incoming['feature_tag_names'] + tags.get('new_tags', [])))
     incoming['thumbnail_url'] = (f'/api/pixiv-ol/cart/{cart_id}/reader-preview' if cart_id

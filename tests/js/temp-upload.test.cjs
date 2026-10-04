@@ -17,7 +17,8 @@ test('temp files default unchecked and multipage character suggestions remain pe
     const {upload,workbench}=harness();assert.equal(upload.tempSelection.size,0);
     const art={page_count:2,match:{group_ids:[1],character_ids:[1,2],feature_tag_ids:[3]}};
     const draft=workbench.matchedDraft({artwork:art,pid:'12345678_p0'});
-    assert.equal(draft.character_ids.length,0);assert.deepEqual(Array.from(draft.group_ids),[1]);assert.equal(draft.confirmed,false);
+    assert.equal(draft.character_ids.length,0);assert.deepEqual(Array.from(draft.group_ids),[1]);assert.equal(draft.confirmed,false);assert.equal(draft.age_rating,'r12');
+    assert.equal(workbench.matchedDraft({artwork:{...art,x_restrict:1}}).age_rating,'r18');
     art.page_count=1;assert.equal(workbench.matchedDraft({artwork:art}).character_ids.length,2);
 });
 

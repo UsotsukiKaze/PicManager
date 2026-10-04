@@ -21,6 +21,22 @@ def test_age_rating_ceiling_is_inclusive():
     assert ImageService.allowed_age_ratings("r18") == ("all", "r12", "r16", "r18")
 
 
+def test_new_image_inputs_default_to_r12_and_preserve_explicit_ratings():
+    from app.routers.integrations.pixiv_ol import CartTagBody, ImportBody
+
+    requests = [
+        (schemas.ImageCreate, {}),
+        (schemas.UploadImageRequest, {"character_ids": []}),
+        (schemas.TempImageUpload, {"filename": "image.png", "character_ids": []}),
+        (CartTagBody, {}),
+        (ImportBody, {"pid": "100", "pages": [0], "group_ids": [1], "idempotency_key": "rating-01"}),
+    ]
+    for request, values in requests:
+        assert request(**values).age_rating == "r12"
+        for rating in ("all", "r16", "r18"):
+            assert request(**values, age_rating=rating).age_rating == rating
+
+
 def _sign(secret, action, subject_id, role, target, timestamp, nonce):
     message = "|".join((action, subject_id, role, target, str(timestamp), nonce))
     return hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()

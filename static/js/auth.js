@@ -7,11 +7,11 @@ class AuthManager {
         this.featureLoadPromises = {};
         this.featureAssets = {
             pixiv: {
-                src: '/static/js/pixiv-ol.js?v=20261004q',
+                src: '/static/js/pixiv-ol.js?v=20261004s',
                 resolve: () => window.pixivOL,
             },
             upload: {
-                src: '/static/js/upload.js?v=20261004q',
+                src: '/static/js/upload.js?v=20261004s',
                 resolve: () => window.upload,
             },
             emoji: {
@@ -133,15 +133,15 @@ class AuthManager {
                 '/static/js/pinyin-search.js?v=20260820c',
                 '/static/js/character-selector.js?v=20260820b',
                 '/static/js/tag-selector.js?v=20261004f',
-                '/static/js/api.js?v=20261004l',
+                '/static/js/api.js?v=20261004s',
                 '/static/js/upload-queue.js?v=20260820j',
                 '/static/js/query-panel.js?v=20260820d',
                 '/static/js/entity-cache.js?v=20260820a',
                 '/static/js/search-selector.js?v=20260820d',
                 '/static/js/image-list.js?v=20261004f',
                 '/static/js/modal.js?v=20261004q',
-                '/static/js/workspace-shell.js?v=20261004f',
-                '/static/js/ui.js?v=20261004q',
+                '/static/js/workspace-shell.js?v=20261004s',
+                '/static/js/ui.js?v=20261004s',
                 '/static/js/main.js?v=20261004f',
             ];
 

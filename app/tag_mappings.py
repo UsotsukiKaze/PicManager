@@ -85,3 +85,77 @@ def check_image_tags(db,image,art,*,apply_matches=False):
         if character not in image.characters:image.characters.append(character)
         if character.group not in image.groups:image.groups.append(character.group)
     return created
+
+
+class CachedImageTagCheck:
+    """Repair cached library tag links without fetching or replacing page labels."""
+    def __init__(self, db):
+        self.db = db
+        self.index = None
+
+    def check(self, image):
+        from .pixiv_metadata import backfill_checked_tags, ensure_source_tag
+        from .integrations.pixiv_ol.recommendations import TagIndex
+
+        result = dict(tag_checked=0, tag_updated=0, tag_links_added=0,
+                      tag_mappings_created=0, tag_pending=0)
+        before = ({row.id for row in image.groups}, {row.id for row in image.characters},
+                  {row.id for row in image.feature_tags})
+        repaired = backfill_checked_tags(self.db, images=[image])
+        meta = image.pixiv_metadata
+        if not meta or meta.status != 'verified':
+            return result
+        tags = [tag for tag in meta.tags or [] if isinstance(tag, dict)
+                and isinstance(tag.get('name'), str) and tag['name'].strip()]
+        if not tags:
+            return result
+        ensure_source_tag(self.db, image)
+        if self.index is None:
+            self.db.flush()
+            self.index = TagIndex(self.db)
+        index = self.index
+        context = {row.id for row in image.groups} | {row.group_id for row in image.characters}
+        match = index.match(tags, group_context=context)
+        # Restore missing parent links for manual roles; preserve populated groups.
+        for role in image.characters:
+            if role.group not in image.groups:
+                image.groups.append(role.group)
+        if not image.groups and (meta.page_count == 1 or len(match['group_ids']) == 1):
+            image.groups.extend(index.groups[id_] for id_ in match['group_ids'])
+        # Work tags cannot decide a multi-page image's characters. A populated
+        # role selection is always a manual decision, even for single-page work.
+        if not image.characters and meta.page_count == 1 and len(match['character_ids']) == 1:
+            role = index.characters[match['character_ids'][0]]
+            if not image.groups or role.group_id in {row.id for row in image.groups}:
+                image.characters.append(role)
+                if role.group not in image.groups:
+                    image.groups.append(role.group)
+        for id_ in match['feature_tag_ids']:
+            tag = index.features[id_]
+            if tag not in image.feature_tags:
+                image.feature_tags.append(tag)
+        selected = {'group':{row.id for row in image.groups},
+                    'character':{row.id for row in image.characters},
+                    'feature':{row.id for row in image.feature_tags}}
+        pending = set(match['unmatched'] + match['conflicts'])
+        for evidence in match['evidence']:
+            kind, target_id = evidence['type'], evidence['id']
+            if kind == 'ignore':
+                continue
+            if target_id not in selected[kind]:
+                pending.add(evidence['pixiv_tag'])
+                continue
+            if evidence['basis'] == 'confirmed_mapping':
+                continue
+            if len(evidence['pixiv_tag']) > 255:
+                pending.add(evidence['pixiv_tag'])
+                continue
+            row, created = save_mapping(self.db, evidence['pixiv_tag'], kind, target_id, source='exact')
+            index.mappings[(row.normalized_tag, row.group_context)] = (row.target_type, row.target_id)
+            result['tag_mappings_created'] += int(created)
+        after = (selected['group'], selected['character'], selected['feature'])
+        result['tag_checked'] = 1
+        result['tag_links_added'] = sum(len(current - previous) for current, previous in zip(after, before))
+        result['tag_updated'] = int(bool(repaired or result['tag_links_added'] or result['tag_mappings_created']))
+        result['tag_pending'] = int(bool(pending))
+        return result

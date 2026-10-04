@@ -158,7 +158,7 @@ class UploadManager {
             message: '',
             tags: { group_ids: [], character_ids: [], feature_tag_ids: [] },
             pid: '',
-            ageRating: 'all',
+            ageRating: 'r12',
             description: ''
         }));
         this.batchFiles.push(...newItems);
@@ -319,7 +319,7 @@ class UploadManager {
         const selector = window.imageTagSelectors[`batch-tag-selector-${item.id}`];
         item.tags = selector ? selector.getValue() : item.tags;
         item.pid = element.querySelector('.batch-pid')?.value || '';
-        item.ageRating = element.querySelector('.batch-age-rating')?.value || 'all';
+        item.ageRating = element.querySelector('.batch-age-rating')?.value || 'r12';
         item.description = element.querySelector('.batch-description')?.value || '';
     }
 
@@ -559,7 +559,7 @@ class UploadManager {
                         character_ids: selectedCharacters,
                         group_ids: selectedTags.group_ids || [],
                         feature_tag_ids: selectedTags.feature_tag_ids || [],
-                        age_rating: document.getElementById('single-age-rating')?.value || 'all',
+                        age_rating: document.getElementById('single-age-rating')?.value || 'r12',
                         pid: document.getElementById('single-pid').value || null,
                         description: document.getElementById('single-description').value || null
                     },
@@ -671,7 +671,7 @@ class UploadManager {
                     character_ids: selectedCharacters,
                     group_ids: selectedTags.group_ids || [],
                     feature_tag_ids: selectedTags.feature_tag_ids || [],
-                    age_rating: item.ageRating || 'all',
+                    age_rating: item.ageRating || 'r12',
                     pid: item.pid || null,
                     description: item.description || null
                 };
@@ -785,7 +785,7 @@ class UploadManager {
         const pidInput = document.getElementById('single-pid');
         if (pidInput) pidInput.value = '';
         const ageRatingInput = document.getElementById('single-age-rating');
-        if (ageRatingInput) ageRatingInput.value = 'all';
+        if (ageRatingInput) ageRatingInput.value = 'r12';
         
         const descInput = document.getElementById('single-description');
         if (descInput) descInput.value = '';
@@ -1114,7 +1114,7 @@ class UploadManager {
         const source={rect:sourceImage?.getBoundingClientRect(),url:sourceImage?.currentSrc||sourceImage?.src,ratio:sourceImage?.naturalWidth&&sourceImage?.naturalHeight?sourceImage.naturalWidth/sourceImage.naturalHeight:1};
         this.tempOpening=true;
         try {
-            if(!window.TempUploadWorkbench)await window.auth.loadScript('/static/js/temp-upload.js?v=20261004q');
+            if(!window.TempUploadWorkbench)await window.auth.loadScript('/static/js/temp-upload.js?v=20261004s');
             this.tempWorkbench ||= new window.TempUploadWorkbench(this);
             await this.tempWorkbench.open(imageNameEncoded,source);
         } catch(error) {ui.showToast(error.message||'加载表单失败','error');}

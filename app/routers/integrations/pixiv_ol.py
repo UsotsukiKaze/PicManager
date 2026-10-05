@@ -282,6 +282,15 @@ def cart_json(db, item, index=None):
 
 @router.get("/cart")
 def cart_list(actor_id=Depends(require_admin_user_id)):
+    return cart_contents(actor_id)
+
+
+@router.post("/cart/refresh-tags", dependencies=[Depends(write_guard)])
+def cart_refresh_tags(actor_id=Depends(require_admin_user_id)):
+    return cart_contents(actor_id, refresh=True)
+
+
+def cart_contents(actor_id, *, refresh=False):
     with get_db_context() as db:
         account = db.get(models.PixivAccount, 1)
         if not account:
@@ -294,6 +303,10 @@ def cart_list(actor_id=Depends(require_admin_user_id)):
         )
         items = [item for item in items if allowed(item.metadata_json, account.preferences)]
         index = TagIndex(db)
+        if refresh:
+            from ...integrations.pixiv_ol.cart_tags import refresh_item
+            for item in items:
+                refresh_item(index, item)
         return {"items": [cart_json(db, item, index) for item in items], "total": len(items)}
 
 
@@ -335,6 +348,8 @@ def cart_add(body: CartAddBody, actor_id=Depends(require_admin_user_id)):
                 "age_rating": "r18" if row.metadata_json["x_restrict"] else "r12",
                 "import_mode": body.import_mode,
             }
+            from ...integrations.pixiv_ol.cart_tags import initial_state
+            draft["_tag_refresh"] = initial_state(draft)
             if body.import_mode == "split":
                 tags = {key: value for key, value in draft.items() if key not in ("pages", "import_mode")}
                 draft["page_drafts"] = {str(page): dict(tags) for page in pages}
@@ -387,8 +402,10 @@ def cart_update(cart_id: str, body: CartDraftBody, actor_id=Depends(require_admi
             for ids, cls in ((draft["character_ids"], models.Character), (draft["feature_tag_ids"], models.FeatureTag)):
                 if ids and db.query(cls).filter(cls.id.in_(set(ids))).count() != len(set(ids)):
                     raise HTTPException(422, "标签不存在")
-        item.draft = draft
-        return cart_json(db, item)
+        from ...integrations.pixiv_ol.cart_tags import contextual_match, remember_edit
+        index = TagIndex(db)
+        item.draft = remember_edit(item.draft, draft, contextual_match(index, item.metadata_json.get("tags", []), draft))
+        return cart_json(db, item, index)
 
 
 @router.put("/cart/{cart_id}/pages/{page}", dependencies=[Depends(write_guard)])
@@ -409,6 +426,10 @@ def cart_page_update(cart_id: str, page: int, body: CartTagBody, actor_id=Depend
             if any(len(tag) > 255 for tag in tags["new_tags"]):
                 raise HTTPException(422, "标签过长")
             validate_draft(db, {**tags, "actor_id": actor_id})
+            from ...integrations.pixiv_ol.cart_tags import contextual_match, remember_edit
+            previous = item.draft.get("page_drafts", {}).get(str(page), {})
+            index = TagIndex(db)
+            tags = remember_edit(previous, tags, contextual_match(index, item.metadata_json.get("tags", []), tags))
             item.draft = {
                 **item.draft,
                 "page_drafts": {**item.draft.get("page_drafts", {}), str(page): tags},

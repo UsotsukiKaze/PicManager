@@ -113,9 +113,9 @@
             const scope=[window.auth.currentUser?.id,this.account.user_id,this.account.media_revision,this.account.connected].join(':');
             if(this.mediaScope!==scope){this.media.clear();this.readingStates.clear();this.readerPages.clear();this.lookupItems.clear();this.similarityPending.clear();this.similaritySeen.clear();this.similarityEpoch++;this.similarityAbort?.abort();this.mediaScope=scope;}
         }
-        async loadCart() {
+        async loadCart({refreshTags=false}={}) {
             const generation=this.cartGeneration=(this.cartGeneration||0)+1;
-            const items=(await request('/cart')).items;
+            const items=(await request(refreshTags?'/cart/refresh-tags':'/cart',refreshTags?{method:'POST'}:undefined)).items;
             if(generation!==this.cartGeneration)return;
             this.cartItems=items;
             for(const id of this.submittedCartIds){
@@ -128,7 +128,7 @@
         async init() {
             if (!window.auth.isAdmin()) return;
             this.root=document.getElementById('pixiv-ol-root'); this.bind(this.root);
-            await Promise.all([this.loadAccount(),this.loadCart()]);
+            await Promise.all([this.loadAccount(),this.loadCart({refreshTags:this.view==='cart'})]);
             await this.render(); this.watch();
             this.loadImportJobs().then(()=>this.updateImportTools()).catch(()=>{});
         }
@@ -390,7 +390,7 @@
                 this.flow=null;this.abort?.abort();this.loadObserver?.disconnect();
                 if(button.dataset.view!=='cart') this.lastView=button.dataset.view;
                 this.view=button.dataset.view;
-                await this.loadCart();await this.render();if(this.view==='cart')this.root.closest('.main-content')?.scrollTo({top:0,behavior:'instant'});return;
+                await this.loadCart({refreshTags:this.view==='cart'});await this.render();if(this.view==='cart')this.root.closest('.main-content')?.scrollTo({top:0,behavior:'instant'});return;
             }
             const action=button.dataset.action; if(!action) return;
             button.disabled=true;

@@ -50,6 +50,23 @@ test('ready cart rows stay unchecked by default and confirmed selection survives
     pol.selectTaggedCartItem(pol.cartItems[0]);pol.renderCart(content);
     assert.match(content.innerHTML,/value="one" checked/);pol.renderCart(content);assert.equal(pol.selection.size,1);
 });
+
+test('entering the preferred collection refreshes tags once while background reads remain read-only',async()=>{
+    const {pol,context}=harness(),requests=[];
+    context.fetch=async(url,options={})=>{
+        requests.push({url,method:options.method||'GET'});
+        return {ok:true,json:async()=>({items:[row()]})};
+    };
+    pol.saveReading=()=>{};pol.render=async()=>{};pol.root.closest=()=>null;
+    const button={dataset:{view:'cart'}};
+    await pol.click({target:{closest:()=>button}});
+    assert.deepEqual(requests,[{url:'/api/pixiv-ol/cart/refresh-tags',method:'POST'}]);
+    assert.equal(pol.selection.size,0);
+    await pol.click({target:{closest:()=>button}});
+    assert.equal(requests.length,1);
+    await pol.loadCart();
+    assert.deepEqual(requests[1],{url:'/api/pixiv-ol/cart',method:'GET'});
+});
 test('split selection waits for all selected pages and rejects empty group confirmation',()=>{
     const {pol}=harness(),item=row();item.draft={import_mode:'split',pages:[0,2],confirmed_pages:[0],page_drafts:{0:{group_ids:[1]},2:{group_ids:[2]}}};
     pol.selectTaggedCartItem(item);assert.equal(pol.selection.size,0);

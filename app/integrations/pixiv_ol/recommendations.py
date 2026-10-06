@@ -378,6 +378,8 @@ def rank_candidates(db, account, mode="combined"):
     feed_count = 0
     for row in rows:
         art = row.metadata_json
+        if row.pid in source_pages:
+            continue
         if not allowed(art, account.preferences) or feedback.get(row.pid) == "dislike":
             continue
         if mode != "native" and candidate_batch:
@@ -386,9 +388,7 @@ def rank_candidates(db, account, mode="combined"):
                 if feed_count >= 10 or not any(o["source"].startswith("feed_") for o in row.origins):
                     continue
                 feed_count += 1
-        imported = sorted(page for page in source_pages.get(row.pid, []) if page < art["page_count"])
-        if len(imported) == art["page_count"]:
-            continue
+        imported = []
         match = recommendation_match(index, art["tags"], profile['quotas'])
         groups = [g for g in match["group_ids"] if g in profile["quotas"]]
         for g in groups:

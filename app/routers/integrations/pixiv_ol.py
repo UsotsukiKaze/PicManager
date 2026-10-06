@@ -1022,7 +1022,19 @@ def recommendations(
         )
         if not batch:
             return {"items": [], "total": 0, "batch_id": None}
-        items = [i for i in batch.items if allowed(i, account.preferences)]
+        pids = [item['pid'] for item in batch.items]
+        excluded = set(library_pixiv_pages(db, pids))
+        excluded.update(row[0] for row in db.query(models.PixivCartItem.pid).filter(
+            models.PixivCartItem.account_revision == account.revision,
+            models.PixivCartItem.actor_id == actor_id,
+            models.PixivCartItem.pid.in_(pids),
+        ).all())
+        items = [(position, item) for position, item in enumerate(batch.items)
+                 if item['pid'] not in excluded and allowed(item, account.preferences)]
+        # Offsets refer to the immutable batch, not the shrinking visible list.
+        # Adding/importing earlier cards must not skip unseen cards on continuation.
+        page = [(position, item) for position, item in items if position >= offset][:limit]
+        next_offset = page[-1][0] + 1 if page else len(batch.items)
         output = [
             {
                 **{k: v for k, v in i.items() if k not in ("preview", "originals", "page_previews", "author_avatar")},
@@ -1031,12 +1043,10 @@ def recommendations(
                 "reader_preview_url": f"/api/pixiv-ol/artworks/{i['pid']}/reader-preview",
                 "author_avatar_url": f"/api/pixiv-ol/artworks/{i['pid']}/avatar",
             }
-            for i in items[offset : offset + limit]
+            for _, i in page
         ]
-        # Keep the batch order stable while reflecting imports completed since it was ranked.
-        pages = library_pixiv_pages(db, [i["pid"] for i in output])
         for item in output:
-            item["imported_pages"] = sorted(page for page in pages.get(item["pid"], []) if page < item["page_count"])
+            item['imported_pages'] = []
         likes = {
             x[0]
             for x in db.query(models.PixivFeedback.pid)
@@ -1050,7 +1060,8 @@ def recommendations(
         }
         for item in output:
             item["liked"] = item["pid"] in likes
-        return {"items": output, "total": len(items), "batch_id": batch.id, "profile": batch.profile}
+        return {"items": output, "total": len(items), "batch_id": batch.id, "profile": batch.profile,
+                "next_offset": next_offset, "has_more": any(position >= next_offset for position, _ in items)}
 
 
 @router.get("/previews/{pid}")

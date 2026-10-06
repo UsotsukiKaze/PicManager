@@ -1163,7 +1163,7 @@ def test_reconnect_invalidates_old_account_candidates_and_jobs(environment, monk
         assert db.query(models.PixivJob).one().status == "cancelled"
 
 
-def test_recommendation_batch_reflects_imported_pages_without_reordering(environment):
+def test_recommendation_batch_excludes_works_with_any_imported_page(environment):
     context, client, _ = environment
     with context() as db:
         art = service.normalize_artwork(artwork(pages=2))
@@ -1183,9 +1183,8 @@ def test_recommendation_batch_reflects_imported_pages_without_reordering(environ
     response = client.get("/api/pixiv-ol/recommendations?batch_id=batch")
     assert response.status_code == 200
     result = response.json()
-    assert result["batch_id"] == "batch" and result["total"] == 1
-    assert result["items"][0]["imported_pages"] == [1]
-    assert "originals" not in result["items"][0]
+    assert result["batch_id"] == "batch" and result["total"] == 0
+    assert result['items'] == [] and result['has_more'] is False
 
 
 def test_existing_library_pids_are_shared_by_cached_recommendations_feed_and_detail(environment):
@@ -1197,7 +1196,8 @@ def test_existing_library_pids_are_shared_by_cached_recommendations_feed_and_det
         db.flush()
         db.execute(models.Image.__table__.update().where(models.Image.image_id=='1234567890').values(pid='100'))
         db.add(models.PixivRecommendationBatch(id='legacy', account_revision='rev', mode='combined', items=[service.normalize_artwork(artwork(pages=3))], profile={}))
-    paths=['/api/pixiv-ol/recommendations?batch_id=legacy', '/api/pixiv-ol/feed', '/api/pixiv-ol/artworks/100']
+    assert client.get('/api/pixiv-ol/recommendations?batch_id=legacy').json()['items'] == []
+    paths=['/api/pixiv-ol/feed', '/api/pixiv-ol/artworks/100']
     for path in paths:
         response=client.get(path)
         assert response.status_code == 200
@@ -1209,7 +1209,7 @@ def test_existing_library_pids_are_shared_by_cached_recommendations_feed_and_det
     assert added.json()['pages'] == [1]
     with context() as db:
         db.add(models.Image(image_id='1234567892', pid='100_p1', file_extension='png', file_path='page1.png'))
-    assert client.get('/api/pixiv-ol/recommendations?batch_id=legacy').json()['items'][0]['imported_pages'] == [0,1,2]
+    assert client.get('/api/pixiv-ol/recommendations?batch_id=legacy').json()['items'] == []
     with context() as db:
         assert rank_candidates(db, db.get(models.PixivAccount,1))[0] == []
 

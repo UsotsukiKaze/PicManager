@@ -45,3 +45,38 @@ test('navigation invalidates deferred loading and refresh requests a first-page 
     await h.pol.click({target:{closest:()=>button}});
     assert.equal(h.calls[1].body.first_page,true);assert.equal(h.pol.pendingRefresh.id,5);
 });
+
+test('recommendations use immutable batch offsets even when the visible total shrinks',async()=>{
+    const h=harness();
+    h.context.fetch=async(url)=>{
+        h.calls.push({url});
+        return {ok:true,json:async()=>({batch_id:'batch',total:2,next_offset:27,has_more:true,
+            items:[{pid:'26',title:'Artwork',page_count:1,preview_url:'/preview'}]})};
+    };
+    await h.pol.loadMore(h.flow);
+    assert.equal(h.flow.offset,27);assert.equal(h.flow.more,true);
+    await h.pol.loadMore(h.flow);assert.match(h.calls[1].url,/offset=27/);
+});
+
+test('a cart update racing a recommendation response cannot render the excluded artwork',async()=>{
+    const h=harness();h.pol.cartItems=[{artwork:{pid:'0'}}];
+    await h.pol.loadMore(h.flow);
+    assert.equal(h.pol.items.length,19);assert.equal(h.flow.offset,20);
+    assert.equal(h.pol.items.some(item=>item.pid==='0'),false);assert.equal(h.timers.length,1);
+});
+
+test('cart and library exclusions update active and saved recommendation cards while keeping feed cards',()=>{
+    const h=harness(),makeCard=pid=>({style:{},hidden:false,querySelector:()=>({dataset:{pid}})});
+    const current=[makeCard('100'),makeCard('101')],saved=[makeCard('100')],feed=[makeCard('100')];
+    h.pol.items=[{pid:'100',imported_pages:[]},{pid:'101',imported_pages:[2]}];
+    h.pol.root.querySelectorAll=selector=>selector==='.px-card'?current:[];
+    h.pol.readingStates.set('native',{flow:{view:'recommendations'},items:[{pid:'100'}],content:{querySelectorAll:()=>saved}});
+    h.pol.readingStates.set('feed',{flow:{view:'feed'},items:[{pid:'100'}],content:{querySelectorAll:()=>feed}});
+    h.pol.cartItems=[{artwork:{pid:'100'}}];h.pol.maybeLoadMore=()=>{};
+    h.pol.syncCartButtons();
+    assert.equal(current[0].hidden,true);assert.equal(current[1].hidden,true);assert.equal(saved[0].hidden,true);
+    assert.equal(feed[0].hidden,false);assert.equal(h.pol.visibleGalleryCount(h.flow),0);
+    h.pol.cartItems=[];h.pol.syncCartButtons();
+    assert.equal(current[0].hidden,false);assert.equal(saved[0].hidden,false);assert.equal(current[1].hidden,true);
+    assert.equal(h.pol.visibleGalleryCount(h.flow),1);
+});

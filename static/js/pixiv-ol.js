@@ -117,6 +117,9 @@
             const generation=this.cartGeneration=(this.cartGeneration||0)+1;
             const items=(await request(refreshTags?'/cart/refresh-tags':'/cart',refreshTags?{method:'POST'}:undefined)).items;
             if(generation!==this.cartGeneration)return;
+            const completed=(this.cartItems||[]).filter(row=>row.status==='importing'&&!items.some(item=>item.id===row.id));
+            if(completed.length)await this.refreshLibraryStatus(completed.map(row=>row.artwork)).catch(()=>{});
+            if(generation!==this.cartGeneration)return;
             this.cartItems=items;
             for(const id of this.submittedCartIds){
                 const row=this.cartItems.find(item=>item.id===id);
@@ -124,6 +127,7 @@
             }
             const available=new Set(this.cartItems.filter(row=>row.status!=='importing'&&!this.submittedCartIds.has(row.id)).map(row=>row.id));
             for(const id of this.selection)if(!available.has(id))this.selection.delete(id);
+            this.syncCartButtons();
         }
         async init() {
             if (!window.auth.isAdmin()) return;
@@ -214,16 +218,16 @@
             this.flowScrollAbort?.abort();this.flowScrollAbort=new AbortController();
             const scroll=this.root.closest('.main-content');
             scroll?.addEventListener('scroll',()=>{if(scroll.scrollTop>0){flow.lazyReady=true;this.maybeLoadMore(flow);}},{passive:true,signal:this.flowScrollAbort.signal});
-            this.loadObserver=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting)&&ui.currentPage==='pixiv-ol'&&(flow.lazyReady||flow.seen.size<galleryPageSize))this.loadMore(flow);},{root:scroll,rootMargin:`0px 0px ${galleryPreloadDistance}px 0px`});
+            this.loadObserver=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting)&&ui.currentPage==='pixiv-ol'&&(flow.lazyReady||this.visibleGalleryCount(flow)<galleryPageSize))this.loadMore(flow);},{root:scroll,rootMargin:`0px 0px ${galleryPreloadDistance}px 0px`});
             this.loadObserver.observe(this.root.querySelector('.px-load-sentinel'));
         }
         maybeLoadMore(flow) {
-            if(this.flow!==flow||ui.currentPage!=='pixiv-ol'||(!flow.lazyReady&&flow.seen.size>=galleryPageSize))return;
+            if(this.flow!==flow||ui.currentPage!=='pixiv-ol'||(!flow.lazyReady&&this.visibleGalleryCount(flow)>=galleryPageSize))return;
             const sentinel=this.root.querySelector('.px-load-sentinel'),root=this.root.closest('.main-content');
             if(sentinel&&!sentinel.querySelector('button')&&sentinel.getBoundingClientRect().top<(root?.getBoundingClientRect().bottom||innerHeight)+galleryPreloadDistance)this.loadMore(flow);
         }
         syncCartButtons() {
-            this.root?.querySelectorAll('[data-action="add"]').forEach(button=>{
+            this.root?.querySelectorAll?.('[data-action="add"]').forEach(button=>{
                 const added=this.cartItems.some(row=>row.artwork.pid===button.dataset.pid);
                 const item=this.items?.find(item=>item.pid===button.dataset.pid),library=this.libraryState(item);
                 button.disabled=added||library.complete;button.classList.toggle('px-primary',!added&&!library.complete);button.classList.toggle('px-added',added||library.complete);
@@ -232,6 +236,26 @@
                 card?.querySelector('.px-library-status')?.remove();
                 if(library.count)image?.insertAdjacentHTML('beforeend',this.libraryBadge(item));
             });
+            this.syncRecommendationCards();
+        }
+        recommendationExcluded(item) {
+            return !!item?.imported_pages?.length||this.cartItems.some(row=>row.artwork.pid===item?.pid);
+        }
+        visibleGalleryCount(flow) {
+            return (this.items||[]).filter(item=>flow.view!=='recommendations'||!this.recommendationExcluded(item)).length;
+        }
+        syncRecommendationCards() {
+            const views=[{content:this.root,flow:this.flow,items:this.items},...this.readingStates.values()];
+            for(const state of views) {
+                if(state.flow?.view!=='recommendations')continue;
+                const items=new Map((state.items||[]).map(item=>[item.pid,item]));
+                state.content?.querySelectorAll?.('.px-card').forEach(card=>{
+                    const pid=card.querySelector('[data-action="detail"]')?.dataset.pid;
+                    card.hidden=this.recommendationExcluded(items.get(pid));
+                    card.style.display=card.hidden?'none':'';
+                });
+            }
+            if(this.flow?.view==='recommendations'&&ui.currentPage==='pixiv-ol')this.maybeLoadMore(this.flow);
         }
         libraryState(item) {
             const total=Number(item?.page_count)||1;
@@ -263,10 +287,10 @@
                 const data=await request(`/${flow.view==='feed'?'feed':'recommendations'}?${params}`,{signal:this.abort.signal});
                 if(this.flow!==flow)return;
                 flow.batch=data.batch_id||flow.batch;this.batch=flow.batch;
-                flow.offset+=data.items.length;flow.cursor=data.next_cursor||data.tail_cursor||flow.cursor;
-                const fresh=data.items.filter(item=>{if(flow.seen.has(item.pid))return false;flow.seen.add(item.pid);return true;});
+                flow.offset=flow.view==='recommendations'&&Number.isInteger(data.next_offset)?data.next_offset:flow.offset+data.items.length;flow.cursor=data.next_cursor||data.tail_cursor||flow.cursor;
+                const fresh=data.items.filter(item=>{if(flow.seen.has(item.pid))return false;flow.seen.add(item.pid);return flow.view!=='recommendations'||!this.recommendationExcluded(item);});
                 const firstScreen=!this.items.length;this.items.push(...fresh);this.root.querySelector('.px-gallery').insertAdjacentHTML('beforeend',fresh.map((item,index)=>this.card(item,firstScreen&&index<5)).join(''));
-                flow.more=flow.view==='feed'&&'next_cursor' in data?!!data.next_cursor:flow.offset<data.total&&data.items.length>0;
+                flow.more=flow.view==='recommendations'&&'has_more' in data?data.has_more:flow.view==='feed'&&'next_cursor' in data?!!data.next_cursor:flow.offset<data.total&&data.items.length>0;
                 if(fresh.length)flow.emptyRounds=0;
                 sentinel.textContent='继续下滑加载';
             } catch(error) {
@@ -274,7 +298,7 @@
             } finally {flow.busy=false;}
             if(this.flow===flow&&!sentinel.querySelector('button')){
                 const root=this.root.closest('.main-content');
-                if((flow.lazyReady||flow.seen.size<galleryPageSize)&&sentinel.getBoundingClientRect().top<(root?.getBoundingClientRect().bottom||innerHeight)+galleryPreloadDistance)setTimeout(()=>this.maybeLoadMore(flow),0);
+                if((flow.lazyReady||this.visibleGalleryCount(flow)<galleryPageSize)&&sentinel.getBoundingClientRect().top<(root?.getBoundingClientRect().bottom||innerHeight)+galleryPreloadDistance)setTimeout(()=>this.maybeLoadMore(flow),0);
             }
         }
         async continueReading(flow) {

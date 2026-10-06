@@ -9,7 +9,8 @@ from sqlalchemy import update
 from ... import models
 from ...database import get_db_context
 from .provider import Provider, PixivError, encrypt, decrypt, plain
-from .recommendations import TagIndex, build_profile, rank_candidates
+from .recommendations import TagIndex, build_profile, rank_candidates, normalize
+from .search_plan import build_search_plan, restored_query
 
 CLIENT_LOCK = threading.Lock()  # Serialize refresh-token rotation, not artwork requests.
 
@@ -320,22 +321,11 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
         deferred = bool(stream.get("deferred_queries") or stream.get("deferred_seeds"))
         if continuation and stream.get("exhausted") and not deferred:
             return {"count": 0, "more": False}
-        queries = [
-            (g, next((row.original_tag or row.normalized_tag for row in db.query(models.PixivTagMapping).filter_by(target_type="group", target_id=g).order_by(models.PixivTagMapping.id).all()), index.groups[g].name))
-            for g in sorted(profile["quotas"], key=lambda x: -profile["quotas"][x])
-        ][:10]
-        associations = models.image_group_association
-        seed_rows = (
-            db.query(models.PixivImageSource.work_id, associations.c.group_id)
-            .join(associations, associations.c.image_id == models.PixivImageSource.image_id)
-            .filter(associations.c.group_id.in_([g for g, _ in queries]))
-            .distinct()
-            .limit(1000)
-            .all()
-        )
+        query_round = int(stream.get("query_round", -1)) + (0 if continuation else 1)
+        queries = build_search_plan(db, index, profile, preferences, rotation=max(0, query_round))
         seeds = []
-        for group, _ in queries:
-            candidates = [pid for pid, g in seed_rows if g == group and pid not in seeds]
+        for group in sorted(profile["quotas"], key=lambda g: -profile["quotas"][g]):
+            candidates = [pid for pid in profile["related_seeds"].get(group, []) if pid not in seeds]
             if candidates:
                 seeds.append(candidates[0])
             if len(seeds) == 4:
@@ -344,8 +334,13 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
     source_batch = secrets.token_hex(16)
     platform_count = 0
     exhausted = bool(continuation and stream.get("exhausted"))
-    pending_queries = [tuple(row) for row in stream.get("deferred_queries", [])] if continuation else list(queries)
-    pending_queries = [(group, query) for group, query in pending_queries if group in profile["quotas"]]
+    pending_queries = [restored_query(row) for row in stream.get("deferred_queries", [])] if continuation else list(queries)
+    blocked = {normalize(tag) for tag in preferences.get('blocked_tags', [])}
+    pending_queries = [query for query in pending_queries if query["group"] in profile["quotas"]
+                       and not any(normalize(term) in blocked or
+                                   index.mappings.get((normalize(term), query['group']),
+                                                      index.mappings.get((normalize(term), 0), ('', None)))[0] == 'ignore'
+                                   for term in query.get('terms', [query['word']]))]
     pending_seeds = list(stream.get("deferred_seeds", [])) if continuation else list(seeds)
     if mode == "native":
         pending_queries, pending_seeds = [], []
@@ -376,15 +371,16 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
     if mode != "native" and (not continuation or progressive):
         query_slice = pending_queries[:1] if progressive and continuation else ([] if progressive else list(pending_queries))
         seed_slice = pending_seeds[:1] if progressive and continuation and not query_slice else ([] if progressive else list(pending_seeds))
-        for group, query in query_slice:
+        for query in query_slice:
             try:
-                response = provider.call("search_illust", word=query, search_target="partial_match_for_tags")
+                response = provider.call("search_illust", word=query["word"], search_target=query["search_target"])
+                group = query["group"]
                 budget = max(3, int(70 * profile["quotas"][group]))
                 save_artworks(
                     revision, response.get("illusts", [])[:budget], "search", actor_id, source_batch=source_batch
                 )
                 local_count += len(response.get("illusts", [])[:budget])
-                pending_queries.remove((group, query))
+                pending_queries.remove(query)
             except PixivError as exc:
                 warnings.append(exc.code)
         for pid in seed_slice:
@@ -411,7 +407,7 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
         if not warnings or platform_count or local_count:
             account.sync_state = {
                 **account.sync_state,
-                f"recommendation_stream_{mode}": {"cursor": cursor, "exhausted": exhausted,
+                f"recommendation_stream_{mode}": {"cursor": cursor, "exhausted": exhausted, "query_round": query_round,
                     "deferred_queries": pending_queries if progressive else [],
                     "deferred_seeds": pending_seeds if progressive else []},
             }

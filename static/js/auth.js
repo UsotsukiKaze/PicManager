@@ -7,7 +7,7 @@ class AuthManager {
         this.featureLoadPromises = {};
         this.featureAssets = {
             pixiv: {
-                src: '/static/js/pixiv-ol.js?v=20261006a',
+                src: '/static/js/pixiv-ol.js?v=20261007b',
                 resolve: () => window.pixivOL,
             },
             upload: {
@@ -133,7 +133,7 @@ class AuthManager {
                 '/static/js/pinyin-search.js?v=20260820c',
                 '/static/js/character-selector.js?v=20260820b',
                 '/static/js/tag-selector.js?v=20261004f',
-                '/static/js/api.js?v=20261004s',
+                '/static/js/api.js?v=20261007a',
                 '/static/js/upload-queue.js?v=20260820j',
                 '/static/js/query-panel.js?v=20260820d',
                 '/static/js/entity-cache.js?v=20260820a',
@@ -371,7 +371,7 @@ async function handleLogout() {
 }
 
 // 认证引导脚本位于 head：尽快拦截匿名访问，通过后才加载管理应用。
-auth.init().catch(error => {
+if (!window.__PICMANAGER_MODERN__) auth.init().catch(error => {
     console.error('Application bootstrap failed:', error);
     window.location.replace('/login');
 });

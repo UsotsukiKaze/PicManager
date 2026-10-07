@@ -3,7 +3,8 @@ from datetime import datetime, timedelta
 from io import BytesIO
 
 import pytest
-from fastapi import HTTPException, Request, Response, UploadFile
+from fastapi import FastAPI, HTTPException, Request, Response, UploadFile
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -52,6 +53,19 @@ def _database_context(monkeypatch, module):
 
 def test_debug_defaults_to_false_without_env_file():
     assert Settings(_env_file=None, _env_prefix="PICMANAGER_TEST_NO_ENV_").DEBUG is False
+
+
+@pytest.mark.parametrize('method,path', [('POST', '/auth/login'), ('PUT', '/auth/password')])
+@pytest.mark.parametrize('body', [None, b'{"qq_number":"test","password":"synthetic","old_password":"synthetic","new_password":"synthetic"}', b'not-json'])
+def test_removed_password_flows_always_reject_without_processing_credentials(monkeypatch, method, path, body):
+    monkeypatch.setattr(sessions, 'get_db_context', lambda: pytest.fail('Disabled password endpoint accessed database'))
+    app = FastAPI()
+    app.include_router(sessions.router, prefix='/auth')
+    response = TestClient(app).request(method, path, content=body, headers={'Content-Type': 'application/json'})
+    assert response.status_code == 410
+    assert 'set-cookie' not in response.headers
+    assert 'synthetic' not in response.text
+    assert 'requestBody' not in app.openapi()['paths'][path][method.lower()]
 
 
 @pytest.mark.asyncio

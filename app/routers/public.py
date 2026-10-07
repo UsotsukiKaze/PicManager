@@ -1,3 +1,3 @@
 """Public API route aggregate."""
 
-from .public_api import router
+from .public_api import router as router

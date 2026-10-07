@@ -12,6 +12,9 @@ from PIL import Image as PILImage, ImageOps
 import shutil
 import uuid
 import threading
+import tempfile
+from pathlib import Path
+from contextlib import contextmanager
 
 DEFAULT_ENTITY_AVATAR = "/favicon.ico"
 
@@ -1236,7 +1239,7 @@ class ImageService:
 
     @staticmethod
     def delete_superseded_image_files(keep: models.Image, superseded: models.Image) -> None:
-        """Permanently remove the discarded original and thumbnail after DB changes flush."""
+        """Queue discarded originals and derivatives for cleanup after the outer commit."""
         keep_path = ImageService.image_full_path(keep) if keep.file_path else ""
         superseded_path = ImageService.image_full_path(superseded) if superseded.file_path else ""
         if keep_path and superseded_path:
@@ -1244,14 +1247,16 @@ class ImageService:
             if same_path:
                 raise ValueError("Duplicate records point to the same physical file; refusing to delete it")
 
-        try:
-            thumbnail = ImageService.thumb_path(superseded)
-            if os.path.isfile(thumbnail):
-                os.remove(thumbnail)
-            if superseded_path and os.path.isfile(superseded_path):
-                os.remove(superseded_path)
-        except OSError as exc:
-            raise ValueError(f"Failed to delete the superseded image file: {exc}") from exc
+        from sqlalchemy.orm import object_session
+        from .file_operations import FileOperation
+        db = object_session(superseded)
+        if db is None:
+            raise ValueError("Discarded image must belong to the caller's transaction")
+        remote = str(superseded.file_path or "").startswith("r2://")
+        FileOperation.prepare(db, "delete", image_id=superseded.image_id, locator=superseded.file_path,
+                              source=superseded_path if superseded_path and not remote else None,
+                              backend=get_image_storage(settings) if remote else None,
+                              derivatives=[ImageService.thumb_path(superseded), ImageService.preview_path(superseded)])
 
         superseded.thumb_status = ImageService.THUMB_MISSING
         superseded.file_checked_at = datetime.utcnow()
@@ -1342,11 +1347,24 @@ class ImageService:
         raw_path = str(image.file_path or "")
         if raw_path.startswith("r2://"):
             object_key = raw_path.split("/", 3)[-1]
-            try:
-                return get_image_storage(settings).exists(object_key)
-            except (OSError, RuntimeError, ValueError):
-                return False
+            return get_image_storage(settings).exists(object_key)
         return bool(raw_path) and os.path.isfile(ImageService.image_full_path(image))
+
+    @staticmethod
+    @contextmanager
+    def source_file(image: models.Image):
+        """Read either backend through one bounded-lifetime local source."""
+        locator = str(image.file_path or "")
+        if not locator.startswith("r2://"):
+            yield Path(ImageService.image_full_path(image))
+            return
+        with tempfile.NamedTemporaryFile(suffix=f".{image.file_extension or 'img'}", delete=False) as temp:
+            staged = Path(temp.name)
+        try:
+            get_image_storage(settings).download_file(locator.split("/", 3)[-1], staged)
+            yield staged
+        finally:
+            staged.unlink(missing_ok=True)
 
     @staticmethod
     def mark_file_status(db: Session, image: models.Image, exists: Optional[bool] = None) -> str:
@@ -1367,49 +1385,62 @@ class ImageService:
         return os.path.join(settings.PREVIEW_PATH, f"{image.image_id}.webp")
 
     @staticmethod
-    def ensure_thumbnail(image: models.Image) -> bool:
-        if not ImageService.image_file_exists(image):
+    def ensure_thumbnail(image: models.Image, *, force: bool = False, source_path: str | Path | None = None) -> bool:
+        source_exists = Path(source_path).is_file() if source_path is not None else ImageService.image_file_exists(image)
+        if not source_exists:
             image.thumb_status = ImageService.THUMB_MISSING
             return False
 
-        source = ImageService.image_full_path(image)
         thumb = ImageService.thumb_path(image)
+        remote = str(image.file_path or "").startswith("r2://")
         try:
-            if os.path.exists(thumb) and os.path.getmtime(thumb) >= os.path.getmtime(source):
-                image.thumb_status = ImageService.THUMB_READY
+            if not force and remote and source_path is None and os.path.exists(thumb) and image.thumb_status == ImageService.THUMB_READY:
                 return True
-
-            ImageService.write_thumbnail(source, thumb)
-            image.thumb_status = ImageService.THUMB_READY
-            return True
+            if source_path is not None:
+                return ImageService._thumbnail_from_source(image, str(source_path), thumb, force=force)
+            with ImageService.source_file(image) as source:
+                return ImageService._thumbnail_from_source(image, str(source), thumb, force=force)
         except Exception:
             image.thumb_status = ImageService.THUMB_FAILED
             return False
 
     @staticmethod
+    def _thumbnail_from_source(image, source, thumb, *, force=False):
+        if not force and os.path.exists(thumb) and os.path.getmtime(thumb) >= os.path.getmtime(source):
+            image.thumb_status = ImageService.THUMB_READY
+            return True
+
+        ImageService.write_thumbnail(source, thumb)
+        image.thumb_status = ImageService.THUMB_READY
+        return True
+
+    @staticmethod
     def write_thumbnail(source: str, target: str) -> None:
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        with PILImage.open(source) as img:
-            img.thumbnail((settings.THUMBNAIL_SIZE, settings.THUMBNAIL_SIZE))
-            if img.mode not in ("RGB", "RGBA"):
-                img = img.convert("RGB")
-            img.save(
-                target,
-                "WEBP",
-                quality=settings.THUMBNAIL_QUALITY,
-                method=settings.THUMBNAIL_WEBP_METHOD,
-            )
+        ImageService._write_derivative(source, target, settings.THUMBNAIL_SIZE,
+                                       settings.THUMBNAIL_QUALITY, settings.THUMBNAIL_WEBP_METHOD)
 
     @staticmethod
     def write_preview(source: str, target: str) -> None:
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        with PILImage.open(source) as original:
-            original.seek(0)
-            image = ImageOps.exif_transpose(original)
-            image.thumbnail((settings.PREVIEW_SIZE, settings.PREVIEW_SIZE), PILImage.Resampling.LANCZOS)
-            if image.mode not in ("RGB", "RGBA"):
-                image = image.convert("RGB")
-            image.save(target, "WEBP", quality=settings.PREVIEW_QUALITY, method=4)
+        ImageService._write_derivative(source, target, settings.PREVIEW_SIZE, settings.PREVIEW_QUALITY, 4)
+
+    @staticmethod
+    def _write_derivative(source: str, target: str, size: int, quality: int, method: int) -> None:
+        """Publish complete derivatives atomically; keep the old file on encoding failure."""
+        target_path = Path(target)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=target_path.parent, suffix=".webp", delete=False) as temp:
+            staged = Path(temp.name)
+        try:
+            with PILImage.open(source) as original:
+                original.seek(0)
+                image = ImageOps.exif_transpose(original)
+                image.thumbnail((size, size), PILImage.Resampling.LANCZOS)
+                if image.mode not in ("RGB", "RGBA"):
+                    image = image.convert("RGB")
+                image.save(staged, "WEBP", quality=quality, method=method)
+            os.replace(staged, target_path)
+        finally:
+            staged.unlink(missing_ok=True)
 
     @staticmethod
     def _unique_ints(values: Optional[List[int]]) -> List[int]:
@@ -1585,26 +1616,9 @@ class ImageService:
         return secrets.token_hex(5).upper()  # 生成10位十六进制字符串
     
     @staticmethod
-    def save_image_file(
-        file_path: str,
-        image_id: str,
-        file_extension: str,
-        store_path: str,
-        *,
-        move_source: bool = True,
-    ) -> Tuple[str, dict]:
-        """Store an image through the configured backend and return its opaque locator."""
-        new_filename = f"{image_id}.{file_extension.lower()}"
-        stored = get_image_storage(settings, local_root=store_path).put_file(
-            file_path,
-            new_filename,
-            move=move_source,
-        )
-        return stored.locator, {"file_size": stored.size}
-    
-    @staticmethod
     def create_image(db: Session, image: schemas.ImageCreate, file_path: str, original_filename: str, 
-                    file_extension: str, store_path: str, *, storage_source_key: str | None = None) -> models.Image:
+                    file_extension: str, store_path: str, *, storage_source_key: str | None = None,
+                    commit: bool = True) -> models.Image:
         """创建图片记录"""
         # 生成唯一ID
         while True:
@@ -1612,68 +1626,79 @@ class ImageService:
             if not db.query(models.Image).filter(models.Image.image_id == image_id).first():
                 break
         
-        # Read metadata before the storage backend is allowed to consume the
-        # staged source. Derivatives are generated by the durable job worker.
+        # Read metadata before publishing; retain the source until commit.
+        # Derivatives are generated by the durable job worker.
         perceptual_hash = ImageService.compute_dhash(file_path)
         image_info = {}
         with PILImage.open(file_path) as source:
             image_info["width"], image_info["height"] = source.size
 
-        if storage_source_key:
-            stored = get_image_storage(settings, local_root=store_path).move_object(
-                storage_source_key,
-                f"{image_id}.{file_extension.lower()}",
-            )
-            relative_path, stored_info = stored.locator, {"file_size": stored.size}
-        else:
-            relative_path, stored_info = ImageService.save_image_file(
-                file_path, image_id, file_extension, store_path
-            )
-        image_info.update(stored_info)
+        backend = get_image_storage(settings, local_root=store_path)
+        target_key = f"{image_id}.{file_extension.lower()}"
+        from .file_operations import FileOperation
+        operation = FileOperation.prepare(db, "publish", image_id=image_id, key=target_key,
+                                          source=file_path, source_key=storage_source_key,
+                                          root=store_path, backend=backend)
+        try:
+            if storage_source_key:
+                stored = backend.copy_object(
+                    storage_source_key,
+                    target_key,
+                )
+            else:
+                stored = backend.put_file(file_path, target_key)
+            operation.published(stored)
+            relative_path = stored.locator
+            image_info["file_size"] = stored.size
         
-        # 创建数据库记录
-        db_image = models.Image(
-            image_id=image_id,
-            pid=image.pid,
-            description=image.description,
-            age_rating=image.age_rating,
-            original_filename=original_filename,
-            file_extension=file_extension,
-            file_path=relative_path,
-            file_status=ImageService.AVAILABLE,
-            file_checked_at=datetime.utcnow(),
-            thumb_status=ImageService.THUMB_PENDING,
-            preview_status=ImageService.THUMB_PENDING,
-            perceptual_hash=perceptual_hash,
-            **image_info
-        )
+            # 创建数据库记录
+            db_image = models.Image(
+                image_id=image_id,
+                pid=image.pid,
+                description=image.description,
+                age_rating=image.age_rating,
+                original_filename=original_filename,
+                file_extension=file_extension,
+                file_path=relative_path,
+                file_status=ImageService.AVAILABLE,
+                file_checked_at=datetime.utcnow(),
+                thumb_status=ImageService.THUMB_PENDING,
+                preview_status=ImageService.THUMB_PENDING,
+                perceptual_hash=perceptual_hash,
+                **image_info
+            )
         
-        # 关联角色
-        ImageService._apply_tag_relationships(
-            db,
-            db_image,
-            image.character_ids,
-            image.group_ids,
-            image.feature_tag_ids,
-        )
+            # 关联角色
+            ImageService._apply_tag_relationships(
+                db,
+                db_image,
+                image.character_ids,
+                image.group_ids,
+                image.feature_tag_ids,
+            )
 
-        db.add(db_image)
-        db.flush()
-        from .jobs import ImageJobQueue
-        ImageJobQueue.enqueue(
-            db,
-            "thumbnail",
-            image_id=image_id,
-            dedupe_key=f"thumbnail:{image_id}",
-        )
-        ImageJobQueue.enqueue(
-            db,
-            "preview",
-            image_id=image_id,
-            dedupe_key=f"preview:{image_id}",
-        )
-        db.commit()
-        db.refresh(db_image)
+            db.add(db_image)
+            db.flush()
+            from .jobs import ImageJobQueue
+            ImageJobQueue.enqueue(
+                db,
+                "thumbnail",
+                image_id=image_id,
+                dedupe_key=f"thumbnail:{image_id}",
+            )
+            ImageJobQueue.enqueue(
+                db,
+                "preview",
+                image_id=image_id,
+                dedupe_key=f"preview:{image_id}",
+            )
+            if commit:
+                db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        if commit:
+            db.refresh(db_image)
         return db_image
     
     @staticmethod
@@ -1792,15 +1817,46 @@ class ImageService:
         }
     
     @staticmethod
+    def image_to_card(image: models.Image) -> dict:
+        """Serialize list identity without loading aliases, tags or validation data."""
+        meta = image.pixiv_metadata
+        artist = meta.artist if meta else None
+        return {
+            "image_id": image.image_id, "pid": image.pid,
+            "age_rating": image.age_rating or "all", "width": image.width, "height": image.height,
+            "characters": [{
+                "id": char.id, "name": char.name,
+                "avatar_url": char.avatar_url or DEFAULT_ENTITY_AVATAR,
+                "group_id": char.group_id, "group_name": char.group.name if char.group else "",
+            } for char in image.characters],
+            "groups": [{"id": group.id, "name": group.name,
+                        "avatar_url": group.avatar_url or DEFAULT_ENTITY_AVATAR} for group in image.groups],
+            "artist": {"id": artist.id, "name": artist.name} if artist else None,
+        }
+
+    @staticmethod
     def search_images(db: Session, params: schemas.ImageSearchParams) -> Tuple[List[dict], int]:
         """Search images and ignore records whose files are missing."""
-        query = db.query(models.Image).options(
+        compact = getattr(params, "view", "full") == "card"
+        relations = [
             joinedload(models.Image.characters).joinedload(models.Character.group),
-            joinedload(models.Image.characters).joinedload(models.Character.feature_tags),
             joinedload(models.Image.groups),
-            joinedload(models.Image.feature_tags),
-            joinedload(models.Image.pixiv_metadata).joinedload(models.PixivImageMetadata.artist),
-        ).filter(models.Image.file_status == ImageService.AVAILABLE)
+        ]
+        metadata = joinedload(models.Image.pixiv_metadata)
+        if compact:
+            relations.extend([
+                metadata.load_only(models.PixivImageMetadata.artist_id).joinedload(models.PixivImageMetadata.artist),
+                # Ordering still uses created_at; details remain unloaded until requested.
+                joinedload(models.Image.characters).load_only(models.Character.id, models.Character.name,
+                    models.Character.avatar_url, models.Character.group_id),
+            ])
+        else:
+            relations.extend([
+                joinedload(models.Image.characters).joinedload(models.Character.feature_tags),
+                joinedload(models.Image.feature_tags),
+                metadata.joinedload(models.PixivImageMetadata.artist),
+            ])
+        query = db.query(models.Image).options(*relations).filter(models.Image.file_status == ImageService.AVAILABLE)
         
         if params.group_id:
             query = query.join(models.Image.groups).filter(
@@ -1837,10 +1893,11 @@ class ImageService:
             models.Image.created_at.desc(),
             models.Image.image_id.desc()
         ).offset(offset).limit(limit).all()
-        return [ImageService.image_to_dict(img) for img in images], total
+        serialize = ImageService.image_to_card if compact else ImageService.image_to_dict
+        return [serialize(img) for img in images], total
     
     @staticmethod
-    def update_image(db: Session, image_id: str, image_update: schemas.ImageUpdate) -> Optional[models.Image]:
+    def update_image(db: Session, image_id: str, image_update: schemas.ImageUpdate, *, commit: bool = True) -> Optional[models.Image]:
         """更新图片"""
         db_image = db.query(models.Image).filter(models.Image.image_id == image_id).first()
         if db_image:
@@ -1864,31 +1921,41 @@ class ImageService:
                     image_update.feature_tag_ids if image_update.feature_tag_ids is not None else [t.id for t in db_image.feature_tags],
                 )
             
-            db.commit()
-            db.refresh(db_image)
+            db.flush()
+            if commit:
+                db.commit()
+                db.refresh(db_image)
         return db_image
     
     @staticmethod
-    def delete_image(db: Session, image_id: str, store_path: str) -> bool:
+    def delete_image(db: Session, image_id: str, store_path: str, *, commit: bool = True) -> bool:
         """删除图片"""
         db_image = db.query(models.Image).filter(models.Image.image_id == image_id).first()
         if db_image:
-            # 删除实际文件
-            try:
-                full_path = os.path.join(settings.BASE_DIR, db_image.file_path)
-                if os.path.exists(full_path):
-                    os.remove(full_path)
-                thumb_path = ImageService.thumb_path(db_image)
-                if os.path.exists(thumb_path):
-                    os.remove(thumb_path)
-            except Exception:
-                pass
+            from .file_operations import FileOperation
+            remote = str(db_image.file_path or "").startswith("r2://")
+            FileOperation.prepare(db, "delete", image_id=image_id, locator=db_image.file_path,
+                                  source=ImageService.image_full_path(db_image) if db_image.file_path and not remote else None,
+                                  root=store_path,
+                                  backend=get_image_storage(settings, local_root=store_path) if remote else None,
+                                  derivatives=[ImageService.thumb_path(db_image), ImageService.preview_path(db_image)])
+            ImageService._delete_tracking_rows(db, [image_id])
             
             # 删除数据库记录
             db.delete(db_image)
-            db.commit()
+            if commit:
+                db.commit()
             return True
         return False
+
+    @staticmethod
+    def _delete_tracking_rows(db: Session, image_ids: list[str]) -> None:
+        db.query(models.ImageJob).filter(models.ImageJob.image_id.in_(image_ids)).delete(synchronize_session=False)
+        db.query(models.ImageViewCount).filter(models.ImageViewCount.image_id.in_(image_ids)).delete(synchronize_session=False)
+        db.query(models.DuplicatePairDecision).filter(or_(
+            models.DuplicatePairDecision.left_image_id.in_(image_ids),
+            models.DuplicatePairDecision.right_image_id.in_(image_ids),
+        )).delete(synchronize_session=False)
     
     @staticmethod
     def _store_image_files(store_path: str) -> set[str]:
@@ -1994,21 +2061,14 @@ class ImageService:
         missing_images = [image for image in images if not ImageService.image_file_exists(image)]
         if mode == "delete" and missing_images:
             missing_ids = [image.image_id for image in missing_images]
-            db.query(models.ImageViewCount).filter(
-                models.ImageViewCount.image_id.in_(missing_ids),
-            ).delete(synchronize_session=False)
-            db.query(models.DuplicatePairDecision).filter(
-                or_(
-                    models.DuplicatePairDecision.left_image_id.in_(missing_ids),
-                    models.DuplicatePairDecision.right_image_id.in_(missing_ids),
-                ),
-            ).delete(synchronize_session=False)
+            ImageService._delete_tracking_rows(db, missing_ids)
             for image in missing_images:
                 image.local_checked_at = None
                 db.delete(image)
             count = len(missing_images)
         else:
             for image in missing_images:
+                image.local_checked_at = None
                 if image.file_status != ImageService.ARCHIVED:
                     image.file_status = ImageService.ARCHIVED
                     image.file_checked_at = datetime.utcnow()
@@ -2037,14 +2097,9 @@ class ImageService:
         missing = 0
         for image in query.all():
             processed += 1
-            if force:
-                try:
-                    os.remove(ImageService.thumb_path(image))
-                except FileNotFoundError:
-                    pass
-                except OSError:
-                    pass
-            if ImageService.ensure_thumbnail(image):
+            thumbnail_ready = (ImageService.ensure_thumbnail(image, force=True) if force
+                               else ImageService.ensure_thumbnail(image))
+            if thumbnail_ready:
                 ready += 1
             elif image.thumb_status == ImageService.THUMB_MISSING:
                 image.file_status = ImageService.MISSING

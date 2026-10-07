@@ -1,7 +1,7 @@
 """One resumable local validation pipeline. Duplicate merges remain administrator decisions."""
 from datetime import datetime
-from pathlib import Path
 from PIL import Image as PILImage
+from sqlalchemy.exc import SQLAlchemyError
 from . import models
 from .config import settings
 from .services import ImageService
@@ -33,36 +33,41 @@ def _run_batch(db, after_id='', limit=200, *, incremental=False):
     failed=[];ready=0
     for image in rows:
         image.local_checked_at=None
+        database_failed=False
         try:
-            path=Path(ImageService.image_full_path(image))
             if not ImageService.image_file_exists(image):
                 image.file_status='archived';image.thumb_status='missing';archived+=1;continue
-            with PILImage.open(path) as original:
-                original.load()
-                image.width,image.height=original.size
-            changed=not image.file_checked_at or datetime.utcfromtimestamp(path.stat().st_mtime)>image.file_checked_at
-            previous=image.perceptual_hash
-            image.file_size=path.stat().st_size
-            image.file_status='available'
-            if changed or not previous:
-                image.perceptual_hash=ImageService.compute_dhash(str(path))
-            if previous and previous!=image.perceptual_hash:
-                image.pixiv_metadata=None
-                image.pixiv_sources=[]
-                image.pixiv_checked_at=None
-            image.file_checked_at=datetime.utcnow()
-            if not ImageService.ensure_thumbnail(image):
-                failed.append(image.image_id);continue
+            with ImageService.source_file(image) as path:
+                with PILImage.open(path) as original:
+                    original.load()
+                    image.width,image.height=original.size
+                changed=(str(image.file_path).startswith('r2://') or not image.file_checked_at
+                         or datetime.utcfromtimestamp(path.stat().st_mtime)>image.file_checked_at)
+                previous=image.perceptual_hash
+                image.file_size=path.stat().st_size
+                image.file_status='available'
+                if changed or not previous:
+                    image.perceptual_hash=ImageService.compute_dhash(str(path))
+                if previous and previous!=image.perceptual_hash:
+                    image.pixiv_metadata=None
+                    image.pixiv_sources=[]
+                    image.pixiv_checked_at=None
+                image.file_checked_at=datetime.utcnow()
+                if not ImageService.ensure_thumbnail(image, source_path=path, force=changed):
+                    failed.append(image.image_id);continue
             for key, value in tags.check(image).items():
                 tag_totals[key] += value
             db.flush()
             ready+=1
-        except (OSError,ValueError,RuntimeError):
+        except SQLAlchemyError:
+            database_failed=True
+            raise
+        except Exception:
             image.local_checked_at=None;image.thumb_status='failed';failed.append(image.image_id)
         finally:
             # Release the writer before decoding/generating the next image.
             # Local maintenance is resumable; a batch is not one atomic write.
-            if incremental: db.commit()
+            if incremental and not database_failed: db.commit()
     db.flush()
     cursor=rows[-1].image_id if rows else after_id
     more=db.query(models.Image).filter(models.Image.image_id>cursor,models.Image.file_status.notin_(['archived','deleted'])).count()

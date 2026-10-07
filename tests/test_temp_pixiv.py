@@ -5,7 +5,7 @@ import threading
 import pytest
 from PIL import Image, PngImagePlugin
 
-from test_pixiv_ol import environment, artwork
+from test_pixiv_ol import environment as environment, artwork
 from app import models, temp_pixiv
 from app.integrations.pixiv_ol import viewer, service
 from app.routers.public_api import uploads

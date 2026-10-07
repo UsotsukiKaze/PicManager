@@ -50,6 +50,7 @@ def test_upload_route_runs_blocking_image_work_off_event_loop(monkeypatch, tmp_p
     assert response.status_code == 418
     assert not inspect.iscoroutinefunction(uploads.upload_single_image)
     assert threads["image_work"] != threads["event_loop"]
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_emoji_upload_route_is_sync_for_pillow_and_file_work():

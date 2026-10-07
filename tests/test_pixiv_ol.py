@@ -1732,7 +1732,7 @@ def test_callback_parser_rejects_ambiguous_destinations_and_uses_rfc_pkce_vector
 @pytest.mark.parametrize("source", ["callback_request", "redirect_header", "custom_navigation", "window_closed"])
 def test_browser_keeps_captured_code_when_navigation_aborts(environment, source):
     from types import SimpleNamespace
-    from playwright.sync_api import Error as BrowserError
+    BrowserError = pytest.importorskip('playwright.sync_api').Error
 
     context, client, _ = environment
     session = client.post("/api/pixiv-ol/account/login", json={"mode": "manual"}).json()
@@ -1798,8 +1798,8 @@ def test_browser_keeps_captured_code_when_navigation_aborts(environment, source)
 
 
 def test_browser_failure_logs_do_not_include_authorization_data(environment, monkeypatch):
-    import playwright.sync_api
-    from playwright.sync_api import Error as BrowserError
+    browser_api = pytest.importorskip('playwright.sync_api')
+    BrowserError = browser_api.Error
 
     context, client, _ = environment
     session = client.post("/api/pixiv-ol/account/login", json={"mode": "manual"}).json()
@@ -1811,13 +1811,33 @@ def test_browser_failure_logs_do_not_include_authorization_data(environment, mon
     def unavailable():
         raise BrowserError("failed URL: callback?code=private-authorization-code")
 
-    monkeypatch.setattr(playwright.sync_api, "sync_playwright", unavailable)
+    monkeypatch.setattr(browser_api, "sync_playwright", unavailable)
     login.browser_login(session["id"], 1, session["url"])
     assert logs and "stage=open" in logs[0]
     assert "private-authorization-code" not in logs[0] and "callback?" not in logs[0]
     with context() as db:
         row = db.get(models.PixivLoginSession, session["id"])
         assert row.status == "failed" and not row.verifier
+
+
+def test_optional_browser_dependency_failure_preserves_safe_session_status(environment, monkeypatch):
+    import builtins
+
+    context, client, _ = environment
+    session = client.post('/api/pixiv-ol/account/login', json={'mode': 'manual'}).json()
+    original_import = builtins.__import__
+
+    def without_browser(name, *args, **kwargs):
+        if name.startswith('playwright'):
+            raise ModuleNotFoundError(name)
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, '__import__', without_browser)
+    login.browser_login(session['id'], 1, session['url'])
+    with context() as db:
+        row = db.get(models.PixivLoginSession, session['id'])
+        assert row.status == 'failed' and row.error == 'login_browser_dependency_missing'
+        assert not row.verifier
 
 
 def test_same_account_reauthentication_preserves_cart_and_preferences(environment, monkeypatch):

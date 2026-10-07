@@ -7,6 +7,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from contextlib import asynccontextmanager
 from pathlib import Path
 import os
+import re
 import time
 import uvicorn
 from app import __version__
@@ -27,8 +28,9 @@ from app.routers.system import router as system_router
 from app.routers.auth import get_session
 from app.security.lan_debug import configured_lan_base_url, configured_lan_hosts, exact_hosts
 from app.security.permissions import require_admin_user_id
-from app.security.image_tokens import sign_bot_image, verify_bot_image
+from app.security.image_tokens import sign_bot_image as sign_bot_image, verify_bot_image
 from app.jobs import image_job_worker
+from app.file_operations import file_operation_worker
 from app.pixiv_check_queue import worker as pixiv_check_worker
 from app.integrations.pixiv_ol.jobs import worker as pixiv_ol_worker
 from app.integrations.pixiv_ol.provider import PixivError as PixivOLError
@@ -45,6 +47,7 @@ async def lifespan(app: FastAPI):
     # 启动时执行
     log_info("正在初始化数据库...")
     init_database()
+    file_operation_worker.start()
     image_job_worker.start()
     pixiv_ol_worker.start()
     pixiv_check_worker.start()
@@ -54,6 +57,7 @@ async def lifespan(app: FastAPI):
         pixiv_check_worker.stop()
         image_job_worker.stop()
         pixiv_ol_worker.stop()
+        file_operation_worker.stop()
         PixivUpgradeService.close_client()
         from app.temp_pixiv import shutdown as stop_temp_prechecks
         stop_temp_prechecks()
@@ -112,7 +116,7 @@ def _apply_production_cache_headers(request: Request, response) -> None:
         _apply_no_store_headers(response)
         return
 
-    if path == "/":
+    if path in {"/", "/static/app/index.html", "/static/index.html"}:
         # Browsers revalidate the HTML shell, while Cloudflare may briefly serve
         # the same authentication-independent shell to every visitor.
         response.headers["Cache-Control"] = "no-cache"
@@ -122,7 +126,7 @@ def _apply_production_cache_headers(request: Request, response) -> None:
         return
 
     if path.startswith("/static/"):
-        if request.query_params.get("v"):
+        if request.query_params.get("v") or re.fullmatch(r"/static/app/assets/[^/]+-[\w-]{8,}\.(?:js|css)", path):
             policy = "public, max-age=31536000, immutable"
         else:
             policy = "public, max-age=14400"
@@ -132,13 +136,19 @@ def _apply_production_cache_headers(request: Request, response) -> None:
 
 def _apply_security_headers(response, *, embedded_profile: bool = False) -> None:
     """Apply browser-side hardening without changing application behavior."""
+    connect_sources = "'self'"
+    if settings.STORAGE_BACKEND == "r2" and re.fullmatch(r"[a-fA-F0-9]{32}", settings.R2_ACCOUNT_ID):
+        endpoint = f"{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+        connect_sources += f" https://{endpoint}"
+        if re.fullmatch(r"[a-z0-9][a-z0-9.-]*[a-z0-9]", settings.R2_BUCKET):
+            connect_sources += f" https://{settings.R2_BUCKET}.{endpoint}"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; base-uri 'none'; object-src 'none'; "
         + ("frame-ancestors 'self'; " if embedded_profile else "frame-ancestors 'none'; ")
         +
         "form-action 'self'; script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; "
-        "media-src 'self' blob:; font-src 'self' data:; connect-src 'self'"
+        f"media-src 'self' blob:; font-src 'self' data:; connect-src {connect_sources}"
     )
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -205,7 +215,7 @@ def _restricted_derivative(request: Request, image_id: str) -> bool:
         rating_row = db.query(ImageModel.age_rating).filter(ImageModel.image_id == image_id).first()
         if rating_row is None:
             raise HTTPException(status_code=404, detail="Image no longer exists")
-        rating = getattr(rating_row, "age_rating", None) if rating_row is not None else None
+        rating = getattr(rating_row, "age_rating", None)
         restricted = str(rating or "all").lower() in {"r16", "r18"}
         if restricted:
             session_id = request.cookies.get("session_id")
@@ -402,7 +412,13 @@ app.include_router(admin_router, prefix="/admin")
 @app.get("/", response_class=HTMLResponse)
 async def root():
     """Serve PicManager only; personal domains are handled by KazeApps."""
-    return FileResponse(os.path.join(settings.BASE_DIR, "static", "index.html"))
+    return FileResponse(_application_shell())
+
+
+def _application_shell() -> Path:
+    static = Path(settings.BASE_DIR) / "static"
+    modern = static / "app" / "index.html"
+    return modern if modern.is_file() else static / "index.html"
 
 
 @app.exception_handler(PixivOLError)
@@ -415,7 +431,7 @@ async def pixiv_ol_error(request: Request, exc: PixivOLError):
 @app.get("/pixiv-ol", response_class=HTMLResponse)
 def pixiv_ol_page(request: Request):
     require_admin_user_id(request)
-    return FileResponse(os.path.join(settings.BASE_DIR, "static", "index.html"))
+    return FileResponse(_application_shell())
 
 
 @app.get("/login", response_class=HTMLResponse)

@@ -3,7 +3,7 @@ from datetime import datetime
 
 import pytest
 from PIL import Image
-from test_pixiv_ol import environment, artwork
+from test_pixiv_ol import environment as environment, artwork
 from app import models, local_check
 from app.config import settings
 from app.tag_mappings import CachedImageTagCheck, save_mapping

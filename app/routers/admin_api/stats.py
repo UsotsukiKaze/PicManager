@@ -1,15 +1,8 @@
-from fastapi import APIRouter, HTTPException, Request
-from typing import List
-from datetime import datetime
-import json
-import os
+from fastapi import APIRouter, Request
 
-from ... import schemas
-from ...config import settings
 from ...database import get_db_context
-from ...models import Character, Group, Image, PendingRequest, RequestStatus, User, UserRole
-from ...security.permissions import require_admin_user_id, require_root_user_id
-from ...services import CharacterService, GroupService, ImageService
+from ...models import PendingRequest, RequestStatus, User, UserRole
+from ...security.permissions import require_admin_user_id
 
 router = APIRouter()
 

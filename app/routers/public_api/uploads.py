@@ -1,14 +1,13 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Request, Query
-from typing import List, Optional, Union
+from typing import List, Optional
 from pathlib import Path
 from sqlalchemy.orm import joinedload
 
 from ...database import get_db_context
-from ...services import GroupService, CharacterService, ImageService
-from ...models import User, UserRole, PendingRequest, ImageViewCount, CharacterQueryCount, RequestStatus, Group, Character
+from ...services import ImageService
+from ...models import User, UserRole, PendingRequest, RequestStatus
 from ... import models, schemas
 from ...config import settings
-from ...logger import log_error
 from ...security.permissions import require_admin_user_id
 from ...storage import get_image_storage
 from ..auth import get_current_session, check_guest_limit
@@ -307,6 +306,7 @@ def finalize_direct_upload(data: schemas.DirectUploadFinalize, request: Request)
                 str(payload["file_extension"]),
                 settings.STORE_PATH,
                 storage_source_key=object_key,
+                commit=False,
             )
             return schemas.UploadImageResponse(
                 image_id=image.image_id,
@@ -501,7 +501,6 @@ def upload_single_image(
         # image/filesystem work off the event loop without sharing a Session
         # across threads.
         temp_file_path = _save_limited_upload(file, suffix=f'.{file_extension}')
-        _verify_image_file(temp_file_path)
         metadata = {
             "character_ids": character_id_list,
             "group_id": group_id_list[0] if group_id_list else None,
@@ -513,6 +512,7 @@ def upload_single_image(
         }
 
         try:
+            _verify_image_file(temp_file_path)
             _validate_upload_tags(db, character_id_list, group_id_list, feature_tag_id_list)
             upload_hash, duplicate_matches = _duplicate_upload_scan(
                 db, temp_file_path, character_id_list
@@ -581,7 +581,8 @@ def upload_single_image(
                         )
                         return _duplicate_response(db, concurrent_matches, token, str(staged_path), metadata, file.filename or f"upload.{file_extension}")
                     image = ImageService.create_image(
-                        db, image_create, temp_file_path, file.filename, file_extension, store_path
+                        db, image_create, temp_file_path, file.filename, file_extension, store_path,
+                        commit=False,
                     )
 
                 # 记录贡献度（直接通过）
@@ -692,7 +693,8 @@ def upload_single_image(
                     concurrent_matches,
                 )
                 return _duplicate_response(db, concurrent_matches, token, str(staged_path), metadata, file.filename or f"upload.{file_extension}")
-            os.replace(temp_file_path, pending_file_path)
+            from ...file_operations import FileOperation
+            FileOperation.stage_pending(db, temp_file_path, pending_file_path)
 
         # 创建待审核记录
         try:
@@ -723,14 +725,8 @@ def upload_single_image(
                 status="pending",
             )
         except Exception as e:
-            # 如果数据库操作失败，清理临时文件
-            try:
-                if os.path.exists(pending_file_path):
-                    os.unlink(pending_file_path)
-                elif os.path.exists(temp_file_path):
-                    os.unlink(temp_file_path)
-            except OSError:
-                pass
+            # Durable intent distinguishes rollback from an uncertain commit;
+            # never unconditionally remove a possibly committed review file.
             raise HTTPException(status_code=500, detail=f"创建待审核请求失败: {str(e)}")
 
 @router.get("/upload/temp-count")
@@ -850,7 +846,8 @@ def resolve_temp_duplicate(choice: schemas.TempDuplicateResolveRequest, request:
                 stored.file_checked_at = datetime.utcnow()
                 if stored.thumb_status != ImageService.THUMB_READY:
                     ImageService.ensure_thumbnail(stored)
-                source_path.unlink(missing_ok=True)
+                from ...file_operations import FileOperation
+                FileOperation.prepare(db, "discard", source=source_path)
                 kept_image = stored
                 message = "已保留库内图片并删除 Temp 重复文件"
                 status = "merged_existing"
@@ -862,11 +859,11 @@ def resolve_temp_duplicate(choice: schemas.TempDuplicateResolveRequest, request:
                     source_path.name,
                     file_extension,
                     settings.STORE_PATH,
+                    commit=False,
                 )
                 stored.file_status = ImageService.ARCHIVED
                 db.flush()
                 ImageService.delete_superseded_image_files(kept_image, stored)
-                source_path.unlink(missing_ok=True)
                 message = "已保留 Temp 图片并删除库内重复文件"
                 status = "merged_new"
 
@@ -964,7 +961,8 @@ def upload_temp_image(temp_upload: schemas.TempImageUpload, request: Request):
                 )
                 return _duplicate_response(db, duplicate_matches, token, str(image_path), metadata, image_path.name)
             image = ImageService.create_image(
-                db, image_create, str(image_path), image_path.name, file_extension, settings.STORE_PATH
+                db, image_create, str(image_path), image_path.name, file_extension, settings.STORE_PATH,
+                commit=False,
             )
             temp_pixiv.attach(db, image, evidence)
 
@@ -989,10 +987,6 @@ def upload_temp_image(temp_upload: schemas.TempImageUpload, request: Request):
             db.add(pending_request)
             db.commit()
 
-        try:
-            image_path.unlink(missing_ok=True)
-        except Exception as e:
-            log_error(f"Failed to delete temp file: {e}")
         return schemas.UploadImageResponse(
             image_id=image.image_id,
             message="Imported temp image successfully",
@@ -1081,7 +1075,8 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                         raise HTTPException(status_code=403, detail="Admin permission required")
                     pending_filename = f"{uuid.uuid4().hex}.{payload.get('file_extension')}"
                     pending_path = Path(settings.PENDING_PATH) / pending_filename
-                    os.replace(source_path, pending_path)
+                    from ...file_operations import FileOperation
+                    FileOperation.stage_pending(db, source_path, pending_path)
                     db.add(PendingRequest(
                         request_type="add",
                         user_id=user_id,
@@ -1115,7 +1110,8 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                 ImageService.merge_incoming_image_metadata(db, selected_id, metadata, choice.metadata_sources)
                 if evidence and existing.pid == metadata.get('pid'):
                     temp_pixiv.attach(db, existing, evidence)
-                source_path.unlink(missing_ok=True)
+                from ...file_operations import FileOperation
+                FileOperation.prepare(db, "discard", source=source_path)
                 db.commit()
             return schemas.UploadImageResponse(
                 image_id=selected_id,
@@ -1154,6 +1150,7 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                     str(payload.get("original_filename") or source_path.name),
                     str(payload.get("file_extension") or source_path.suffix.lstrip(".")),
                     settings.STORE_PATH,
+                    commit=False,
                 )
                 if choice.keep == "merge-new":
                     ImageService.merge_duplicate_image_metadata(
@@ -1183,10 +1180,6 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                         reviewed_by=user_id,
                     ))
                     db.commit()
-                if source == "upload":
-                    source_path.unlink(missing_ok=True)
-                elif source == "temp":
-                    source_path.unlink(missing_ok=True)
                 return schemas.UploadImageResponse(
                     image_id=image.image_id,
                     message=(
@@ -1201,7 +1194,8 @@ def resolve_duplicate_image(choice: schemas.DuplicateImageResolveRequest, reques
                 raise HTTPException(status_code=403, detail="Admin permission required")
             pending_filename = f"{uuid.uuid4().hex}.{payload.get('file_extension')}"
             pending_path = Path(settings.PENDING_PATH) / pending_filename
-            os.replace(source_path, pending_path)
+            from ...file_operations import FileOperation
+            FileOperation.stage_pending(db, source_path, pending_path)
             db.add(PendingRequest(
                 request_type="add",
                 user_id=user_id,

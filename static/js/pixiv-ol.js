@@ -17,6 +17,7 @@
         tag_conflict:'新标签存在歧义，请在优选夹或标签管理中确认映射', cart_removed:'暂存作品已被移除',
         processing_failed:'处理失败，可以重试', login_browser_failed:'登录窗口无法完成授权，请尝试普通浏览器授权',
         login_browser_navigation_failed:'Pixiv 登录页加载失败，请尝试普通浏览器授权或检查网络',
+        login_browser_dependency_missing:'未安装旧版自动登录依赖，请使用默认浏览器登录或手动授权',
         login_request_rejected:'Pixiv 拒绝了登录中转请求，请重新登录或尝试普通浏览器授权',
         login_exchange_failed:'Pixiv 拒绝了授权码，可能已过期、已使用或不属于本次登录，请重新登录',
         login_authorization_rejected:'Pixiv 拒绝了授权兑换请求，请重新登录并立即提交本次回调链接',
@@ -41,7 +42,11 @@
         const response = await fetch(`/api/pixiv-ol${path}`, {credentials:'same-origin',...options,
             headers:{'Content-Type':'application/json','X-Pixiv-OL':'1',...options.headers}});
         const data = await response.json();
-        if (!response.ok) throw new Error(errors[data.detail] || (typeof data.detail === 'string' ? data.detail : '请求失败'));
+        if (!response.ok) {
+            if (response.status === 401 && window.__PICMANAGER_MODERN__) window.dispatchEvent(new Event('picmanager-session-expired'));
+            throw new Error(errors[data.detail] || (typeof data.detail === 'string' ? data.detail : '请求失败'));
+        }
+        if (window.__PICMANAGER_MODERN__ && options.method && options.method !== 'GET') window.dispatchEvent(new CustomEvent('picmanager-data-changed',{detail:`/pixiv-ol${path}`}));
         return data;
     }
     const bytes = value => value >= 1024*1024 ? `${(value/1024/1024).toFixed(1)} MB` : `${Math.round(value/1024)} KB`;
@@ -545,6 +550,7 @@
         }
         async loadImportJobs() {
             const jobs=await request('/jobs'),previous=new Map(this.currentImportJobs().map(job=>[job.id,job]));
+            if (window.__PICMANAGER_MODERN__ && jobs.some(job=>job.kind==='import'&&['completed','partial'].includes(job.status)&&previous.get(job.id)?.status!==job.status)) window.dispatchEvent(new CustomEvent('picmanager-data-changed',{detail:'/pixiv-ol/imports'}));
             this.importJobs=jobs.filter(job=>job.kind==='import').map(job=>({...previous.get(job.id),...job}));return jobs;
         }
         currentImportJobs() {

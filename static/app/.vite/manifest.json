@@ -1,0 +1,96 @@
+{
+  "_bridge-KWJ2oVYC.js": {
+    "file": "assets/bridge-KWJ2oVYC.js",
+    "name": "bridge",
+    "imports": [
+      "_session-DHMKmk9t.js",
+      "index.html",
+      "_scripts-fXHRQmzN.js"
+    ]
+  },
+  "_scripts-fXHRQmzN.js": {
+    "file": "assets/scripts-fXHRQmzN.js",
+    "name": "scripts",
+    "imports": [
+      "_session-DHMKmk9t.js"
+    ]
+  },
+  "_session-DHMKmk9t.js": {
+    "file": "assets/session-DHMKmk9t.js",
+    "name": "session"
+  },
+  "_useQuery-BdzzD7DX.js": {
+    "file": "assets/useQuery-BdzzD7DX.js",
+    "name": "useQuery",
+    "imports": [
+      "_session-DHMKmk9t.js"
+    ]
+  },
+  "index.html": {
+    "file": "assets/index-COX1wcjS.js",
+    "name": "index",
+    "src": "index.html",
+    "isEntry": true,
+    "imports": [
+      "_session-DHMKmk9t.js"
+    ],
+    "dynamicImports": [
+      "src/views/HomeView.vue",
+      "src/views/GalleryView.vue",
+      "src/views/FeatureView.vue",
+      "_bridge-KWJ2oVYC.js"
+    ],
+    "css": [
+      "assets/index-CAcGUkcw.css"
+    ]
+  },
+  "src/components/ImageDetail.vue": {
+    "file": "assets/ImageDetail-BmzQlaMB.js",
+    "name": "ImageDetail",
+    "src": "src/components/ImageDetail.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "_session-DHMKmk9t.js",
+      "_useQuery-BdzzD7DX.js",
+      "index.html",
+      "_scripts-fXHRQmzN.js"
+    ]
+  },
+  "src/views/FeatureView.vue": {
+    "file": "assets/FeatureView-CA5cHkZO.js",
+    "name": "FeatureView",
+    "src": "src/views/FeatureView.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "_bridge-KWJ2oVYC.js",
+      "_session-DHMKmk9t.js",
+      "index.html"
+    ]
+  },
+  "src/views/GalleryView.vue": {
+    "file": "assets/GalleryView-DRSoDYYb.js",
+    "name": "GalleryView",
+    "src": "src/views/GalleryView.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "_session-DHMKmk9t.js",
+      "_useQuery-BdzzD7DX.js",
+      "index.html",
+      "_scripts-fXHRQmzN.js"
+    ],
+    "dynamicImports": [
+      "src/components/ImageDetail.vue",
+      "_bridge-KWJ2oVYC.js"
+    ]
+  },
+  "src/views/HomeView.vue": {
+    "file": "assets/HomeView-Djol2UV3.js",
+    "name": "HomeView",
+    "src": "src/views/HomeView.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "_session-DHMKmk9t.js",
+      "_useQuery-BdzzD7DX.js"
+    ]
+  }
+}

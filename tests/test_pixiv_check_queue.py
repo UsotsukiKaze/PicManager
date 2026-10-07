@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import pytest
 from PIL import Image
 
-from test_pixiv_ol import environment, artwork
+from test_pixiv_ol import environment as environment, artwork
 from app import models, pixiv_check, pixiv_check_queue as queue
 from app.config import settings
 from app.integrations.pixiv_ol import service, provider
@@ -646,7 +646,8 @@ def test_incremental_local_validation_releases_writer_between_image_decodes(queu
     monkeypatch.setattr(ImageService,'cleanup_orphaned_records',lambda *a,**kw:0)
     monkeypatch.setattr(ImageService,'move_orphaned_files_to_temp',lambda *a,**kw:0)
     calls=[]
-    def thumbnail(image):
+    def thumbnail(image, **kwargs):
+        assert kwargs['source_path'].is_file()
         calls.append(image.image_id)
         if len(calls)==2:
             with context() as concurrent:

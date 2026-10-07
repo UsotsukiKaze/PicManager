@@ -27,8 +27,8 @@ class MemoryR2:
     def delete(self, key):
         self.objects.pop(key, None)
 
-    def move_object(self, source_key, target_key):
-        data = self.objects.pop(source_key)
+    def copy_object(self, source_key, target_key):
+        data = self.objects[source_key]
         self.objects[target_key] = data
         return StoredObject(target_key, f"r2://pictures/images/{target_key}", len(data))
 

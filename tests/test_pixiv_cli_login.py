@@ -197,6 +197,7 @@ def test_invalid_proxy_never_exposes_its_content(proxy, monkeypatch):
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows system proxy")
 def test_api_exchange_refresh_and_download_share_cli_system_proxy(environment, monkeypatch):
     from types import SimpleNamespace
+    from app.integrations.pixiv_ol import media_pool
 
     _, _, tmp = environment
     monkeypatch.setattr(settings, "PIXIV_PROXY", "")
@@ -230,6 +231,9 @@ def test_api_exchange_refresh_and_download_share_cli_system_proxy(environment, m
         def __exit__(self, *args):
             pass
 
+        def close(self):
+            pass
+
         @contextmanager
         def stream(self, *args, **kwargs):
             yield SimpleNamespace(
@@ -241,10 +245,15 @@ def test_api_exchange_refresh_and_download_share_cli_system_proxy(environment, m
 
     monkeypatch.setattr(provider, "BoundedAPI", API)
     monkeypatch.setattr(login, "BoundedAPI", API)
-    monkeypatch.setattr(provider.httpx, "Client", Client)
+    monkeypatch.setattr(media_pool.httpx, "Client", Client)
+    pool = media_pool.MediaClients()
+    monkeypatch.setattr(provider, "media_clients", pool)
     provider.Provider(API.refresh_token).close()
     assert login.exchange("synthetic-code", "synthetic-verifier") == API.refresh_token
-    provider.download("https://i.pximg.net/img-original/synthetic.png", tmp / "image.png")
+    try:
+        provider.download("https://i.pximg.net/img-original/synthetic.png", tmp / "image.png")
+    finally:
+        pool.close()
     assert len(api_options) == 2
     assert all(
         options["proxies"] == {"http": "http://127.0.0.1:3000", "https": "http://127.0.0.1:3000"}

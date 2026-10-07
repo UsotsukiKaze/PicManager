@@ -259,13 +259,25 @@ PicManager/
 
 ## 开发
 
+前端采用 Vue 3 + TypeScript + Vite，入口、导航、首页和图库已使用响应式组件；上传、Pixiv 等业务模块按需接入兼容容器。架构边界、构建和部署说明见 [响应式前端架构](docs/frontend-architecture.md)。仓库包含 `static/app` 产物，生产运行无需安装 Node。
+
 ```bash
-uv sync --extra dev
+cd frontend
+npm ci
+npm run dev
+npm test
+npm run build
+```
+
+```bash
+uv sync --extra dev --extra browser
 uv run pytest
 node --test tests/js/*.test.cjs
 ```
 
 Python 测试覆盖接口、权限、数据库与入库流程；`tests/js` 中的 Node 烟测覆盖拼音搜索、模块加载、上传队列和表情标签交互，无需真实账号。
+
+Python 的 `browser` 可选依赖仅供旧版 Pixiv `automatic` 登录和对应测试使用。普通部署运行 `uv sync` 即可；默认浏览器、pixiv-cli 和手动授权均不需要 Python Playwright。前端端到端测试使用 `frontend` 内的 Node Playwright。
 
 当前发布版本：**1.0.0**。使用说明见 [Pixiv-ol](docs/pixiv-ol-usage.md)、[图库校验与标签关联](docs/library-validation-and-mappings.md)、[相似提示与 PID 查找](docs/pixiv-visual-similarity.md)。后续事项见 [重构清单](docs/refactoring-roadmap.md)。
 
@@ -273,7 +285,8 @@ Python 测试覆盖接口、权限、数据库与入库流程；`tests/js` 中�
 
 - FastAPI / SQLAlchemy / Pydantic
 - SQLite / Pillow
-- 原生 JavaScript / CSS
+- Vue 3 / TypeScript / Vite / Pinia / TanStack Vue Query
+- 兼容业务模块使用原生 JavaScript / CSS，按需加载
 - uv
 
 ## 注意事项

@@ -57,7 +57,7 @@
 ## 数据与运行约束
 
 - Refresh Token 使用独立 Fernet 密钥加密。默认密钥保存于 `DATA_PATH/.pixiv_ol_key`，也可配置 `PIXIV_OL_ENCRYPTION_KEY`。密钥不进入 Git；备份数据库时另行安全备份密钥，否则无法恢复账号授权。
-- `PIXIV_OL_SYNC_SECONDS` 设置同步间隔；`PIXIV_OL_REQUEST_INTERVAL` 控制接口节流，默认一秒。请求错误只记录错误码，不保存授权响应正文。主登录流程使用 pixiv-cli 和系统默认浏览器，无需安装额外浏览器；Playwright 和 `PIXIV_OL_BROWSER_EXECUTABLE` 仅用于显式请求的旧版 `automatic` API 模式。
+- `PIXIV_OL_SYNC_SECONDS` 设置同步间隔；`PIXIV_OL_REQUEST_INTERVAL` 控制接口节流，默认一秒。请求错误只记录错误码，不保存授权响应正文。主登录流程使用 pixiv-cli 和系统默认浏览器，无需安装额外浏览器；Playwright 已移到可选依赖，运行 `uv sync --extra browser` 安装，仅供显式请求的旧版 `automatic` API 模式和 `PIXIV_OL_BROWSER_EXECUTABLE` 使用。未安装时记录 `login_browser_dependency_missing`，可改用默认浏览器或手动授权。前端浏览器测试的 Node Playwright 与此可选 Python 包相互独立。
 - 当前持久任务执行器按 **单 API 服务进程** 设计，请勿使用多个 Uvicorn worker 执行此功能。任务恢复、重试、账号切换依赖这一运行约束。
 - 预览存放于 `DATA_PATH/pixiv_ol_previews`，临时下载存放于 `DATA_PATH/pixiv_ol_staging`。预览仅通过鉴权接口读取。目前没有自动磁盘配额/LRU 清理；规模增长时需要安排缓存清理策略。
 - 当前仅支持静态插画/漫画图片，动画投稿不进入候选。每次入库最多选 100 页；需要不同页标签时分次提交。
@@ -65,7 +65,7 @@
 
 ## 后续阶段
 
-[主设计](pixiv-ol-design.md) 与 [推荐补充设计](pixiv-ol-recommendation-design.md) 记录完整目标，其中 Web 发现页适配、真实账号兼容性验证、曝光日志、学习排序、标签组合画像、近期偏好细化、角色缺口奖励、视觉向量和预览缓存预算尚未实现。首版提供规则与统计推荐基础，不等同于这些后续模型已经上线。
+[主设计](pixiv-ol-design.md) 与 [推荐补充设计](pixiv-ol-recommendation-design.md) 记录完整目标。当前已有映射标签组合搜索、近期喜欢的时间衰减权重及容量受限的媒体缓存；Web 发现页适配、曝光日志与学习排序、角色库存缺口奖励、视觉向量仍待实现。现有规则与统计推荐不等同于后续学习模型已经上线。
 
 账号连接、刷新和推荐/关注读取已在当前本机验收；长期限流表现和 R2 入库还需在对应环境验收。入库与校验的自动化测试使用模拟 Pixiv 响应和本地存储。
 

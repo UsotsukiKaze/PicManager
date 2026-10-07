@@ -1,11 +1,9 @@
 from copy import deepcopy
 
 import pytest
-from test_pixiv_ol import environment, artwork, install_fake, FakeProvider
+from test_pixiv_ol import environment as environment, artwork, install_fake, FakeProvider
 from app import models
 from app.integrations.pixiv_ol import service, jobs
-from app.integrations.pixiv_ol.recommendations import TagIndex
-from app.integrations.pixiv_ol.cart_tags import refresh_item
 
 
 @pytest.fixture
@@ -113,7 +111,7 @@ def test_importing_cart_and_job_payload_are_not_changed(cart_env):
 
 def test_refresh_uses_page_group_context(cart_env):
     context, client, _ = cart_env
-    row = add_cart(cart_env)
+    add_cart(cart_env)
     with context() as db:
         db.add(models.Group(id=2, name='另一分组'))
     assert client.post('/api/pixiv-ol/tag-mappings', json={'tag':'外部特征','target_type':'feature','target_id':2,'group_context':2}).status_code == 200
@@ -122,7 +120,7 @@ def test_refresh_uses_page_group_context(cart_env):
 
 def test_refresh_requires_admin_ownership_and_write_guard(cart_env):
     _, client, _ = cart_env
-    row = add_cart(cart_env)
+    add_cart(cart_env)
     client.headers.pop('X-Pixiv-OL')
     assert client.post('/api/pixiv-ol/cart/refresh-tags').status_code == 403
     client.headers['X-Pixiv-OL'] = '1'

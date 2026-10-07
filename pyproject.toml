@@ -25,23 +25,23 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
-    "python-dotenv>=1.0.0",
     "pillow>=10.0.0",
     "python-multipart>=0.0.6",
     "httpx>=0.25.0",
     "pixivpy3>=3.7.5",
     "cryptography>=50.0.2",
-    "playwright>=1.63.0",
 ]
 
 [project.scripts]
 pic = "app.cli:main"
 
 [project.optional-dependencies]
+browser = [
+    "playwright>=1.63.0",
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
-    "httpx>=0.25.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
 ]
@@ -55,6 +55,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"main.py" = "main.py"
+"static" = "static"
 
 [tool.black]
 line-length = 120

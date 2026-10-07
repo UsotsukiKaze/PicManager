@@ -1,3 +1,3 @@
 """Admin route aggregate."""
 
-from .admin_api import router
+from .admin_api import router as router

@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from test_pixiv_ol import environment, artwork, FakeProvider
+from test_pixiv_ol import environment as environment, artwork, FakeProvider
 from app import models
 from app.integrations.pixiv_ol import service
 from app.integrations.pixiv_ol.recommendations import (

@@ -222,9 +222,43 @@ class ImageSearchParams(BaseModel):
     age_rating: Optional[str] = None
     limit: int = Field(default=50, ge=1, le=settings.MAX_PAGE_SIZE)
     offset: int = Field(default=0, ge=0)
+    view: Literal["full", "card"] = "full"
 
 class ImageSearchResult(BaseModel):
     images: List[ImageWithCharacters]
+    total: int
+    offset: int
+    limit: int
+
+
+class ImageCardEntity(BaseModel):
+    id: int
+    name: str
+    avatar_url: Optional[str] = None
+    group_id: Optional[int] = None
+    group_name: Optional[str] = None
+
+
+class ImageCardArtist(BaseModel):
+    id: str
+    name: str
+    avatar_url: Optional[str] = None
+
+
+class ImageCard(BaseModel):
+    """Small list payload; full metadata is fetched when opening a detail."""
+    image_id: str
+    pid: Optional[str] = None
+    age_rating: str
+    width: Optional[int] = None
+    height: Optional[int] = None
+    characters: List[ImageCardEntity] = Field(default_factory=list)
+    groups: List[ImageCardEntity] = Field(default_factory=list)
+    artist: Optional[ImageCardArtist] = None
+
+
+class ImageCardSearchResult(BaseModel):
+    images: List[ImageCard]
     total: int
     offset: int
     limit: int
@@ -446,14 +480,6 @@ class SystemStatus(PublicSystemStatus):
 
 # ==================== 用户管理相关模型 ====================
 
-# 用户登录
-class UserLogin(BaseModel):
-    qq_number: str
-    password: Optional[str] = None  # 只有管理员需要
-
-class GuestLogin(BaseModel):
-    pass  # 游客无需任何参数
-
 # 用户信息
 class UserInfo(BaseModel):
     id: int
@@ -471,11 +497,6 @@ class UserSession(BaseModel):
     is_guest: bool = False
     guest_ip: Optional[str] = None
     guest_name: Optional[str] = None
-
-# 修改密码
-class ChangePassword(BaseModel):
-    old_password: str
-    new_password: str
 
 # 管理员管理
 class AdminCreate(BaseModel):

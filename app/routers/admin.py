@@ -1,6 +1,6 @@
 """Compatibility router for admin routes.
 
-New route code lives in admin_reviews.py, admin_users.py and admin_stats.py.
+New route code lives in the admin_api package.
 """
 
-from .admin_routes import router
+from .admin_routes import router as router

@@ -329,7 +329,11 @@ class API {
                 this.directUploadAvailable = true;
                 return directResult;
             } catch (error) {
-                if ([403, 404, 409].includes(error.status)) {
+                if (error.directUploadRetryable) {
+                    // Only a failed PUT can safely fall back. A lost finalize
+                    // response may already have committed the image.
+                    this.directUploadAvailable = false;
+                } else if ([403, 404, 409].includes(error.status)) {
                     if (error.message.includes('requires STORAGE_BACKEND') || error.status === 403 || error.status === 404) {
                         this.directUploadAvailable = false;
                     }
@@ -373,7 +377,12 @@ class API {
                 size: file.size,
             }),
         });
-        await this.putFileWithProgress(prepared.upload_url, file, prepared.headers || {}, onProgress);
+        try {
+            await this.putFileWithProgress(prepared.upload_url, file, prepared.headers || {}, onProgress);
+        } catch (error) {
+            error.directUploadRetryable = true;
+            throw error;
+        }
         return this.request('/upload/direct/finalize', {
             method: 'POST',
             body: JSON.stringify({ token: prepared.token, ...metadata }),

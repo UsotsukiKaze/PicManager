@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     PIXIV_OL_SYNC_SECONDS: int = 1800
     PIXIV_OL_REQUEST_INTERVAL: float = 1.0
     PIXIV_OL_CART_MAX_BYTES: int = 2 * 1024 * 1024 * 1024
-    PIXIV_OL_BROWSER_EXECUTABLE: str = ""  # Optional Chromium/Edge for official Pixiv login.
+    PIXIV_OL_BROWSER_EXECUTABLE: str = ""  # Legacy automatic login; requires the browser extra.
     PIXIV_CLI_EXECUTABLE: str = ""  # Defaults to DATA_PATH/pixiv-cli/pixiv.exe on Windows.
     PIXIV_PROXY: str = ""
     PIXIV_USE_SYSTEM_PROXY: bool = True  # On Windows, inherit the system/environment proxy when unset.

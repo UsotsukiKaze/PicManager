@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 from collections import Counter
-from datetime import datetime, date
+from datetime import datetime
 from typing import List
 import json
 import os
@@ -8,8 +8,8 @@ import os
 from ... import schemas
 from ...contributions import calculate_contribution_score
 from ...database import get_db_context
-from ...models import PendingRequest, GuestLimit, RequestStatus, User, Group, Character
-from ..auth import GUEST_DAILY_LIMIT, get_current_session, get_session
+from ...models import PendingRequest, RequestStatus, User, Group, Character
+from ..auth import get_current_session, get_session
 
 router = APIRouter()
 

@@ -36,7 +36,7 @@ def local_debug_root_login(request: Request) -> bool:
 
 
 @router.post("/login")
-async def login(login_data: schemas.UserLogin, request: Request, response: Response):
+async def login():
     """Legacy direct QQ/password login is disabled; use QQ ticket login instead."""
     raise HTTPException(status_code=410, detail="Direct QQ login is disabled. Please use a bot-issued login ticket.")
 
@@ -247,8 +247,8 @@ async def logout(request: Request, response: Response):
 
 
 @router.put("/password")
-async def change_password(password_data: schemas.ChangePassword, request: Request):
-    """Password login is disabled; QQ ticket identity is the only login method."""
+async def change_password():
+    """Compatibility rejection only; password credentials are never parsed or saved."""
     raise HTTPException(status_code=410, detail="Password login is disabled")
 
 

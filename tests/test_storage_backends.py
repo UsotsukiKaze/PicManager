@@ -2,7 +2,10 @@ import errno
 from pathlib import Path
 
 from PIL import Image
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker
 
+from app import models, schemas
 from app.config import settings
 from app.services import ImageService
 from app.storage import LocalStorage, R2Storage
@@ -83,17 +86,31 @@ def test_r2_backend_keeps_object_keys_opaque_and_removes_source_only_after_uploa
     assert client.copied["CopySource"]["Key"] == "images/ABCDEF1234.jpg"
 
 
-def test_image_service_moves_local_staged_file_instead_of_copying(monkeypatch, tmp_path):
+def test_image_service_keeps_local_staged_source_until_commit(monkeypatch, tmp_path):
     source = tmp_path / "staged.png"
     Image.new("RGB", (8, 6), "red").save(source)
     store = tmp_path / "resource" / "store"
     monkeypatch.setattr(settings, "BASE_DIR", str(tmp_path))
     monkeypatch.setattr(settings, "STORAGE_BACKEND", "local")
 
-    locator, info = ImageService.save_image_file(
-        str(source), "ABCDEF1234", "png", str(store)
-    )
+    monkeypatch.setattr(ImageService, "generate_image_id", lambda: "ABCDEF1234")
+    engine = create_engine(f"sqlite:///{tmp_path / 'publication.db'}")
+    models.Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    commits = []
 
-    assert not source.exists()
-    assert locator == "resource/store/ABCDEF1234.png"
-    assert info["file_size"] > 0
+    @event.listens_for(Session, "before_commit")
+    def check_staging(db):
+        assert source.exists()
+        assert (store / "ABCDEF1234.png").exists()
+        commits.append(True)
+
+    try:
+        with Session() as db:
+            image = ImageService.create_image(db, schemas.ImageCreate(), str(source), "staged.png", "png", str(store))
+            assert not source.exists()
+            assert image.file_path == "resource/store/ABCDEF1234.png"
+            assert image.file_size > 0
+            assert commits == [True]
+    finally:
+        engine.dispose()

@@ -317,7 +317,10 @@ def capture_browser_code(context, session_id, actor_id, url):
 def browser_login(session_id, actor_id, url):
     stage = "open"
     try:
-        from playwright.sync_api import sync_playwright, Error as BrowserError
+        try:
+            from playwright.sync_api import sync_playwright, Error as BrowserError
+        except ModuleNotFoundError:
+            raise PixivError("login_browser_dependency_missing") from None
 
         with sync_playwright() as playwright:
             options = {"headless": False, "executable_path": browser_executable()}

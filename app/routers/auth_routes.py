@@ -1,3 +1,3 @@
 """Authentication route aggregate."""
 
-from .auth_api import router
+from .auth_api import router as router

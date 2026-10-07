@@ -91,7 +91,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     qq_number = Column(String(20), unique=True, nullable=False, index=True)
     role = Column(String(20), nullable=False, default=UserRole.USER.value)
-    password_hash = Column(String(255), nullable=True)  # 只有管理员需要密码
+    password_hash = Column(String(255), nullable=True)  # 旧数据库兼容字段；密码登录已禁用
     nickname = Column(String(100), nullable=True)
     avatar_url = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -479,6 +479,13 @@ def _prune_unused_artists(session, context):
         session.connection().execute(delete(PixivArtist).where(~select(PixivImageMetadata.image_id).where(
             PixivImageMetadata.artist_id == PixivArtist.id
         ).exists()))
+
+
+class FileOperationReceipt(Base):
+    """Commit witness for durable filesystem intents; no reference to a deletable image."""
+    __tablename__ = "file_operation_receipts"
+    id = Column(String(32), primary_key=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
 
 class ImageJob(Base):

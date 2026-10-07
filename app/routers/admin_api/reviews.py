@@ -381,7 +381,8 @@ async def handle_pending_request(
                                 pending_req.temp_file_path,
                                 pending_req.original_filename,
                                 file_extension,
-                                store_path
+                                store_path,
+                                commit=False,
                             )
                             if duplicate_keep == "merge-new" and confirmed_ids:
                                 ImageService.merge_duplicate_image_metadata(
@@ -396,11 +397,9 @@ async def handle_pending_request(
                                 )
                         pending_req.image_id = image.image_id
                     
-                    # 删除临时文件
-                    try:
-                        os.unlink(pending_req.temp_file_path)
-                    except OSError:
-                        pass
+                    if duplicate_keep == "merge-existing":
+                        from ...file_operations import FileOperation
+                        FileOperation.prepare(db, "discard", source=pending_req.temp_file_path)
                 else:
                     raise HTTPException(status_code=400, detail="临时文件不存在")
             
@@ -421,7 +420,7 @@ async def handle_pending_request(
                 }
                 update_data = changed_update_data(proposed, original)
                 if update_data:
-                    ImageService.update_image(db, pending_req.image_id, schemas.ImageUpdate(**update_data))
+                    ImageService.update_image(db, pending_req.image_id, schemas.ImageUpdate(**update_data), commit=False)
                 else:
                     unchanged = True
 
@@ -562,11 +561,8 @@ async def handle_pending_request(
             
             # 如果是添加请求，删除临时文件
             if pending_req.request_type == "add" and pending_req.temp_file_path:
-                try:
-                    if os.path.exists(pending_req.temp_file_path):
-                        os.unlink(pending_req.temp_file_path)
-                except OSError:
-                    pass
+                from ...file_operations import FileOperation
+                FileOperation.prepare(db, "discard", source=pending_req.temp_file_path)
         
         else:
             raise HTTPException(status_code=400, detail="无效的操作")

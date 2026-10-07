@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from PIL import Image, ImageDraw
 
-from test_pixiv_ol import environment, install_fake, artwork, FakeProvider
+from test_pixiv_ol import environment as environment, install_fake, artwork, FakeProvider
 from test_visual_similarity import drawing
 from app import models, visual_similarity
 from app.config import settings

@@ -1,19 +1,15 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from typing import List, Optional, Union
 
 from ...database import get_db_context
-from ...services import GroupService, CharacterService, ImageService
-from ...models import User, UserRole, PendingRequest, ImageViewCount, CharacterQueryCount, RequestStatus, Group, Character
+from ...services import CharacterService
+from ...models import User, UserRole, PendingRequest
 from ... import models, schemas
 from ...config import settings
-from ...logger import log_error
 from ...review_changes import changed_update_data
 from ..auth import get_current_session, check_guest_limit
-import tempfile
-import os
 import json
 import re
-from datetime import datetime
 
 router = APIRouter()
 
@@ -121,7 +117,6 @@ def update_character(character_id: int, character_update: schemas.CharacterUpdat
         if not session:
             raise HTTPException(status_code=401, detail="Login required")
         is_admin = False
-        is_logged_in_user = False
         user_id = None
         guest_ip = None
         guest_name = None
@@ -138,7 +133,6 @@ def update_character(character_id: int, character_update: schemas.CharacterUpdat
                     raise HTTPException(status_code=401, detail="Invalid session")
                 user_id = user.id
                 is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
-                is_logged_in_user = True
 
         # 校验角色是否存在
         existing = db.query(models.Character).filter(models.Character.id == character_id).first()
@@ -201,7 +195,6 @@ def delete_character(character_id: int, request: Request):
         if not session:
             raise HTTPException(status_code=401, detail="Login required")
         is_admin = False
-        is_logged_in_user = False
         user_id = None
         guest_ip = None
         guest_name = None
@@ -218,7 +211,6 @@ def delete_character(character_id: int, request: Request):
                     raise HTTPException(status_code=401, detail="Invalid session")
                 user_id = user.id
                 is_admin = user.role in [UserRole.ROOT.value, UserRole.ADMIN.value]
-                is_logged_in_user = True
 
         # 校验角色是否存在
         existing = db.query(models.Character).filter(models.Character.id == character_id).first()

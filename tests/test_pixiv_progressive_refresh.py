@@ -1,5 +1,5 @@
 import pytest
-from test_pixiv_ol import environment, artwork, FakeProvider
+from test_pixiv_ol import environment as environment, artwork, FakeProvider
 from app import models
 from app.integrations.pixiv_ol import service, jobs
 from app.integrations.pixiv_ol.provider import PixivError

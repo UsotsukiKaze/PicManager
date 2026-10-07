@@ -1,6 +1,6 @@
 import pytest
 
-from test_pixiv_ol import environment, artwork
+from test_pixiv_ol import environment as environment, artwork
 from app import models
 from app.integrations.pixiv_ol import service
 from app.integrations.pixiv_ol.recommendations import rank_candidates

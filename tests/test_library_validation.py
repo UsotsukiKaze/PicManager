@@ -1,5 +1,4 @@
 from datetime import datetime
-from pathlib import Path
 from sqlalchemy import create_engine,text
 from sqlalchemy.orm import sessionmaker
 from app import models,database

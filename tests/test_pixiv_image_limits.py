@@ -3,7 +3,7 @@ import shutil
 import pytest
 from PIL import Image
 
-from test_pixiv_ol import environment, install_fake, artwork
+from test_pixiv_ol import environment as environment, install_fake, artwork
 from app import models
 from app.config import settings
 from app.integrations.pixiv_ol import cart, jobs, service, viewer

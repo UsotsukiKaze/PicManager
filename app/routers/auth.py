@@ -4,11 +4,10 @@ HTTP routes are split into sessions.py and profile.py; this module keeps shared
 helpers used by route modules and permission checks.
 """
 
-from fastapi import HTTPException, Request
+from fastapi import Request
 from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime, date, timedelta
-import os
 import httpx
 import uuid
 
@@ -81,7 +80,7 @@ async def fetch_qq_info(qq_number: str) -> dict:
                                     "avatar_url": avatar_url,
                                     "nickname": nickname
                                 }
-                except Exception as e:
+                except Exception:
                     pass
                 
                 # 方案2: 尝试 tenapi API
@@ -103,7 +102,7 @@ async def fetch_qq_info(qq_number: str) -> dict:
                                         "avatar_url": avatar_url,
                                         "nickname": nickname
                                     }
-                    except Exception as e:
+                    except Exception:
                         pass
                 
                 # 方案3: 尝试 alapi.net
@@ -125,7 +124,7 @@ async def fetch_qq_info(qq_number: str) -> dict:
                                         "avatar_url": avatar_url,
                                         "nickname": nickname
                                     }
-                    except Exception as e:
+                    except Exception:
                         pass
         except:
             pass

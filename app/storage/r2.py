@@ -55,8 +55,15 @@ class R2Storage:
         try:
             self.client.head_object(Bucket=self.bucket, Key=self._key(key))
             return True
-        except Exception:
-            return False
+        except Exception as exc:
+            # Only an explicit missing-object response proves absence. Network,
+            # permission and configuration errors must never trigger DB cleanup.
+            response = getattr(exc, "response", {})
+            if isinstance(response, dict) and str(response.get("Error", {}).get("Code")) in {
+                "404", "NoSuchKey", "NotFound",
+            }:
+                return False
+            raise
 
     def delete(self, key: str) -> None:
         self.client.delete_object(Bucket=self.bucket, Key=self._key(key))
@@ -68,6 +75,11 @@ class R2Storage:
         self.client.download_file(self.bucket, self._key(key), str(target))
 
     def move_object(self, source_key: str, target_key: str) -> StoredObject:
+        stored = self.copy_object(source_key, target_key)
+        self.delete(source_key)
+        return stored
+
+    def copy_object(self, source_key: str, target_key: str) -> StoredObject:
         source_object_key = self._key(source_key)
         target_object_key = self._key(target_key)
         size = int(self.client.head_object(Bucket=self.bucket, Key=source_object_key).get("ContentLength") or 0)
@@ -76,7 +88,6 @@ class R2Storage:
             Key=target_object_key,
             CopySource={"Bucket": self.bucket, "Key": source_object_key},
         )
-        self.client.delete_object(Bucket=self.bucket, Key=source_object_key)
         return StoredObject(target_object_key, f"r2://{self.bucket}/{target_object_key}", size)
 
     def presigned_upload_url(self, key: str, *, content_type: str, expires: int = 900) -> str:

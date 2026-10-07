@@ -1,12 +1,11 @@
 """Offline accuracy, cache, permissions and state tests for lightweight hints."""
 import json
-from datetime import datetime
 from pathlib import Path
 
 import pytest
 from PIL import Image, ImageDraw
 
-from test_pixiv_ol import environment, artwork, install_fake
+from test_pixiv_ol import environment as environment, artwork, install_fake
 from app import models, pixiv_check, visual_similarity as visual
 from app.config import settings
 from app.integrations.pixiv_ol import service, provider

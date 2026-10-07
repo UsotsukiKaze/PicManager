@@ -58,6 +58,9 @@ class LocalStorage:
     def move_object(self, source_key: str, target_key: str) -> StoredObject:
         return self.put_file(self._path(source_key), target_key, move=True)
 
+    def copy_object(self, source_key: str, target_key: str) -> StoredObject:
+        return self.put_file(self._path(source_key), target_key)
+
     def presigned_upload_url(self, key: str, *, content_type: str, expires: int = 900) -> None:
         return None
 

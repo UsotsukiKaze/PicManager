@@ -1,28 +1,24 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse
-from typing import List, Literal, Optional, Union
+from typing import Literal, Optional
 from pathlib import Path
 from urllib.parse import quote
 
 from ...database import get_db_context
-from ...services import GroupService, CharacterService, ImageService
-from ...models import User, UserRole, PendingRequest, ImageViewCount, CharacterQueryCount, RequestStatus, Group, Character
+from ...services import ImageService
+from ...models import User, UserRole, PendingRequest, ImageViewCount, CharacterQueryCount
 from ... import models, schemas
 from ...config import settings
-from ...logger import log_error
 from ...review_changes import changed_update_data
 from ...storage import get_image_storage
 from ..auth import get_current_session, check_guest_limit
-import tempfile
-import os
 import json
-from datetime import datetime
 
 router = APIRouter()
 
 
 # 图片相关路由
-@router.get("/images/search", response_model=schemas.ImageSearchResult)
+@router.get("/images/search", response_model=schemas.ImageSearchResult | schemas.ImageCardSearchResult)
 def search_images(
     group_id: Optional[int] = None,
     character_id: Optional[int] = None,
@@ -32,7 +28,8 @@ def search_images(
     description: Optional[str] = None,
     age_rating: Optional[Literal["all", "r12", "r16", "r18"]] = None,
     limit: int = Query(50, ge=1, le=settings.MAX_PAGE_SIZE),
-    offset: int = Query(0, ge=0)
+    offset: int = Query(0, ge=0),
+    view: Literal["full", "card"] = "full",
 ):
     """搜索图片"""
     with get_db_context() as db:
@@ -57,9 +54,14 @@ def search_images(
             description=description,
             age_rating=age_rating,
             limit=limit,
-            offset=offset
+            offset=offset,
+            view=view,
         )
         images, total = ImageService.search_images(db, params)
+        if view == "card":
+            return schemas.ImageCardSearchResult(
+                images=images, total=total, offset=offset, limit=limit,
+            )
         return schemas.ImageSearchResult(
             images=images,
             total=total,
@@ -241,7 +243,7 @@ def update_image(image_id: str, image_update: schemas.ImageUpdate, request: Requ
         effective_update = schemas.ImageUpdate(**update_data)
         if is_admin:
             # 管理员直接更新
-            image = ImageService.update_image(db, image_id, effective_update)
+            image = ImageService.update_image(db, image_id, effective_update, commit=False)
             if not image:
                 raise HTTPException(status_code=404, detail="Image not found")
             return {"message": "图片信息更新成功", "status": "success"}
@@ -294,7 +296,7 @@ def delete_image(image_id: str, request: Request):
         if is_admin:
             # 管理员直接删除
             store_path = settings.STORE_PATH
-            success = ImageService.delete_image(db, image_id, store_path)
+            success = ImageService.delete_image(db, image_id, store_path, commit=False)
             if not success:
                 raise HTTPException(status_code=404, detail="Image not found")
             return {"message": "图片删除成功", "status": "success"}

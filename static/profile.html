@@ -442,15 +442,6 @@
             padding: 12px 0;
         }
 
-        /* 修改密码卡片 */
-        .password-card {
-            background: var(--bg-secondary);
-            border: 1px solid rgba(229, 229, 231, 0.95);
-            border-radius: 24px;
-            padding: 30px;
-            box-shadow: 0 16px 44px rgba(29, 29, 31, 0.08);
-        }
-
         .card-title {
             font-size: 18px;
             font-weight: 600;
@@ -459,10 +450,6 @@
             display: flex;
             align-items: center;
             gap: 10px;
-        }
-
-        .password-form {
-            max-width: 400px;
         }
 
         .form-group {
@@ -1130,7 +1117,6 @@
             }
 
             .user-card,
-            .password-card,
             .contribution-card,
             .preference-card,
             .guest-card,
@@ -1361,28 +1347,6 @@
                         </div>
                     </div>
 
-                    <!-- 修改密码（管理员专用） -->
-                    <div class="password-card" id="password-section" style="display: none;">
-                        <h3 class="card-title">
-                            <span class="inline-icon icon-lock"></span>
-                            <span>修改密码</span>
-                        </h3>
-                        <div class="password-form">
-                            <div class="form-group">
-                                <label>原密码</label>
-                                <input type="password" id="old-password" class="form-input" placeholder="请输入原密码">
-                            </div>
-                            <div class="form-group">
-                                <label>新密码</label>
-                                <input type="password" id="new-password" class="form-input" placeholder="请输入新密码">
-                            </div>
-                            <div class="form-group">
-                                <label>确认新密码</label>
-                                <input type="password" id="confirm-password" class="form-input" placeholder="请再次输入新密码">
-                            </div>
-                            <button class="btn btn-primary" onclick="changePassword()">修改密码</button>
-                        </div>
-                    </div>
                 </div>
             </div>
 
@@ -1451,9 +1415,6 @@
                             </div>
                             <button class="btn btn-primary" onclick="addAdmin()">添加</button>
                         </div>
-                        <p style="margin-top: 12px; color: var(--text-secondary); font-size: 13px;">
-                            * 新管理员的默认密码为: admin
-                        </p>
                     </div>
                 </div>
             </div>
@@ -1575,7 +1536,6 @@
 
                     // 显示管理员专属功能
                     if (currentUser.role === 'root' || currentUser.role === 'admin') {
-                        document.getElementById('password-section').style.display = 'block';
                         document.getElementById('admin-tab').classList.remove('hidden');
                     }
 
@@ -1847,52 +1807,6 @@
                 toggleEditNickname();
             } catch (error) {
                 showToast('保存失败: ' + error.message, 'error');
-            }
-        }
-
-        // 修改密码
-        async function changePassword() {
-            const oldPassword = document.getElementById('old-password').value;
-            const newPassword = document.getElementById('new-password').value;
-            const confirmPassword = document.getElementById('confirm-password').value;
-
-            if (!oldPassword || !newPassword || !confirmPassword) {
-                showToast('请填写所有字段', 'error');
-                return;
-            }
-
-            if (newPassword !== confirmPassword) {
-                showToast('两次输入的新密码不一致', 'error');
-                return;
-            }
-
-            if (newPassword.length < 4) {
-                showToast('新密码长度至少4位', 'error');
-                return;
-            }
-
-            try {
-                const response = await fetch('/auth/password', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        old_password: oldPassword,
-                        new_password: newPassword
-                    })
-                });
-
-                const data = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(data.detail || '修改失败');
-                }
-
-                showToast('密码修改成功');
-                document.getElementById('old-password').value = '';
-                document.getElementById('new-password').value = '';
-                document.getElementById('confirm-password').value = '';
-            } catch (error) {
-                showToast(error.message, 'error');
             }
         }
 

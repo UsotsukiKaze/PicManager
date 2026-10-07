@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import threading
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -15,7 +17,7 @@ from .config import settings
 from .database import get_db_context
 from .logger import log_error, log_info
 from .services import ImageService
-from .storage import get_image_storage
+from .file_operations import FileOperation, _lease
 
 
 class ImageJobQueue:
@@ -104,47 +106,58 @@ class ImageJobQueue:
 
 class ImagePipeline:
     @staticmethod
-    def _r2_object_key(locator: str) -> str:
-        return locator.split("/", 3)[-1]
-
-    @staticmethod
     def generate_thumbnail(db, image: models.Image) -> None:
-        if str(image.file_path or "").startswith("r2://"):
-            backend = get_image_storage(settings)
-            suffix = f".{image.file_extension or 'img'}"
-            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp:
-                staged = Path(temp.name)
-            try:
-                backend.download_file(ImagePipeline._r2_object_key(image.file_path), staged)
-                ImageService.write_thumbnail(str(staged), ImageService.thumb_path(image))
-                image.thumb_status = ImageService.THUMB_READY
-            finally:
-                staged.unlink(missing_ok=True)
-            return
         if not ImageService.ensure_thumbnail(image):
             raise RuntimeError(f"Thumbnail generation failed for {image.image_id}")
 
     @staticmethod
     def generate_preview(db, image: models.Image) -> None:
-        locator = str(image.file_path or "")
-        staged: Path | None = None
         try:
-            if locator.startswith("r2://"):
-                backend = get_image_storage(settings)
-                with tempfile.NamedTemporaryFile(suffix=f".{image.file_extension or 'img'}", delete=False) as temp:
-                    staged = Path(temp.name)
-                backend.download_file(ImagePipeline._r2_object_key(locator), staged)
-                source = str(staged)
-            else:
-                source = ImageService.image_full_path(image)
-            ImageService.write_preview(source, ImageService.preview_path(image))
+            with ImageService.source_file(image) as source:
+                ImageService.write_preview(str(source), ImageService.preview_path(image))
             image.preview_status = ImageService.THUMB_READY
         except Exception:
             image.preview_status = ImageService.THUMB_FAILED
             raise
-        finally:
-            if staged is not None:
-                staged.unlink(missing_ok=True)
+
+    @staticmethod
+    def stage(image: models.Image, kind: str):
+        if kind not in {"thumbnail", "preview"}:
+            raise ValueError("Unknown derivative job")
+        target = Path(ImageService.thumb_path(image) if kind == "thumbnail" else ImageService.preview_path(image))
+        directory = target.parent / ".staging"
+        directory.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=directory, prefix="job-", suffix=".webp", delete=False) as temp:
+            staged = Path(temp.name)
+        lease = FileOperation(staged, {}, None, _lease(staged))
+        try:
+            if lease.handle is None:
+                raise RuntimeError("Derivative staging lease unavailable")
+            with ImageService.source_file(image) as source:
+                writer = ImageService.write_thumbnail if kind == "thumbnail" else ImageService.write_preview
+                writer(str(source), str(staged))
+            return staged, target, lease
+        except BaseException:
+            staged.unlink(missing_ok=True)
+            lease.release()
+            raise
+
+    @staticmethod
+    def clean_stale_stages():
+        cutoff = time.time() - max(60, settings.IMAGE_JOB_STALE_SECONDS * 2)
+        for root in {settings.THUMB_PATH, settings.PREVIEW_PATH}:
+            for path in (Path(root) / ".staging").glob("job-*.webp"):
+                try:
+                    if path.stat().st_mtime >= cutoff:
+                        continue
+                    lease = FileOperation(path, {}, None, _lease(path))
+                    if lease.handle is not None:
+                        try:
+                            path.unlink(missing_ok=True)
+                        finally:
+                            lease.release()
+                except OSError:
+                    continue
 
     @staticmethod
     def handle(db, job: models.ImageJob) -> None:
@@ -164,6 +177,7 @@ class ImageJobWorker:
         self.poll_seconds = max(0.1, float(poll_seconds or settings.IMAGE_JOB_POLL_SECONDS))
         self.stop_event = threading.Event()
         self.thread: threading.Thread | None = None
+        self.last_stage_cleanup = 0.0
 
     def run_once(self) -> bool:
         with get_db_context() as db:
@@ -179,38 +193,70 @@ class ImageJobWorker:
                 source_locator, source_version = image.file_path, image.updated_at
                 db.expunge(image)
         error = None
+        staged = None
+        stage_lease = None
         try:
             if image is None:
                 raise ValueError("Image no longer exists")
-            if job_type == "thumbnail":
-                ImagePipeline.generate_thumbnail(None, image)
-            elif job_type == "preview":
-                ImagePipeline.generate_preview(None, image)
-            else:
-                raise ValueError("Unknown derivative job")
+            source_stat = self._source_stat(image)
+            staged, target, stage_lease = ImagePipeline.stage(image, job_type)
         except Exception as exc:
             error = exc
-        with get_db_context() as db:
-            job = db.get(models.ImageJob, job_id)
-            if not job or job.status != "running" or job.locked_at != lease:
-                return True
-            current = db.get(models.Image, image_id)
-            if not error and (not current or current.file_path != source_locator or current.updated_at != source_version):
-                error = RuntimeError("Image changed during derivative generation")
-            if error:
-                ImageJobQueue.fail(job, error)
-                log_error(f"Image job {job_id} failed")
-            else:
-                if job_type == "thumbnail":
-                    current.thumb_status = image.thumb_status
+        try:
+            with get_db_context() as db:
+                # Acquire the writer before checking the source and publishing.
+                # Concurrent deletion, edits and stale leases cannot pass this guard.
+                claimed = db.execute(update(models.ImageJob).where(
+                    models.ImageJob.id == job_id,
+                    models.ImageJob.status == "running",
+                    models.ImageJob.locked_at == lease,
+                ).values(locked_at=lease).returning(models.ImageJob.id)).scalar_one_or_none()
+                if claimed is None:
+                    return True
+                job = db.get(models.ImageJob, job_id, populate_existing=True)
+                current = db.get(models.Image, image_id)
+                if not error:
+                    try:
+                        if (not current or current.file_path != source_locator
+                                or current.updated_at != source_version or self._source_stat(current) != source_stat):
+                            error = RuntimeError("Image changed during derivative generation")
+                    except OSError as exc:
+                        error = exc
+                if error:
+                    ImageJobQueue.fail(job, error)
+                    log_error(f"Image job {job_id} failed")
                 else:
-                    current.preview_status = image.preview_status
-                ImageJobQueue.complete(job)
+                    try:
+                        os.replace(staged, target)
+                    except OSError as exc:
+                        ImageJobQueue.fail(job, exc)
+                        log_error(f"Image job {job_id} publication failed")
+                    else:
+                        if job_type == "thumbnail":
+                            current.thumb_status = ImageService.THUMB_READY
+                        else:
+                            current.preview_status = ImageService.THUMB_READY
+                        ImageJobQueue.complete(job)
+        finally:
+            if staged is not None:
+                staged.unlink(missing_ok=True)
+            if stage_lease is not None:
+                stage_lease.release()
         return True
+
+    @staticmethod
+    def _source_stat(image):
+        if str(image.file_path or "").startswith("r2://"):
+            return None
+        stat = Path(ImageService.image_full_path(image)).stat()
+        return stat.st_ino, stat.st_size, stat.st_mtime_ns
 
     def _run(self) -> None:
         while not self.stop_event.is_set():
             try:
+                if time.monotonic() - self.last_stage_cleanup >= 300:
+                    ImagePipeline.clean_stale_stages()
+                    self.last_stage_cleanup = time.monotonic()
                 if not self.run_once():
                     self.stop_event.wait(self.poll_seconds)
             except Exception as exc:

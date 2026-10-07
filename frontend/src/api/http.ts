@@ -28,9 +28,10 @@ export async function requestJSON<T>(path: string, options: RequestInit = {}): P
 }
 
 export function safeAvatar(value?: string): string {
-  if (!value) return '/favicon.ico';
+  const fallback = '/static/icon/Pic.png';
+  if (!value || value === '/favicon.ico') return fallback;
   try {
     const url = new URL(value, window.location.origin);
-    return ['http:', 'https:'].includes(url.protocol) ? url.href : '/favicon.ico';
-  } catch { return '/favicon.ico'; }
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : fallback;
+  } catch { return fallback; }
 }

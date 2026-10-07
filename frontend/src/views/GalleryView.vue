@@ -9,6 +9,7 @@ import { useWorkspace } from '../state/workspace';
 import { queryClient } from '../state/client';
 import EntityPicker from '../components/EntityPicker.vue';
 import ImageCard from '../components/ImageCard.vue';
+import AppIcon from '../components/AppIcon.vue';
 const ImageDetail = defineAsyncComponent(() => import('../components/ImageDetail.vue'));
 const session = useSession();
 const workspace = useWorkspace();
@@ -22,6 +23,22 @@ const sourceRect = shallowRef<DOMRect>();
 let originImageId = '';
 let debounce: ReturnType<typeof setTimeout> | undefined;
 const draft = ref({ pid: workspace.filters.pid || '', artist: workspace.filters.artist || '', description: workspace.filters.description || '' });
+const filtersOpen = ref(false);
+const filterCount = computed(() => Object.entries(workspace.filters).filter(([key, value]) => key !== 'age_rating' && value !== undefined && value !== '').length);
+function closeFilters() { filtersOpen.value = false; document.getElementById('gallery-query-toggle')?.focus({ preventScroll: true }); }
+function filterMotion(element: Element, done: () => void, opening: boolean) {
+  const node = element as HTMLElement;
+  if (matchMedia('(prefers-reduced-motion:reduce)').matches) { done(); return; }
+  const height = `${node.scrollHeight}px`;
+  node.style.overflow = 'hidden';
+  const from = { height: opening ? '0px' : height, opacity: opening ? 0 : 1 };
+  const to = { height: opening ? height : '0px', opacity: opening ? 1 : 0 };
+  const animation = node.animate([from, to], { duration: 240, easing: 'cubic-bezier(.22,1,.36,1)' });
+  const finish = () => { node.style.overflow = ''; done(); };
+  void animation.finished.then(finish, finish);
+}
+function cancelFilterMotion(element: Element) { element.getAnimations().forEach(animation => animation.cancel()); }
+function clearFilters() { clearTimeout(debounce); workspace.filters = {}; draft.value = { pid: '', artist: '', description: '' }; workspace.page = 1; syncURL(); }
 const groups = useQuery({ queryKey: computed(() => ['catalog', session.identity, 'groups']), queryFn: ({ signal }) => allEntities('groups', signal), enabled: active, staleTime: 60_000 });
 const characters = useQuery({ queryKey: computed(() => ['catalog', session.identity, 'characters']), queryFn: ({ signal }) => allEntities('characters', signal), enabled: active, staleTime: 60_000 });
 const features = useQuery({ queryKey: computed(() => ['catalog', session.identity, 'feature-tags']), queryFn: ({ signal }) => allEntities('feature-tags', signal), enabled: active, staleTime: 60_000 });
@@ -113,9 +130,9 @@ watch(() => session.identity, close);
 onDeactivated(() => { active.value = false; close(); clearTimeout(debounce); void queryClient.cancelQueries({ queryKey: ['images', session.identity, 'list'] }); });
 </script>
 <template><section class="modern-gallery" aria-label="图库">
-  <header class="modern-page-heading"><div><h1>图片</h1><span>{{ data?.total ?? '—' }} 张图片</span></div><button class="btn btn-secondary" :disabled="isFetching" @click="refetch()">{{ isFetching ? '更新中…' : '刷新' }}</button></header>
-  <div class="modern-age-tabs" role="group" aria-label="年龄分级"><button v-for="rating in ['', 'all', 'r12', 'r16', 'r18']" :key="rating" type="button" :aria-pressed="(workspace.filters.age_rating || '') === rating" @click="applyFilter('age_rating', rating)">{{ rating === '' ? '全部' : rating === 'all' ? '全年龄' : rating.toUpperCase() }}</button></div>
-  <form class="modern-gallery-filters" @submit.prevent="submitSearch">
+  <header class="modern-gallery-toolbar"><div class="modern-age-tabs" role="group" aria-label="年龄分级"><button v-for="rating in ['', 'all', 'r12', 'r16', 'r18']" :key="rating" type="button" :aria-pressed="(workspace.filters.age_rating || '') === rating" @click="applyFilter('age_rating', rating)">{{ rating === '' ? '全部' : rating === 'all' ? '全年龄' : rating.toUpperCase() }}</button></div><div class="modern-gallery-tools"><span>{{ data?.total ?? '—' }} 张图片</span><button id="gallery-query-toggle" class="modern-icon-action modern-query-toggle" :aria-expanded="filtersOpen" aria-controls="gallery-search-panel" :aria-label="filtersOpen ? '收起图片查询' : '打开图片查询'" title="查询图片" @click="filtersOpen = !filtersOpen"><AppIcon name="search"/><b v-if="filterCount">{{ filterCount }}</b></button><button class="modern-icon-action" :disabled="isFetching" aria-label="刷新图库" title="刷新图库" @click="refetch()"><AppIcon name="refresh" :class="{ 'is-spinning': isFetching }"/></button></div></header>
+  <Transition :css="false" @enter="(element, done) => filterMotion(element, done, true)" @leave="(element, done) => filterMotion(element, done, false)" @enter-cancelled="cancelFilterMotion" @leave-cancelled="cancelFilterMotion"><div v-show="filtersOpen" id="gallery-search-panel" class="modern-filter-panel" :aria-hidden="!filtersOpen" :inert="!filtersOpen" @keydown.esc="closeFilters"><form class="modern-gallery-filters" @submit.prevent="submitSearch">
+    <div class="modern-filter-heading"><span><AppIcon name="search"/>筛选图片</span><button v-if="filterCount" type="button" @click="clearFilters">清除筛选 <span>{{ filterCount }}</span></button></div>
     <EntityPicker label="分组" :items="groups.data.value || []" :model-value="workspace.filters.group_id" @update:model-value="applyFilter('group_id', $event)"/>
     <EntityPicker label="角色" :items="availableCharacters" :model-value="workspace.filters.character_id" @update:model-value="applyFilter('character_id', $event)"/>
     <EntityPicker label="特征" :items="features.data.value || []" :model-value="workspace.filters.feature_tag_id" @update:model-value="applyFilter('feature_tag_id', $event)"/>
@@ -123,13 +140,13 @@ onDeactivated(() => { active.value = false; close(); clearTimeout(debounce); voi
     <label class="modern-input">画师<input v-model="draft.artist" placeholder="画师名" aria-label="搜索画师"></label>
     <label class="modern-input">描述<input v-model="draft.description" placeholder="图片描述" aria-label="搜索描述"></label>
     <button type="submit" class="modern-sr-only">搜索</button>
-  </form>
+  </form></div></Transition>
   <p v-if="groups.error.value || characters.error.value || features.error.value" class="modern-inline-error" role="alert">筛选标签加载失败。<button @click="groups.refetch(); characters.refetch(); features.refetch()">重试</button></p>
-  <div class="modern-gallery-status" aria-live="polite">{{ isFetching && !isPending ? '正在更新结果…' : '' }}</div>
+  <div class="modern-gallery-status" aria-live="polite"><Transition name="feedback"><span v-if="isFetching && !isPending"><i class="modern-status-dot"></i>正在更新结果…</span></Transition></div>
   <div v-if="error" class="modern-feature-status" role="alert"><p>图片加载失败，请重试</p><button class="btn btn-secondary" @click="refetch()">重试</button></div>
   <div v-else-if="isPending" class="modern-image-grid" aria-busy="true"><div v-for="n in 10" :key="n" class="modern-card-skeleton"></div></div>
   <div v-else-if="!data?.images.length" class="empty-state">没有匹配的图片</div>
-  <div v-else class="modern-image-grid" :aria-busy="isFetching"><ImageCard v-for="image in data.images" :key="image.image_id" :image="image" :suppress-actions="closedCard === image.image_id" @resume="closedCard = ''" @open="open" @edit="edit"/></div>
-  <nav v-if="data?.images.length" class="modern-pagination" aria-label="图库页码"><button :disabled="workspace.page === 1 || isPlaceholderData" @click="go(workspace.page - 1)">‹</button><button v-for="page in pageButtons" :key="page" :aria-current="page === workspace.page ? 'page' : undefined" :disabled="isPlaceholderData" @click="go(page)">{{ page }}</button><button :disabled="workspace.page >= pages || isPlaceholderData" @click="go(workspace.page + 1)">›</button><span>{{ workspace.page }} / {{ pages }}</span></nav>
+  <div v-else class="modern-image-grid" :aria-busy="isFetching"><ImageCard v-for="(image, index) in data.images" :key="image.image_id" :image="image" :style="{ '--card-order': index % 5 }" :suppress-actions="closedCard === image.image_id" @resume="closedCard = ''" @open="open" @edit="edit"/></div>
+  <nav v-if="data?.images.length" class="modern-pagination" aria-label="图库页码"><button aria-label="上一页" :disabled="workspace.page === 1 || isPlaceholderData" @click="go(workspace.page - 1)"><AppIcon name="left"/></button><button v-for="page in pageButtons" :key="page" :aria-current="page === workspace.page ? 'page' : undefined" :disabled="isPlaceholderData" @click="go(page)">{{ page }}</button><button aria-label="下一页" :disabled="workspace.page >= pages || isPlaceholderData" @click="go(workspace.page + 1)"><AppIcon name="right"/></button><span>{{ workspace.page }} / {{ pages }}</span></nav>
   <ImageDetail v-if="detail" :image="detail" :source-rect="sourceRect" :previous="detailIndex > 0" :next="detailIndex < (data?.images.length || 0) - 1" @close="close" @move="move" @edit="edit" @deleted="refetch()"/>
 </section></template>

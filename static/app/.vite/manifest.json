@@ -1,96 +1,110 @@
 {
-  "_bridge-KWJ2oVYC.js": {
-    "file": "assets/bridge-KWJ2oVYC.js",
+  "_bridge-COLrwYp8.js": {
+    "file": "assets/bridge-COLrwYp8.js",
     "name": "bridge",
     "imports": [
-      "_session-DHMKmk9t.js",
       "index.html",
-      "_scripts-fXHRQmzN.js"
+      "_scripts-Cd1gQFxB.js"
     ]
   },
-  "_scripts-fXHRQmzN.js": {
-    "file": "assets/scripts-fXHRQmzN.js",
+  "_runtime-core.esm-bundler-BfBWlVuP.js": {
+    "file": "assets/runtime-core.esm-bundler-BfBWlVuP.js",
+    "name": "runtime-core.esm-bundler"
+  },
+  "_scripts-Cd1gQFxB.js": {
+    "file": "assets/scripts-Cd1gQFxB.js",
     "name": "scripts",
     "imports": [
-      "_session-DHMKmk9t.js"
+      "index.html"
     ]
   },
-  "_session-DHMKmk9t.js": {
-    "file": "assets/session-DHMKmk9t.js",
-    "name": "session"
-  },
-  "_useQuery-BdzzD7DX.js": {
-    "file": "assets/useQuery-BdzzD7DX.js",
+  "_useQuery-D0jkc9Sn.js": {
+    "file": "assets/useQuery-D0jkc9Sn.js",
     "name": "useQuery",
     "imports": [
-      "_session-DHMKmk9t.js"
+      "_runtime-core.esm-bundler-BfBWlVuP.js",
+      "index.html"
     ]
   },
   "index.html": {
-    "file": "assets/index-COX1wcjS.js",
+    "file": "assets/index-syIFQHEd.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
     "imports": [
-      "_session-DHMKmk9t.js"
+      "_runtime-core.esm-bundler-BfBWlVuP.js"
     ],
     "dynamicImports": [
       "src/views/HomeView.vue",
       "src/views/GalleryView.vue",
+      "src/views/ProfileView.vue",
       "src/views/FeatureView.vue",
-      "_bridge-KWJ2oVYC.js"
+      "_bridge-COLrwYp8.js"
     ],
     "css": [
-      "assets/index-CAcGUkcw.css"
+      "assets/index-D94gBUH8.css"
     ]
   },
   "src/components/ImageDetail.vue": {
-    "file": "assets/ImageDetail-BmzQlaMB.js",
+    "file": "assets/ImageDetail-5gMjrzJW.js",
     "name": "ImageDetail",
     "src": "src/components/ImageDetail.vue",
     "isDynamicEntry": true,
     "imports": [
-      "_session-DHMKmk9t.js",
-      "_useQuery-BdzzD7DX.js",
+      "_runtime-core.esm-bundler-BfBWlVuP.js",
+      "_useQuery-D0jkc9Sn.js",
       "index.html",
-      "_scripts-fXHRQmzN.js"
+      "_scripts-Cd1gQFxB.js"
     ]
   },
   "src/views/FeatureView.vue": {
-    "file": "assets/FeatureView-CA5cHkZO.js",
+    "file": "assets/FeatureView-B8hQriqF.js",
     "name": "FeatureView",
     "src": "src/views/FeatureView.vue",
     "isDynamicEntry": true,
     "imports": [
-      "_bridge-KWJ2oVYC.js",
-      "_session-DHMKmk9t.js",
+      "_bridge-COLrwYp8.js",
+      "_runtime-core.esm-bundler-BfBWlVuP.js",
       "index.html"
     ]
   },
   "src/views/GalleryView.vue": {
-    "file": "assets/GalleryView-DRSoDYYb.js",
+    "file": "assets/GalleryView-CkIXDCHc.js",
     "name": "GalleryView",
     "src": "src/views/GalleryView.vue",
     "isDynamicEntry": true,
     "imports": [
-      "_session-DHMKmk9t.js",
-      "_useQuery-BdzzD7DX.js",
+      "_runtime-core.esm-bundler-BfBWlVuP.js",
+      "_useQuery-D0jkc9Sn.js",
       "index.html",
-      "_scripts-fXHRQmzN.js"
+      "_scripts-Cd1gQFxB.js"
     ],
     "dynamicImports": [
       "src/components/ImageDetail.vue",
-      "_bridge-KWJ2oVYC.js"
+      "_bridge-COLrwYp8.js"
     ]
   },
   "src/views/HomeView.vue": {
-    "file": "assets/HomeView-Djol2UV3.js",
+    "file": "assets/HomeView-BWn-I7wi.js",
     "name": "HomeView",
     "src": "src/views/HomeView.vue",
     "isDynamicEntry": true,
     "imports": [
-      "_session-DHMKmk9t.js",
-      "_useQuery-BdzzD7DX.js"
+      "_runtime-core.esm-bundler-BfBWlVuP.js",
+      "_useQuery-D0jkc9Sn.js",
+      "index.html"
+    ],
+    "css": [
+      "assets/HomeView-CD2EM32M.css"
+    ]
+  },
+  "src/views/ProfileView.vue": {
+    "file": "assets/ProfileView-Br-E31qy.js",
+    "name": "ProfileView",
+    "src": "src/views/ProfileView.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "_runtime-core.esm-bundler-BfBWlVuP.js"
     ]
   }
 }

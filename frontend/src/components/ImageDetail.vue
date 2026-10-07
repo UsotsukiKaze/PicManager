@@ -7,6 +7,7 @@ import type { ImageCardRecord } from '../api/types';
 import { useSession } from '../state/session';
 import { useWorkspace } from '../state/workspace';
 import { invalidateDomain } from '../state/client';
+import AppIcon from './AppIcon.vue';
 const props = defineProps<{ image: ImageCardRecord | null; previous?: boolean; next?: boolean; sourceRect?: Pick<DOMRect, 'left' | 'top' | 'width' | 'height'> }>();
 const emit = defineEmits<{ close: []; move: [delta: number]; edit: [id: string]; deleted: [id: string] }>();
 const session = useSession();
@@ -14,6 +15,7 @@ const workspace = useWorkspace();
 const dialog = ref<HTMLDialogElement>();
 const media = ref<HTMLElement>();
 let closing = false;
+let exiting = false;
 const ready = ref(false);
 const broken = ref(false);
 const revealed = ref(false);
@@ -88,6 +90,7 @@ async function reveal() {
   dialog.value?.querySelector<HTMLButtonElement>('.modern-reader-close')?.focus({ preventScroll: true });
 }
 async function showOriginal() {
+  if (original.value || !visible.value) return;
   original.value = true; ready.value = false;
   await nextTick();
   dialog.value?.querySelector<HTMLButtonElement>('.modern-reader-close')?.focus({ preventScroll: true });
@@ -95,6 +98,17 @@ async function showOriginal() {
 function keyboard(event: KeyboardEvent) {
   if (event.key === 'ArrowLeft' && props.previous) { event.preventDefault(); emit('move', -1); }
   if (event.key === 'ArrowRight' && props.next) { event.preventDefault(); emit('move', 1); }
+}
+async function dismiss() {
+  if (exiting) return;
+  exiting = true;
+  if (!matchMedia('(prefers-reduced-motion:reduce)').matches) {
+    const animations = [media.value, dialog.value?.querySelector('.modern-reader-info')].map(node => node?.animate?.(
+      [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(8px) scale(.985)' }],
+      { duration: 150, easing: 'ease-in', fill: 'forwards' }));
+    await Promise.allSettled(animations.map(animation => animation?.finished));
+  }
+  emit('close');
 }
 async function remove() {
   if (!data.value || deleting.value) return;
@@ -111,29 +125,30 @@ async function remove() {
 }
 onBeforeUnmount(() => { closing = true; dialog.value?.close(); });
 </script>
-<template><Teleport to="body"><dialog ref="dialog" class="modern-reader" aria-label="图片详情" @cancel.prevent="emit('close')" @close="!closing && emit('close')" @click="event => { if (event.target === dialog) emit('close'); }" @keydown="keyboard">
-  <div v-if="current" class="modern-reader-layout" :style="{ '--media-ratio': ratio }" @click="event => { if (event.target === event.currentTarget) emit('close'); }">
-    <section ref="media" class="modern-reader-media" :class="{ blurred: !ready || !visible }">
-      <img v-if="visible" class="modern-reader-thumb" :src="`/resource/thumbs/${current.image_id}.webp`" alt="" decoding="async">
+<template><Teleport to="body"><dialog ref="dialog" class="modern-reader" aria-label="图片详情" @cancel.prevent="dismiss" @close="!closing && emit('close')" @click="event => { if (event.target === dialog) void dismiss(); }" @keydown="keyboard">
+  <div v-if="current" class="modern-reader-layout" :style="{ '--media-ratio': ratio }" @click="event => { if (event.target === event.currentTarget) void dismiss(); }">
+    <section ref="media" class="modern-reader-media" :data-rating="current.age_rating" :class="{ blurred: !ready || !visible, restricted: !visible }">
+      <img class="modern-reader-thumb" :src="`/resource/thumbs/${current.image_id}.webp`" alt="" decoding="async">
       <img v-if="visible && !broken && previewSource" :key="previewSource" class="modern-reader-preview" :class="{ loaded: ready }" :src="previewSource" :alt="current.pid || current.image_id" decoding="async" fetchpriority="high" @load="loaded" @error="fallback">
-      <button type="button" class="modern-reader-close" aria-label="关闭详情" @click="emit('close')">×</button>
-      <button v-if="previous" type="button" class="modern-reader-arrow previous" aria-label="上一张" @click="emit('move', -1)">‹</button>
-      <button v-if="next" type="button" class="modern-reader-arrow next" aria-label="下一张" @click="emit('move', 1)">›</button>
-      <button v-if="!visible" type="button" class="modern-reader-center btn btn-primary" @click="reveal">显示 {{ current.age_rating.toUpperCase() }} 图片</button>
+      <button type="button" class="modern-reader-close" aria-label="关闭详情" @click="dismiss"><AppIcon name="close"/></button>
+      <button v-if="previous" type="button" class="modern-reader-arrow previous" aria-label="上一张" @click="emit('move', -1)"><AppIcon name="left"/></button>
+      <button v-if="next" type="button" class="modern-reader-arrow next" aria-label="下一张" @click="emit('move', 1)"><AppIcon name="right"/></button>
+      <button v-if="!visible" type="button" class="modern-reader-center modern-age-reveal" @click="reveal">显示 {{ current.age_rating.toUpperCase() }} 图片</button>
       <span v-else-if="!ready && !broken" class="modern-reader-center modern-spinner" role="status" aria-label="正在加载清晰预览"></span>
       <div v-else-if="broken" class="modern-reader-center"><p>图片加载失败</p><button class="btn btn-secondary" @click="broken = false; ready = false">重试</button></div>
+      <button v-if="visible && !broken" type="button" class="modern-original-island" :class="{ 'is-original': original && ready, 'is-loading': original && !ready }" :disabled="original" :aria-label="original ? (ready ? '已显示原图' : '正在加载原图') : '查看原图'" :aria-busy="original && !ready" @click="showOriginal"><AppIcon :name="original ? (ready ? 'check' : 'refresh') : 'eye'" :class="{ 'is-spinning': original && !ready }"/><Transition name="island-label" mode="out-in"><span :key="original ? (ready ? 'ready' : 'loading') : 'preview'">{{ original ? (ready ? '原图' : '加载原图') : '查看原图' }}</span></Transition></button>
     </section>
     <aside class="modern-reader-info">
       <small class="modern-eyebrow">ARTWORK DETAILS</small>
       <h2><a v-if="pidURL" :href="pidURL" target="_blank" rel="noopener noreferrer">{{ current.pid }}</a><span v-else>{{ current.image_id }}</span></h2>
-      <a v-if="current.artist" class="modern-artist" :href="`https://www.pixiv.net/users/${encodeURIComponent(current.artist.id)}`" target="_blank" rel="noopener noreferrer"><img :src="safeAvatar(current.artist.avatar_url)" alt="" width="36" height="36" @error="($event.target as HTMLImageElement).src = '/favicon.ico'"><span>{{ current.artist.name }}</span></a>
+      <a v-if="current.artist" class="modern-artist" :href="`https://www.pixiv.net/users/${encodeURIComponent(current.artist.id)}`" target="_blank" rel="noopener noreferrer"><img :src="safeAvatar(current.artist.avatar_url)" alt="" width="36" height="36" @error="($event.target as HTMLImageElement).src = '/static/icon/Pic.png'"><span>{{ current.artist.name }}</span></a>
       <p v-if="isPending" role="status">正在加载详情…</p><div v-if="error" role="alert"><p>详情加载失败</p><button class="btn btn-secondary" @click="refetch()">重试</button></div>
       <template v-if="data"><p v-if="data.description" class="modern-description">{{ data.description }}</p>
-        <div class="modern-detail-tags"><span v-for="item in data.characters" :key="`c${item.id}`" class="tag">{{ item.name }}</span><span v-for="item in data.groups" :key="`g${item.id}`" class="tag">{{ item.name }}</span><span v-for="item in data.feature_tags" :key="`f${item.id}`" class="tag">{{ item.name }}</span></div>
-        <div v-if="data.pixiv_tags.length" class="modern-pixiv-tags"><span v-for="item in data.pixiv_tags" :key="item.name">#{{ item.translated_name || item.name }}</span></div>
-        <dl class="modern-detail-facts"><div><dt>尺寸</dt><dd>{{ data.width }} × {{ data.height }}</dd></div><div><dt>分级</dt><dd>{{ data.age_rating.toUpperCase() }}</dd></div><div v-if="(data.pixiv_page_count || 0) > 1"><dt>作品页码</dt><dd>{{ (data.pixiv_page || 0) + 1 }} / {{ data.pixiv_page_count }}</dd></div></dl>
+        <section class="modern-tag-section"><h3>图库标签</h3><div class="modern-detail-tags pm-tag-box"><RouterLink v-for="item in data.groups" :key="`g${item.id}`" class="pm-tag" :to="{ path: '/gallery', query: { group_id: item.id } }" @click="emit('close')">{{ item.name }}<small>分组</small></RouterLink><RouterLink v-for="item in data.characters" :key="`c${item.id}`" class="pm-tag pm-tag-character" :to="{ path: '/gallery', query: { character_id: item.id } }" @click="emit('close')">{{ item.name }}<small v-if="item.group_name">{{ item.group_name }}</small></RouterLink><RouterLink v-for="item in data.feature_tags" :key="`f${item.id}`" class="pm-tag pm-tag-feature_tag" :to="{ path: '/gallery', query: { feature_tag_id: item.id } }" @click="emit('close')">{{ item.name }}</RouterLink></div></section>
+        <section v-if="data.pixiv_tags.length" class="modern-tag-section"><h3>Pixiv 标签</h3><div class="modern-pixiv-tags"><span v-for="item in data.pixiv_tags" :key="item.name" class="pm-tag">{{ item.translated_name || item.name }}</span></div></section>
+        <details class="modern-file-info"><summary>文件信息</summary><dl class="modern-detail-facts"><div><dt>尺寸</dt><dd>{{ data.width }} × {{ data.height }}</dd></div><div><dt>分级</dt><dd>{{ data.age_rating.toUpperCase() }}</dd></div><div v-if="(data.pixiv_page_count || 0) > 1"><dt>作品页码</dt><dd>{{ (data.pixiv_page || 0) + 1 }} / {{ data.pixiv_page_count }}</dd></div></dl></details>
         <div class="modern-validation"><span :class="{ checked: data.local_verified }">{{ data.local_verified ? '本地已校验' : '本地未校验' }}</span><span :class="{ checked: data.pixiv_verified }">{{ data.pixiv_verified ? 'Pixiv 已校验' : 'Pixiv 未校验' }}</span></div>
-        <div class="modern-detail-actions"><button class="btn btn-primary" @click="emit('edit', data.image_id)">编辑标签</button><a class="btn btn-secondary" :href="`/api/images/${data.image_id}/download`">下载原图</a><button v-if="!original" class="btn btn-secondary" @click="showOriginal">查看原图</button><button class="btn btn-secondary" @click="confirmDelete = !confirmDelete">{{ session.isAdmin ? '删除' : '请求删除' }}</button></div>
+        <div class="modern-detail-actions"><button class="btn btn-primary" @click="emit('edit', data.image_id)"><AppIcon name="edit"/>编辑标签</button><a v-if="visible" class="modern-detail-icon" :href="`/api/images/${data.image_id}/download`" aria-label="下载原图" title="下载原图"><AppIcon name="download"/></a><button v-else class="modern-detail-icon" disabled aria-label="下载原图" title="请先揭示受限内容"><AppIcon name="download"/></button><button class="modern-detail-icon modern-detail-delete" :aria-label="session.isAdmin ? '删除图片' : '请求删除图片'" :title="session.isAdmin ? '删除图片' : '请求删除图片'" :aria-expanded="confirmDelete" @click="confirmDelete = !confirmDelete"><AppIcon name="trash"/></button></div>
         <div v-if="confirmDelete" class="modern-delete-confirm"><p>{{ session.isAdmin ? '确认删除这张图片及其标签关联？' : '提交删除申请，由管理员审核？' }}</p><button class="btn btn-danger" :disabled="deleting" @click="remove">{{ deleting ? '处理中…' : '确认' }}</button><button class="btn btn-secondary" @click="confirmDelete = false">取消</button></div>
       </template>
     </aside>

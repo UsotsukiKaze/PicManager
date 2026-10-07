@@ -327,7 +327,7 @@ class UIManager {
                     return;
                 }
                 this.activateFeature('pixiv-ol-page', 'pixiv-ol', async () => {
-                    await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261004l');
+                    await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261007b');
                     const feature = await window.auth.loadFeature('pixiv');
                     await feature.init();
                 }, 'Pixiv-ol 加载失败，请重试');
@@ -339,7 +339,7 @@ class UIManager {
                 this.loadSystemStatus();
                 if (window.auth.isAdmin()) {
                     this.activateFeature('pixiv-settings', 'settings', async () => {
-                        await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261004l');
+                        await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261007b');
                         const feature = await window.auth.loadFeature('pixiv');
                         await feature.initSettings();
                     }, 'Pixiv 设置加载失败，请重试');
@@ -658,7 +658,7 @@ class UIManager {
     }
 
     getEntityAvatar(item) {
-        const fallback = '/favicon.ico';
+        const fallback = '/static/icon/Pic.png';
         if (!item || !item.avatar_url) return fallback;
         try {
             const url = new URL(item.avatar_url, window.location.origin);
@@ -672,12 +672,12 @@ class UIManager {
 
     handleEntityAvatarFallback(image) {
         image.onerror = null;
-        image.src = '/favicon.ico';
+        image.src = '/static/icon/Pic.png';
     }
 
     renderAvatarUploader(prefix, currentUrl = '') {
-        const hasCustomAvatar = Boolean(currentUrl && currentUrl !== '/favicon.ico');
-        const preview = hasCustomAvatar ? this.getEntityAvatar({ avatar_url: currentUrl }) : '/favicon.ico';
+        const hasCustomAvatar = Boolean(currentUrl && currentUrl !== '/static/icon/Pic.png');
+        const preview = hasCustomAvatar ? this.getEntityAvatar({ avatar_url: currentUrl }) : '/static/icon/Pic.png';
         return `
             <div class="avatar-upload-field" data-avatar-prefix="${prefix}">
                 <input type="hidden" id="${prefix}-avatar-url" value="${hasCustomAvatar ? this.escapeHomeRankingText(currentUrl) : ''}">
@@ -709,7 +709,7 @@ class UIManager {
         const hidden = document.getElementById(`${prefix}-avatar-url`);
         const preview = document.getElementById(`${prefix}-avatar-preview`);
         if (hidden) hidden.value = '';
-        if (preview) preview.src = '/favicon.ico';
+        if (preview) preview.src = '/static/icon/Pic.png';
     }
 
     openAvatarCropper(prefix, file) {
@@ -1872,7 +1872,7 @@ class UIManager {
                 api.getFeatureTags()
             ]);
             const pixiv = await auth.loadFeature('pixiv');
-            await auth.loadStyle('/static/css/pixiv-ol.css?v=20261004l');
+            await auth.loadStyle('/static/css/pixiv-ol.css?v=20261007b');
             const rawTags = (image.pixiv_tags || []).filter(tag => tag && tag.name);
             let mappings = [], mappingError = '';
             if (rawTags.length) {
@@ -2337,7 +2337,7 @@ function formatMaintenanceBytes(value) {
 }
 
 async function reviewPixivCheck(result, onConfirm=null) {
-    await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261004l');
+    await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261007b');
     if(result.queue_processing&&(window.pixivValidationStop||ui.currentPage!=='settings'||!ui.isAdminView()))return null;
     return new Promise(resolve=>{
         const safe=value=>ui.escapeHomeRankingText(value??'');
@@ -2616,7 +2616,7 @@ async function refreshPixivCheckQueue() {
             panel.querySelectorAll('[data-check-import]').forEach(node=>node.onclick=()=>actOnPixivCheckImport(node));
             panel.querySelectorAll('[data-check-image]').forEach(node=>node.onclick=()=>ui.showImageDetail(node.dataset.checkImage));
             panel.querySelectorAll('[data-check-image] img').forEach(image=>image.onerror=()=>{
-                image.onerror=null;image.src='/static/icon/Pic.ico';
+                image.onerror=null;image.src='/static/icon/Pic.png';
             });
             const prev=panel.querySelector('[data-queue-prev]'),next=panel.querySelector('[data-queue-next]');
             if(prev)prev.onclick=()=>{state.offset=Math.max(0,state.offset-20);refreshPixivCheckQueue();};

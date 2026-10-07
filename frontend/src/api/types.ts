@@ -1,7 +1,7 @@
 export type AgeRating = 'all' | 'r12' | 'r16' | 'r18';
 export interface User { id: number; nickname?: string; qq_number?: string; role: 'root' | 'admin' | 'user'; avatar_url?: string }
 export interface SessionEnvelope { is_guest: boolean; user?: User; guest_name?: string; guest_ip?: string; remaining_operations?: number }
-export interface Entity { id: number; name: string; avatar_url?: string; group_id?: number; group_name?: string; aliases?: string[]; nicknames?: string[] }
+export interface Entity { id: number; name: string; avatar_url?: string; group_id?: number; group_name?: string; aliases?: string[]; nicknames?: string[]; image_count?: number }
 export interface Artist { id: string; name: string; avatar_url?: string }
 export interface ImageCardRecord {
   image_id: string; pid?: string; age_rating: AgeRating; width?: number; height?: number;

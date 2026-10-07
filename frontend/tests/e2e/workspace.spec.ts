@@ -21,7 +21,7 @@ async function mockWorkspace(page: Page, role = 'root', firstRating = 'r12') {
     if (path === '/auth/me') body = { is_guest: false, user: { id: 1, role, nickname: '测试用户', avatar_url: '/favicon.ico' } };
     else if (path === '/auth/notifications') body = { approved: 0, rejected: 0 };
     else if (path === '/api/system/status') body = { total_images: 41, total_groups: 2, total_characters: 1, total_emojis: 0, temp_count: 0, store_count: 41 };
-    else if (path === '/api/groups/popular') body = groups;
+    else if (path === '/api/groups/popular') body = [...groups, { id: 3, name: '明日方舟' }, { id: 4, name: '东方Project' }, { id: 5, name: '蔚蓝档案' }, { id: 6, name: '碧蓝航线' }, { id: 7, name: '鸣潮' }, { id: 8, name: '绝区零' }].map((group, index) => ({ ...group, image_count: 41 - index * 5 }));
     else if (path === '/api/rankings') body = { contribution: [], recent_groups: [], recent_days: 30 };
     else if (path === '/api/groups/') body = groups;
     else if (path === '/api/characters/') body = characters;
@@ -35,7 +35,7 @@ async function mockWorkspace(page: Page, role = 'root', firstRating = 'r12') {
     } else if (path.startsWith('/api/images/')) {
       const id = path.split('/')[3];
       if (route.request().method() === 'PUT') { description = route.request().postDataJSON().description; body = { status: 'success', message: '保存成功' }; }
-      else body = { ...cards.find(row => row.image_id === id), description, file_extension: 'jpg', pixiv_tags: [{ name: '芙宁娜' }], feature_tags: [], local_verified: true, pixiv_verified: true };
+      else body = { ...cards.find(row => row.image_id === id), description, file_extension: 'jpg', pixiv_tags: [{ name: '芙宁娜' }], feature_tags: [{ id: 1, name: '蓝色' }], local_verified: true, pixiv_verified: true };
     } else if (path === '/api/upload/temp-count') body = { count: 0 };
     else if (path === '/api/upload/temp-images') body = [];
     else if (path === '/api/pixiv-ol/tag-mappings') body = [];
@@ -55,6 +55,12 @@ test('homepage is native and does not download legacy controllers or phonetic di
   const { requested, errors } = await mockWorkspace(page);
   await page.goto('/');
   await expect(page.getByText('小 · 爱 · 图 · 库')).toBeVisible();
+  await expect(page.locator('.modern-brand img')).toHaveAttribute('src', '/static/icon/Pic.png');
+  await expect.poll(() => page.locator('.modern-brand img').evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(256);
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/static/icon/Pic.png');
+  await expect(page.getByRole('link', { name: 'Pixiv-ol', exact: true }).locator('img')).toHaveAttribute('src', '/static/icon/pixiv-ol.svg');
+  await expect.poll(() => page.locator('.modern-pixiv-nav-icon').evaluate(node => (node as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  expect((await page.locator('.modern-pixiv-nav-icon').boundingBox())!.width).toBe(24);
   await expect(page.locator('.home-metric-card strong').first()).toHaveText('41');
   expect(requested.some(path => /\/static\/js\/(ui|auth|upload|pixiv-ol)\.js/.test(path))).toBe(false);
   expect(requested.some(path => /\/static\/vendor\/pinyin-pro/.test(path))).toBe(false);
@@ -70,6 +76,7 @@ test('gallery cancels obsolete searches, retains filters and supports browser hi
   await page.goto('/#/gallery');
   await expect(page.locator('.modern-image-card')).toHaveCount(20);
   expect(await page.locator('.modern-image-grid').evaluate(node => getComputedStyle(node).gridTemplateColumns.split(' ').length)).toBe(5);
+  await page.getByRole('button', { name: '打开图片查询' }).click();
   const search = page.getByRole('textbox', { name: '搜索描述' });
   await search.fill('旧请求');
   await page.waitForRequest(request => request.url().includes('description=%E6%97%A7'));
@@ -131,6 +138,8 @@ test('legacy tag editor saves into the shared cache and feature routes remain us
   await page.getByRole('button', { name: '查看图片 10000_p0', exact: true }).click();
   await page.getByRole('button', { name: '编辑标签', exact: true }).click();
   await expect(page.locator('#edit-image-form')).toBeVisible();
+  await expect.poll(() => page.locator('#modal-overlay').evaluate(node => getComputedStyle(node).opacity)).toBe('1');
+  await page.screenshot({ path: test.info().outputPath('tag-editor.png') });
   await page.locator('#edit-image-description').fill('响应式缓存已更新');
   await page.locator('#edit-image-form').getByRole('button', { name: '保存' }).click();
   await expect(page.locator('#edit-image-form')).not.toBeVisible();
@@ -139,12 +148,18 @@ test('legacy tag editor saves into the shared cache and feature routes remain us
   await page.keyboard.press('Escape');
   await page.getByRole('link', { name: '分组', exact: true }).click();
   await expect(page.locator('#group-list')).toContainText('原神');
+  await expect.poll(() => page.locator('#page-management').evaluate(node => getComputedStyle(node).opacity)).toBe('1');
+  await page.screenshot({ path: test.info().outputPath('groups.png') });
   await page.getByRole('link', { name: '上传资源', exact: true }).click();
   await expect(page.locator('#page-upload')).toBeVisible();
   await expect(page.locator('#page-upload')).not.toHaveAttribute('inert');
+  await expect(page.locator('#upload-queue-dock')).not.toBeVisible();
+  await expect.poll(() => page.locator('#page-upload').evaluate(node => getComputedStyle(node).opacity)).toBe('1');
+  await page.screenshot({ path: test.info().outputPath('upload.png') });
   await page.getByRole('link', { name: 'Pixiv-ol', exact: true }).click();
   await expect(page.locator('#pixiv-content')).toBeVisible();
   await expect(page.locator('#page-pixiv-ol')).not.toHaveAttribute('inert');
+  await page.screenshot({ path: test.info().outputPath('pixiv.png') });
   expect(errors).toEqual([]);
 });
 
@@ -164,6 +179,7 @@ test('native phonetic search and legacy editors reuse one local dictionary', asy
   await page.goto('/#/gallery');
   await expect(page.locator('.modern-image-card')).toHaveCount(20);
   expect(requested.some(path => path.includes('/pinyin-pro-'))).toBe(false);
+  await page.getByRole('button', { name: '打开图片查询' }).click();
   await page.getByRole('combobox', { name: '搜索角色' }).fill('fnn');
   await page.getByRole('option', { name: '芙宁娜' }).click();
   await expect(page).toHaveURL(/character_id=1/);
@@ -193,22 +209,239 @@ test('profile retains nickname and admin tools after removal of obsolete passwor
   expect(errors).toEqual([]);
 });
 
-test('restricted detail does not request media until revealed, including missing-preview placeholders', async ({ page }) => {
-  const { errors, requested } = await mockWorkspace(page, 'root', 'r18');
-  await page.route('**/resource/previews/**', route => route.fulfill({ status: 200, headers: { 'X-PicManager-Preview': 'missing' }, contentType: 'image/png', body: '' }));
+for (const rating of ['r16', 'r18']) {
+  test(`restricted ${rating} uses acrylic thumbnails and delays full media until revealed`, async ({ page }) => {
+    const { errors, requested } = await mockWorkspace(page, 'root', rating);
+    const expectedFilter = rating === 'r18' ? 'blur(36px) brightness(0.42)' : 'blur(24px)';
+    await page.route('**/resource/previews/**', route => route.fulfill({ status: 200, headers: { 'X-PicManager-Preview': 'missing' }, contentType: 'image/png', body: '' }));
+    await page.goto('/#/gallery');
+    const card = page.locator('.modern-image-card').first();
+    await expect(card.locator('.modern-image-open img')).toHaveAttribute('src', '/resource/thumbs/AAAAAAAAA1.webp');
+    await expect.poll(() => card.locator('.modern-image-open img').evaluate(node => getComputedStyle(node).filter)).toBe(expectedFilter);
+    expect(await card.locator('.modern-card-footer').evaluate(node => getComputedStyle(node).backgroundColor)).toContain('0.62');
+    await expect.poll(() => page.locator('.modern-gallery').evaluate(node => getComputedStyle(node).opacity)).toBe('1');
+    await page.screenshot({ path: test.info().outputPath(`acrylic-${rating}-cards.png`) });
+    await page.getByRole('button', { name: '查看图片 10000_p0', exact: true }).press('Enter');
+    const dialog = page.getByRole('dialog', { name: '图片详情' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator('.modern-reader-thumb')).toHaveAttribute('src', '/resource/thumbs/AAAAAAAAA1.webp');
+    await expect.poll(() => dialog.locator('.modern-reader-thumb').evaluate(node => getComputedStyle(node).filter)).toBe(expectedFilter);
+    expect(requested.some(path => /\/resource\/(previews|originals)\//.test(path) && path.includes('AAAAAAAAA1'))).toBe(false);
+    await dialog.getByRole('button', { name: `显示 ${rating.toUpperCase()} 图片` }).click();
+    await expect(dialog.locator('.modern-reader-preview')).toHaveAttribute('src', /originals/);
+    await expect(dialog.locator('.modern-reader-preview')).toHaveClass(/loaded/);
+    await page.keyboard.press('ArrowRight');
+    await expect(dialog.locator('h2')).toHaveText('10001_p0');
+    await expect(dialog.getByRole('button', { name: `显示 ${rating.toUpperCase()} 图片` })).toBeVisible();
+    expect(requested.some(path => /\/resource\/(previews|originals)\//.test(path) && path.includes('AAAAAAAAA2'))).toBe(false);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await card.getByRole('button', { name: `${rating.toUpperCase()} · 点击显示` }).click();
+    await expect.poll(() => card.locator('.modern-image-open img').evaluate(node => getComputedStyle(node).filter)).toBe('none');
+    expect(errors).toEqual([]);
+  });
+}
+
+test('sidebar remains owned by Vue after loading legacy tools and toggle stays on the divider', async ({ page }) => {
+  const { errors } = await mockWorkspace(page);
   await page.goto('/#/gallery');
-  await page.getByRole('button', { name: '查看图片 10000_p0', exact: true }).press('Enter');
-  const dialog = page.getByRole('dialog', { name: '图片详情' });
-  await expect(dialog).toBeVisible();
-  expect(requested.some(path => path.startsWith('/resource/') && path.includes('AAAAAAAAA1'))).toBe(false);
-  await dialog.getByRole('button', { name: '显示 R18 图片' }).click();
-  await expect(dialog.locator('.modern-reader-preview')).toHaveAttribute('src', /originals/);
-  await expect(dialog.locator('.modern-reader-preview')).toHaveClass(/loaded/);
-  await page.keyboard.press('ArrowRight');
-  await expect(dialog.locator('h2')).toHaveText('10001_p0');
-  await expect(dialog.getByRole('button', { name: '显示 R18 图片' })).toBeVisible();
-  expect(requested.some(path => path.startsWith('/resource/') && path.includes('AAAAAAAAA2'))).toBe(false);
-  await page.keyboard.press('Escape');
-  await expect(dialog).toHaveCount(0);
+  await page.getByRole('link', { name: '分组', exact: true }).click();
+  await expect(page.locator('#group-list')).toContainText('原神');
+  await page.evaluate(() => (window as unknown as { PicManagerShell: { init(): void } }).PicManagerShell.init());
+  const button = page.locator('#sidebar-toggle');
+  const footer = page.locator('.modern-sidebar .sidebar-footer');
+  const expanded = await button.boundingBox();
+  const divider = await footer.boundingBox();
+  expect(expanded!.width).toBe(32);
+  expect(Math.abs(expanded!.y + expanded!.height / 2 - divider!.y)).toBeLessThan(2);
+  await button.click();
+  await expect(button).toHaveAttribute('aria-expanded', 'false');
+  await expect.poll(() => page.locator('#workspace-sidebar').evaluate(node => Math.round(node.getBoundingClientRect().width))).toBe(76);
+  expect((await button.boundingBox())!.width).toBe(32);
+  await button.click();
+  await expect(button).toHaveAttribute('aria-expanded', 'true');
+  await expect.poll(() => page.locator('#workspace-sidebar').evaluate(node => Math.round(node.getBoundingClientRect().width))).toBe(220);
+  await page.reload();
+  await expect(page.locator('#sidebar-toggle')).toHaveAttribute('aria-expanded', 'true');
   expect(errors).toEqual([]);
+});
+
+test('wide screens keep home and five-column gallery bounded instead of stretching cards', async ({ page }) => {
+  const { errors } = await mockWorkspace(page);
+  await page.route('**/api/rankings?*', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ contribution: ['拈风', '星河', '收藏家', '春日', '小爱'].map((nickname, index) => ({ nickname, count: [1280, 640, 318, 156, 72][index] })), recent_groups: ['原神', '崩坏星穹铁道', '明日方舟', '蔚蓝档案', '东方Project'].map((name, index) => ({ name, count: [42, 26, 18, 12, 7][index] })), recent_days: 30 }) }));
+  await page.setViewportSize({ width: 2560, height: 1440 });
+  await page.goto('/');
+  await expect(page.getByText('小 · 爱 · 图 · 库')).toBeVisible();
+  expect((await page.locator('.modern-home').boundingBox())!.width).toBeLessThanOrEqual(1120);
+  await expect.poll(() => page.locator('.modern-home').evaluate(node => getComputedStyle(node).opacity)).toBe('1');
+  await page.screenshot({ path: test.info().outputPath('home-wide.png') });
+  await page.getByRole('link', { name: '图片管理', exact: true }).click();
+  await expect(page.locator('.modern-image-card')).toHaveCount(20);
+  expect((await page.locator('.modern-gallery').boundingBox())!.width).toBeLessThanOrEqual(1240);
+  expect(await page.locator('.modern-image-grid').evaluate(node => getComputedStyle(node).gridTemplateColumns.split(' ').length)).toBe(5);
+  expect((await page.locator('.modern-image-card').first().boundingBox())!.height).toBeCloseTo(300, 2);
+  await expect.poll(() => page.locator('.modern-gallery').evaluate(node => getComputedStyle(node).opacity)).toBe('1');
+  await page.screenshot({ path: test.info().outputPath('gallery-wide.png') });
+  await page.locator('.modern-image-card').first().hover();
+  await expect.poll(() => page.locator('.modern-card-actions').first().evaluate(node => getComputedStyle(node).opacity)).toBe('1');
+  await page.screenshot({ path: test.info().outputPath('gallery-hover.png') });
+  await page.getByRole('button', { name: '打开图片查询' }).click();
+  await page.getByRole('combobox', { name: '搜索分组' }).fill('原神');
+  await page.getByRole('option', { name: '原神', exact: true }).click();
+  await page.getByRole('button', { name: /清除筛选/ }).click();
+  await expect(page).not.toHaveURL(/group_id=/);
+  expect(errors).toEqual([]);
+});
+
+test('embedded profile shares workspace surfaces and keeps sidebar user selection specific', async ({ page }) => {
+  const { errors } = await mockWorkspace(page);
+  await page.goto('/');
+  await expect(page.locator('.sidebar-user')).not.toHaveAttribute('aria-current');
+  await expect(page.locator('.sidebar-user #header-role')).toHaveClass(/role-root/);
+  await expect(page.locator('.sidebar-user #header-role')).toHaveText('Root');
+  expect((await page.locator('.sidebar-user #header-avatar').boundingBox())!.width).toBe(40);
+  expect(await page.locator('.sidebar-user').evaluate(node => getComputedStyle(node).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
+  expect(await page.locator('.sidebar-user #header-role').evaluate(node => getComputedStyle(node).backgroundImage)).toContain('linear-gradient');
+  await page.locator('.sidebar-user').click();
+  await expect(page.locator('.sidebar-user')).toHaveAttribute('aria-current', 'page');
+  const account = page.frameLocator('#profile-frame');
+  await expect(account.locator('#user-nickname')).toHaveText('测试用户');
+  await expect(page.locator('.modern-profile').getByRole('heading', { name: '我的', exact: true })).toBeVisible();
+  const surface = await account.locator('.user-card').evaluate(node => ({ radius: getComputedStyle(node).borderRadius, background: getComputedStyle(node).backgroundColor }));
+  expect(surface).toEqual({ radius: '16px', background: 'rgb(255, 255, 255)' });
+  expect((await page.locator('#page-profile').boundingBox())!.width).toBeLessThanOrEqual(1120);
+  await account.locator('#edit-nickname-btn').click();
+  await expect(account.locator('#new-nickname-input')).toBeVisible();
+  await expect.poll(() => page.locator('.modern-profile').evaluate(node => getComputedStyle(node).opacity)).toBe('1');
+  await page.screenshot({ path: test.info().outputPath('profile.png') });
+  await page.getByRole('link', { name: '图片管理', exact: true }).click();
+  await expect(page.locator('.sidebar-user')).not.toHaveAttribute('aria-current');
+  expect(errors).toEqual([]);
+});
+
+test('tablet breakpoint fits viewport and reduced motion keeps detail usable', async ({ page }) => {
+  const { errors } = await mockWorkspace(page);
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/#/gallery');
+  await expect(page.locator('.modern-image-card')).toHaveCount(20);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(768);
+  await expect(page.locator('#sidebar-toggle')).not.toBeVisible();
+  expect(await page.locator('.modern-image-card').first().evaluate(node => getComputedStyle(node).animationName)).toBe('none');
+  await page.getByRole('button', { name: '查看图片 10000_p0', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: '图片详情' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: '图片详情' })).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath('tablet.png') });
+  expect(errors).toEqual([]);
+});
+
+test('restored homepage group orbit opens the gallery filter and keeps the original mobile layout', async ({ page }) => {
+  const { errors } = await mockWorkspace(page);
+  await page.goto('/');
+  const orbit = page.getByRole('complementary', { name: '分组云图' });
+  await expect(orbit.locator('.orbit-chip')).toHaveCount(5);
+  await expect(orbit).toBeVisible();
+  await expect(orbit.locator('.orbit-chip').first()).toHaveAttribute('title', '原神 · 41 张');
+  await expect.poll(() => orbit.locator('.home-orbit-core img').evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(256);
+  expect(await orbit.locator('.orbit-chip-label').evaluateAll(nodes => nodes.every(node => getComputedStyle(node).whiteSpace === 'nowrap'))).toBe(true);
+  await orbit.getByRole('link', { name: /原神/ }).focus();
+  await orbit.getByRole('link', { name: /原神/ }).press('Enter');
+  await expect(page).toHaveURL(/group_id=1/);
+  await expect(page.locator('.modern-image-card')).toHaveCount(20);
+  await expect(page.locator('#gallery-search-panel')).not.toBeVisible();
+  await expect(page.locator('#gallery-query-toggle b')).toHaveText('1');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('link', { name: '首页', exact: true }).click();
+  await expect(page.getByText('小 · 爱 · 图 · 库')).toBeVisible();
+  await expect(orbit).not.toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await expect.poll(() => page.locator('.modern-home').evaluate(node => getComputedStyle(node).opacity)).toBe('1');
+  await page.screenshot({ path: test.info().outputPath('home-restored-mobile.png') });
+  expect(errors).toEqual([]);
+});
+
+test('collapsed search preserves active conditions and Escape returns focus to its button', async ({ page }) => {
+  const { errors } = await mockWorkspace(page);
+  await page.goto('/#/gallery');
+  const panel = page.locator('#gallery-search-panel');
+  await expect(panel).not.toBeVisible();
+  await expect(panel).toHaveAttribute('inert');
+  await page.getByRole('group', { name: '年龄分级' }).getByRole('button', { name: 'R12', exact: true }).click();
+  await expect(page).toHaveURL(/age_rating=r12/);
+  await expect(page.locator('#gallery-query-toggle b')).toHaveCount(0);
+  await page.getByRole('button', { name: '打开图片查询' }).click();
+  await page.getByRole('textbox', { name: '搜索描述' }).fill('新请求');
+  await expect(page.locator('.modern-image-card')).toHaveCount(1);
+  await page.getByRole('textbox', { name: '搜索描述' }).press('Escape');
+  await expect(panel).not.toBeVisible();
+  await expect(page.locator('#gallery-query-toggle')).toBeFocused();
+  await expect(page.locator('#gallery-query-toggle b')).toHaveText('1');
+  await page.reload();
+  await expect(panel).not.toBeVisible();
+  await page.getByRole('button', { name: '打开图片查询' }).click();
+  await expect(page.getByRole('textbox', { name: '搜索描述' })).toHaveValue('新请求');
+  expect(errors).toEqual([]);
+});
+
+test('library detail restores colored tag bubbles and compact edit download delete actions', async ({ page }) => {
+  const { errors } = await mockWorkspace(page);
+  await page.goto('/#/gallery');
+  await page.getByRole('button', { name: '查看图片 10000_p0', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '图片详情' });
+  await expect(dialog.locator('.pm-tag-character')).toContainText('芙宁娜');
+  await expect(dialog.locator('.pm-tag-feature_tag')).toHaveText('蓝色');
+  const tagColors = await dialog.locator('.modern-detail-tags .pm-tag').evaluateAll(nodes => nodes.map(node => ({ color: getComputedStyle(node).backgroundColor, radius: getComputedStyle(node).borderRadius })));
+  expect(new Set(tagColors.map(tag => tag.color)).size).toBe(3);
+  expect(tagColors.every(tag => tag.radius === '999px')).toBe(true);
+  const actions = dialog.locator('.modern-detail-actions');
+  await expect(actions).toContainText('编辑标签');
+  await expect(actions.getByRole('link', { name: '下载原图' })).toHaveText('');
+  await expect(actions.getByRole('link', { name: '下载原图' })).toHaveAttribute('href', '/api/images/AAAAAAAAA1/download');
+  await expect(actions.getByRole('button', { name: '删除图片' })).toHaveText('');
+  await actions.getByRole('button', { name: '删除图片' }).click();
+  await expect(dialog.getByText('确认删除这张图片及其标签关联？')).toBeVisible();
+  await dialog.locator('.modern-delete-confirm').getByRole('button', { name: '取消', exact: true }).click();
+  await expect(dialog.locator('.modern-delete-confirm')).toHaveCount(0);
+  await dialog.locator('.pm-tag-feature_tag').click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page).toHaveURL(/feature_tag_id=1/);
+  expect(errors).toEqual([]);
+});
+
+test('bottom original-image island switches quality once and resets on the next image', async ({ page }) => {
+  const { errors, requested } = await mockWorkspace(page);
+  let releaseOriginal: () => void = () => {};
+  const originalResponse = new Promise<void>(resolve => { releaseOriginal = resolve; });
+  await page.route('**/resource/originals/**', async route => { await originalResponse; await route.fallback(); });
+  try {
+    await page.goto('/#/gallery');
+    await page.getByRole('button', { name: '查看图片 10000_p0', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '图片详情' });
+    await expect(dialog.locator('.modern-reader-preview')).toHaveClass(/loaded/);
+    const island = dialog.getByRole('button', { name: '查看原图', exact: true });
+    await expect(island).toBeVisible();
+    await expect.poll(() => dialog.locator('.modern-reader-preview').evaluate(node => getComputedStyle(node).opacity)).toBe('1');
+    const position = () => dialog.evaluate(node => {
+      const media = node.querySelector('.modern-reader-media')!.getBoundingClientRect();
+      const button = node.querySelector('.modern-original-island')!.getBoundingClientRect();
+      return { center: Math.abs(button.x + button.width / 2 - media.x - media.width / 2), bottom: media.bottom - button.bottom };
+    });
+    await expect.poll(async () => (await position()).center).toBeLessThan(1);
+    await expect.poll(async () => (await position()).bottom).toBeCloseTo(14, 0);
+    expect(requested.some(path => path.startsWith('/resource/originals/'))).toBe(false);
+    await page.screenshot({ path: test.info().outputPath('original-island.png') });
+    await island.click();
+    await expect(dialog.getByRole('button', { name: '正在加载原图' })).toBeDisabled();
+    releaseOriginal();
+    await expect(dialog.locator('.modern-reader-preview')).toHaveAttribute('src', /originals/);
+    await expect(dialog.getByRole('button', { name: '已显示原图' })).toBeDisabled();
+    expect(requested.filter(path => path.startsWith('/resource/originals/'))).toHaveLength(1);
+    await page.keyboard.press('ArrowRight');
+    await expect(dialog.locator('h2')).toHaveText('10001_p0');
+    await expect(dialog.getByRole('button', { name: '查看原图', exact: true })).toBeEnabled();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(dialog.getByRole('button', { name: '查看原图', exact: true })).toBeInViewport();
+    expect(errors).toEqual([]);
+  } finally { releaseOriginal(); }
 });

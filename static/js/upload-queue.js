@@ -168,6 +168,7 @@
         }
 
         render() {
+            if (this.root) this.root.hidden = this.tasks.length === 0;
             if (!this.root) return;
             const active = this.tasks.filter(task => ACTIVE_STATES.has(task.status));
             const progressValues = active.map(task => task.progress || 0);

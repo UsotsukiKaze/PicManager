@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>个人中心 - PicManager</title>
-    <link rel="icon" href="/static/icon/Pic.ico" type="image/x-icon">
+    <link rel="icon" href="/static/icon/Pic.png" type="image/png">
     <link rel="stylesheet" href="/static/css/style.css?v=20260815a">
     <style>
         :root {
@@ -1213,6 +1213,8 @@
         .profile-embedded .profile-header { display:none; }
         .profile-embedded .profile-content { max-width:none; padding:0 0 20px; }
     </style>
+    <link rel="stylesheet" href="/static/css/design-tokens.css?v=20261007a">
+    <link rel="stylesheet" href="/static/css/profile-workspace.css?v=20261007a">
 </head>
 <body>
     <div class="profile-container">
@@ -1240,7 +1242,7 @@
             <div class="tab-panel active" id="personal-panel">
                 <!-- 游客视图 -->
                 <div class="guest-card" id="guest-view" style="display: none;">
-                    <div class="guest-icon"><img src="/favicon.ico" alt="网站图标"></div>
+                    <div class="guest-icon"><img src="/static/icon/Pic.png" alt="网站图标"></div>
                     <h2 class="guest-title">游客模式</h2>
                     <p class="guest-ip">游客身份: <strong id="guest-name-display">--</strong></p>
                     
@@ -1365,7 +1367,7 @@
 
                     <div class="request-list" id="my-request-list">
                         <div class="empty-state">
-                            <div class="empty-icon">📭</div>
+                            <div class="empty-icon"><span class="inline-icon icon-image" aria-hidden="true"></span></div>
                             <p>暂无提交记录</p>
                         </div>
                     </div>
@@ -1388,7 +1390,7 @@
                     
                     <div class="request-list" id="request-list">
                         <div class="empty-state">
-                            <div class="empty-icon">📭</div>
+                            <div class="empty-icon"><span class="inline-icon icon-image" aria-hidden="true"></span></div>
                             <p>暂无待审核请求</p>
                         </div>
                     </div>
@@ -1407,7 +1409,7 @@
                     </div>
 
                     <div class="add-admin-card">
-                        <h3 class="card-title">➕ 添加管理员</h3>
+                        <h3 class="card-title"><span class="inline-icon icon-user" aria-hidden="true"></span>添加管理员</h3>
                         <div class="add-admin-form">
                             <div class="form-group">
                                 <label>QQ号码</label>
@@ -1455,7 +1457,8 @@
             const activeRect = active.getBoundingClientRect();
             indicator.style.opacity = '1';
             indicator.style.width = `${activeRect.width}px`;
-            indicator.style.transform = `translateX(${activeRect.left - tabsRect.left}px)`;
+            const inset = parseFloat(getComputedStyle(indicator).left) || 0;
+            indicator.style.transform = `translateX(${activeRect.left - tabsRect.left - inset}px)`;
         }
 
         // 标签页切换
@@ -1515,9 +1518,11 @@
                     document.getElementById('guest-view').style.display = 'none';
                     document.getElementById('user-view').style.display = 'block';
                     
-                    document.getElementById('user-avatar').src = currentUser.avatar_url || '';
+                    const avatar = document.getElementById('user-avatar');
+                    avatar.onerror = () => { avatar.onerror = null; avatar.src = '/static/icon/Pic.png'; };
+                    avatar.src = currentUser.avatar_url || '/static/icon/Pic.png';
                     document.getElementById('user-nickname').textContent = currentUser.nickname || '--';
-                    document.getElementById('user-qq').textContent = currentUser.qq_number;
+                    document.getElementById('user-qq').textContent = currentUser.qq_number || '—';
                     
                     const roleEl = document.getElementById('user-role');
                     const roleMap = {
@@ -1532,7 +1537,7 @@
                     // 格式化注册时间
                     const joinDate = new Date(currentUser.created_at);
                     document.getElementById('stat-joined').textContent = 
-                        joinDate.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+                        Number.isNaN(joinDate.getTime()) ? '—' : joinDate.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
 
                     // 显示管理员专属功能
                     if (currentUser.role === 'root' || currentUser.role === 'admin') {
@@ -1597,7 +1602,7 @@
                 if (!requests.length) {
                     container.innerHTML = `
                         <div class="empty-state">
-                            <div class="empty-icon">📭</div>
+                            <div class="empty-icon"><span class="inline-icon icon-image" aria-hidden="true"></span></div>
                             <p>暂无提交记录</p>
                         </div>
                     `;
@@ -1772,7 +1777,7 @@
             if (form.style.display === 'none') {
                 form.style.display = 'flex';
                 input.value = document.getElementById('user-nickname').textContent;
-                input.focus();
+                input.focus({preventScroll:true});
             } else {
                 form.style.display = 'none';
             }
@@ -1962,7 +1967,7 @@
                 if (requests.length === 0) {
                     container.innerHTML = `
                         <div class="empty-state">
-                            <div class="empty-icon">📭</div>
+                            <div class="empty-icon"><span class="inline-icon icon-image" aria-hidden="true"></span></div>
                             <p>暂无待审核请求</p>
                         </div>
                     `;
@@ -1985,7 +1990,7 @@
                     const typeInfo = typeMap[req.request_type] || { text: req.request_type, class: '' };
 
                     const isGuest = !req.user_qq;
-                    const avatar = escapeReviewHtml(isGuest ? '/favicon.ico' : (req.user_avatar || '/favicon.ico'));
+                    const avatar = escapeReviewHtml(isGuest ? '/static/icon/Pic.png' : (req.user_avatar || '/static/icon/Pic.png'));
                     const userName = escapeReviewHtml(isGuest ? (req.guest_name || '游客（旧记录）') : (req.user_nickname || req.user_qq));
                     const userIdentity = isGuest ? '匿名访客' : `QQ ${escapeReviewHtml(req.user_qq)}`;
 
@@ -2111,7 +2116,7 @@
                         <div class="request-card">
                             <div class="request-header">
                                 <div class="request-user">
-                                    <img src="${avatar}" class="request-avatar" alt="${isGuest ? '网站图标' : '用户头像'}" onerror="this.onerror=null;this.src='/favicon.ico'">
+                                    <img src="${avatar}" class="request-avatar" alt="${isGuest ? '网站图标' : '用户头像'}" onerror="this.onerror=null;this.src='/static/icon/Pic.png'">
                                     <div class="request-user-info">
                                         <span class="request-user-name">${userName}</span>
                                         <span class="request-user-qq">${userIdentity}</span>

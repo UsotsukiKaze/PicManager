@@ -1,0 +1,15 @@
+/* Shared by the reactive workspace and embedded account page. */
+:root {
+  --primary-color:#3275d7;
+  --primary-hover:#2463be;
+  --background:#f5f6f8;
+  --surface:#fff;
+  --surface-secondary:#f5f7fa;
+  --border:#e6e9ee;
+  --text-primary:#242a33;
+  --text-secondary:#737b89;
+  --text-tertiary:#9aa2ae;
+  --shadow:0 4px 18px rgba(32,46,68,.045);
+  --shadow-hover:0 10px 32px rgba(32,46,68,.09);
+  --workspace-ease:cubic-bezier(.22,1,.36,1);
+}

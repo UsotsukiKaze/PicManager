@@ -247,7 +247,7 @@
         return `<div class="library-detail-scroll">
             <span class="library-detail-eyebrow">ARTWORK DETAILS</span>
             <h3 id="library-detail-title">${workId ? `<a class="library-artwork-title" href="https://www.pixiv.net/artworks/${workId}" target="_blank" rel="noopener noreferrer" aria-label="在 Pixiv 打开 ${title}">${title}</a>` : title}</h3>
-            ${image.artist ? `<button type="button" class="library-artist" data-library-artist="${esc(image.artist.id)}"><img src="/static/icon/Pic.ico" alt="" width="42" height="42"><span>${esc(image.artist.name)}</span></button>` : ''}
+            ${image.artist ? `<button type="button" class="library-artist" data-library-artist="${esc(image.artist.id)}"><img src="/static/icon/Pic.png" alt="" width="42" height="42"><span>${esc(image.artist.name)}</span></button>` : ''}
             ${this.isAdminView() ? `<section class="library-validation" aria-label="校验状态"><span class="${image.local_verified ? 'is-verified' : ''}">本地${image.local_verified ? '已校验' : '待校验'}</span><span class="${image.pixiv_verified ? 'is-verified' : ''}">Pixiv${image.pixiv_verified ? '已校验' : '待校验'}</span></section>` : ''}
             ${[['分组', image.groups, 'group'], ['角色', image.characters, 'character'], ['特征', image.feature_tags, 'feature_tag']].map(([label, tags, type]) => `<section class="detail-tag-section"><label>${label}</label><div class="detail-chip-row">${this.renderDetailChips(tags, type)}</div></section>`).join('')}
             ${(image.pixiv_tags || []).length ? `<section class="detail-tag-section"><label>Pixiv 标签</label><div class="detail-chip-row">${image.pixiv_tags.map(tag => `<span class="detail-chip">${esc(tag.translated_name || tag.name)}</span>`).join('')}</div></section>` : ''}

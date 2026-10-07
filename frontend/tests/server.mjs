@@ -7,7 +7,7 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.png': 'image/png' };
 createServer(async (req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
-  const source = pathname === '/' ? '/static/app/index.html' : pathname === '/favicon.ico' ? '/static/icon/Pic.ico' : pathname;
+  const source = pathname === '/' ? '/static/app/index.html' : pathname === '/profile' ? '/static/profile.html' : pathname === '/favicon.ico' ? '/static/icon/Pic.ico' : pathname;
   const file = resolve(root, `.${decodeURIComponent(source)}`);
   if (!source.startsWith('/static/') || !file.startsWith(resolve(root, 'static') + sep)) { res.writeHead(404); res.end(); return; }
   try {

@@ -7,7 +7,7 @@ class AuthManager {
         this.featureLoadPromises = {};
         this.featureAssets = {
             pixiv: {
-                src: '/static/js/pixiv-ol.js?v=20261007b',
+                src: '/static/js/pixiv-ol.js?v=20261007c',
                 resolve: () => window.pixivOL,
             },
             upload: {
@@ -134,14 +134,14 @@ class AuthManager {
                 '/static/js/character-selector.js?v=20260820b',
                 '/static/js/tag-selector.js?v=20261004f',
                 '/static/js/api.js?v=20261007a',
-                '/static/js/upload-queue.js?v=20260820j',
+                '/static/js/upload-queue.js?v=20261007a',
                 '/static/js/query-panel.js?v=20260820d',
                 '/static/js/entity-cache.js?v=20260820a',
                 '/static/js/search-selector.js?v=20260820d',
-                '/static/js/image-list.js?v=20261004f',
+                '/static/js/image-list.js?v=20261007a',
                 '/static/js/modal.js?v=20261004q',
-                '/static/js/workspace-shell.js?v=20261004s',
-                '/static/js/ui.js?v=20261004s',
+                '/static/js/workspace-shell.js?v=20261007a',
+                '/static/js/ui.js?v=20261007d',
                 '/static/js/main.js?v=20261004f',
             ];
 
@@ -218,7 +218,7 @@ class AuthManager {
         const headerRole = document.getElementById('header-role');
 
         if (this.isGuest) {
-            headerAvatar.src = '/favicon.ico';
+            headerAvatar.src = '/static/icon/Pic.png';
             headerAvatar.alt = '网站图标';
             headerAvatar.style.display = 'block';
             headerAvatar.onerror = () => { headerAvatar.style.display = 'none'; };

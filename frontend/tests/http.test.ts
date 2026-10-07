@@ -37,9 +37,9 @@ describe('HTTP contracts', () => {
     window.removeEventListener('picmanager-session-expired', expired);
   });
   it('rejects executable avatar URLs', () => {
-    expect(safeAvatar('javascript:alert(1)')).toBe('/favicon.ico');
-    expect(safeAvatar('data:text/html,hello')).toBe('/favicon.ico');
-    expect(safeAvatar('/favicon.ico')).toContain('/favicon.ico');
+    expect(safeAvatar('javascript:alert(1)')).toBe('/static/icon/Pic.png');
+    expect(safeAvatar('data:text/html,hello')).toBe('/static/icon/Pic.png');
+    expect(safeAvatar('/static/icon/Pic.png')).toContain('/static/icon/Pic.png');
   });
 });
 describe('catalog pagination', () => {

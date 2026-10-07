@@ -5,6 +5,7 @@
         spark:'<path d="m12 3 2.6 6.4L21 12l-6.4 2.6L12 21l-2.6-6.4L3 12l6.4-2.6L12 3Z"/>',
         plus:'<path d="M12 5v14M5 12h14"/>',arrow:'<path d="m12 5-7 7 7 7M5 12h14"/>',top:'<path d="m6 13 6-6 6 6M12 7v14M5 3h14"/>',
         refresh:'<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/>',
+        eye:'<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
         upload:'<path d="m8 9 4-4 4 4M12 5v10M5 15v5h14v-5"/>',
         heart:'<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/>',
         check:'<path d="m5 12 4 4L19 6"/>',search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',close:'<path d="m6 6 12 12M6 18 18 6"/>', settings:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>'};
@@ -203,15 +204,24 @@
         readingKey(view=this.view,mode=this.mode) {return view==='feed'?'feed':`${view}:${mode}`;}
         positionTools() {
             this.toolsObserver?.disconnect();
-            const tools=this.root.querySelector('.px-floating-tools'),gallery=this.root.querySelector('.px-gallery-flow,.px-cart-list');
-            if(!tools||!gallery)return;
+            const tools=this.root.querySelector('.px-floating-tools'),checkout=this.root.querySelector('.px-checkout'),gallery=this.root.querySelector('.px-gallery-flow,.px-cart-list');
+            const scroll=this.root.closest('.main-content');
+            if((!tools&&!checkout)||!gallery)return;
             const align=()=>{
-                if(!tools.isConnected||!gallery.getClientRects().length)return;
-                tools.style.right=`${Math.max(6,innerWidth-gallery.getBoundingClientRect().right-12-tools.offsetWidth)}px`;
+                if(!gallery.isConnected||!gallery.getClientRects().length)return;
+                const bounds=gallery.getBoundingClientRect();
+                if(tools?.isConnected)tools.style.right=`${Math.max(6,innerWidth-bounds.right-12-tools.offsetWidth)}px`;
+                if(checkout?.isConnected){
+                    checkout.style.left=`${bounds.left}px`;
+                    checkout.style.width=`${bounds.width}px`;
+                    checkout.style.setProperty('--px-checkout-bottom',`${Math.max(0,innerHeight-(scroll?.getBoundingClientRect().bottom||innerHeight))}px`);
+                    gallery.style.paddingBottom=`${checkout.offsetHeight+24}px`;
+                }
             };
             this.toolsObserver=new ResizeObserver(align);
             this.toolsObserver.observe(gallery);
-            const scroll=this.root.closest('.main-content');if(scroll)this.toolsObserver.observe(scroll);
+            if(scroll)this.toolsObserver.observe(scroll);
+            if(checkout)this.toolsObserver.observe(checkout);
             align();
         }
         saveReading() {
@@ -690,13 +700,14 @@
             let tagDraft=null;
             const dialog=document.createElement('dialog');dialog.className='px-dialog px-reader px-artwork-reader';
             dialog.dataset.workPid=item.pid;
-            dialog.innerHTML=`<button class="px-icon-button px-dialog-close" aria-label="关闭" data-close>${icon('close')}</button><div class="px-detail-cover is-loading"><img class="px-reader-image" alt="${esc(item.title)}"><img class="px-reader-thumb" alt="" aria-hidden="true"><div class="px-preview-loader" role="status" aria-label="正在加载清晰预览"><span class="px-loading-orbit" aria-hidden="true"><i></i><i></i><i></i></span>${icon('spark')}</div><button class="px-reader-arrow px-reader-prev" aria-label="上一页">‹</button><button class="px-reader-arrow px-reader-next" aria-label="下一页">›</button><span class="px-reader-status" aria-live="polite">正在加载预览…</span></div><div class="px-detail-body"><div class="px-detail-info"><span class="px-eyebrow">${split?`第 ${editPage+1} 页 · 独立标签`:cartRow?'READY FOR YOUR COLLECTION':'ARTWORK DETAILS'}</span><h3><a class="px-artwork-title" href="https://www.pixiv.net/artworks/${item.pid}" target="_blank" rel="noopener noreferrer" aria-label="在 Pixiv 打开 ${esc(item.title)}">${esc(item.title)}</a></h3><a class="px-artist" href="https://www.pixiv.net/users/${esc(item.author_id)}" target="_blank" rel="noopener noreferrer"><span class="px-artist-avatar"><span class="px-avatar-fallback" aria-hidden="true"><img src="/static/icon/Pic.ico" alt=""></span><img class="px-artist-photo" alt="" decoding="async"></span><span class="px-artist-name">${esc(item.author)}</span></a><div class="px-tags">${item.tags.map(tag=>`<span>${esc(tag.translated_name||tag.name)}</span>`).join('')}</div>
+            dialog.innerHTML=`<button class="px-icon-button px-dialog-close" aria-label="关闭" data-close>${icon('close')}</button><div class="px-detail-cover is-loading"><img class="px-reader-image" alt="${esc(item.title)}"><img class="px-reader-thumb" alt="" aria-hidden="true"><div class="px-preview-loader" role="status" aria-label="正在加载清晰预览"><span class="px-loading-orbit" aria-hidden="true"><i></i><i></i><i></i></span>${icon('spark')}</div><button class="px-reader-arrow px-reader-prev" aria-label="上一页">‹</button><button class="px-reader-arrow px-reader-next" aria-label="下一页">›</button><span class="px-reader-status" aria-live="polite">正在加载预览…</span></div><div class="px-detail-body"><div class="px-detail-info"><span class="px-eyebrow">${split?`第 ${editPage+1} 页 · 独立标签`:cartRow?'READY FOR YOUR COLLECTION':'ARTWORK DETAILS'}</span><h3><a class="px-artwork-title" href="https://www.pixiv.net/artworks/${item.pid}" target="_blank" rel="noopener noreferrer" aria-label="在 Pixiv 打开 ${esc(item.title)}">${esc(item.title)}</a></h3><a class="px-artist" href="https://www.pixiv.net/users/${esc(item.author_id)}" target="_blank" rel="noopener noreferrer"><span class="px-artist-avatar"><span class="px-avatar-fallback" aria-hidden="true"><img src="/static/icon/Pic.png" alt=""></span><img class="px-artist-photo" alt="" decoding="async"></span><span class="px-artist-name">${esc(item.author)}</span></a><div class="px-tags">${item.tags.map(tag=>`<span>${esc(tag.translated_name||tag.name)}</span>`).join('')}</div>
                 ${cartRow?`<section class="px-cart-tag-section"><h4>入库标签</h4><div id="pixiv-cart-tag-selector"></div><div class="px-legacy-tags"></div><h4>Pixiv 原始标签</h4><p class="px-help">拖到上方已选标签上建立关联，也可点击标签选择关联对象。</p><div class="px-source-tags" aria-label="Pixiv 原始标签"></div><p class="px-tag-feedback" role="status" aria-live="polite"></p>${item.match.conflicts.length?`<p class="px-help">需确认：${esc(item.match.conflicts.join('、'))}</p>`:''}</section><label>年龄分级<select id="pixiv-draft-rating"><option value="all">全年龄</option><option value="r12">R12</option><option value="r16">R16</option><option value="r18">R18</option></select></label>`:''}
                 ${library.count?`<p class="px-imported-summary">${icon('check')}${library.label}</p>`:''}${split?'<p class="px-help">本页标签独立保存，请按当前图片确认角色。</p>':item.page_count>1?`<p class="px-help">当前展示清晰预览。勾选需要${cartRow?'保留入库':'加入优选夹'}的页，最多一次选择 100 页。</p>`:(cartRow?'<p class="px-help">这里展示清晰预览，原图用于统一入库。</p>':'')}<div class="px-pages" ${item.page_count>1&&!split?'':'hidden'}>${allPages.map(page=>`<label><input type="checkbox" name="pixiv-page" value="${page}" ${pages.includes(page)?'':'disabled'} ${(cartRow?(split?page===editPage:draft.pages.includes(page)):page===pages[0]&&pages.includes(page))?'checked':''}><span>第 ${page+1} 页${pages.includes(page)?'':' · 已入库'}</span></label>`).join('')}</div></div><div class="px-reader-actions"><button class="px-button ${added||library.complete?'px-added':'px-primary'} px-detail-submit" id="pixiv-draft-submit" ${pages.length&&!added?'':'disabled'}>${cartRow?(split?`确认第 ${editPage+1} 页标签`:'保存标签草稿'):(library.complete?icon('check')+'已入库':added?icon('check')+'已加入':icon('bag')+'加入优选夹')}</button><button class="px-icon-button ${item.liked?'is-liked':''}" data-action="like" data-pid="${item.pid}" aria-pressed="${!!item.liked}" aria-label="${item.liked?'取消喜欢':'喜欢'}">${icon('heart')}</button></div></div>`;
             dialog.querySelector('.px-detail-cover').append(dialog.querySelector('[data-close]'));
             const similar=document.createElement('section');similar.className='px-similar-summary';similar.hidden=!item.similarity?.length;similar.innerHTML=this.similaritySummary(item);dialog.querySelector('.px-detail-info').append(similar);
             similar.onclick=event=>{const button=event.target.closest('[data-similar-image]');if(button)ui.showImageDetail(button.dataset.similarImage);};
             const cover=dialog.querySelector('.px-detail-cover');
+            cover.insertAdjacentHTML('beforeend',`<button type="button" class="px-original-island" aria-label="查看原图" disabled>${icon('eye')}<span>查看原图</span></button>`);
             const thumbnail=cover.querySelector('.px-reader-thumb');
             const thumbnailUrl=sourceImage?.currentSrc||sourceImage?.src||cartRow?.preview_url||item.preview_url;
             if(thumbnailUrl)thumbnail.src=thumbnailUrl;else thumbnail.hidden=true;
@@ -725,31 +736,50 @@
             let backdropPress=false;dialog.addEventListener('pointerdown',event=>backdropPress=event.target===dialog);
             dialog.addEventListener('click',event=>{if(backdropPress&&event.target===dialog)close();backdropPress=false;});
             let position=0, pageGeneration=0;
-            const image=dialog.querySelector('.px-reader-image'), status=dialog.querySelector('.px-reader-status'),loader=dialog.querySelector('.px-preview-loader');
-            const showPage=async index=>{
+            const image=dialog.querySelector('.px-reader-image'), status=dialog.querySelector('.px-reader-status'),loader=dialog.querySelector('.px-preview-loader'),originalButton=dialog.querySelector('.px-original-island');
+            const originalState=(full,state)=>{
+                const busy=state==='loading',ready=state==='ready';
+                originalButton.disabled=busy||(full&&ready);
+                originalButton.classList.toggle('is-loading',full&&busy);
+                originalButton.classList.toggle('is-original',full&&ready);
+                const label=full?(busy?'加载原图':ready?'原图':'重试原图'):'查看原图';
+                originalButton.setAttribute('aria-label',full&&ready?'已显示原图':label);
+                originalButton.setAttribute('aria-busy',String(full&&busy));
+                originalButton.innerHTML=icon(full&&ready?'check':full&&busy?'refresh':'eye')+`<span>${label}</span>`;
+            };
+            dialog.addEventListener('close',()=>{pageGeneration++;image.removeAttribute('src');},{once:true});
+            const showPage=async (index,full=false)=>{
                 const generation=++pageGeneration;
                 position=Math.max(0,Math.min(allPages.length-1,index));const page=allPages[position];
                 this.readerPages.set(item.pid,page);
-                if(image.currentSrc){thumbnail.hidden=false;thumbnail.src=image.currentSrc;}
+                if(cover.classList.contains('is-ready')&&image.currentSrc){thumbnail.hidden=false;thumbnail.src=image.currentSrc;}
+                image.removeAttribute('src');
+                originalState(full,'loading');
                 cover.classList.remove('is-ready');cover.classList.add('is-loading');loader.hidden=false;
+                loader.setAttribute('aria-label',full?'正在加载原图':'正在加载清晰预览');
                 const pageLabel=item.page_count>1?`第 ${page+1} / ${item.page_count} 页 · `:'';
-                status.textContent=pageLabel+'正在加载预览…';status.hidden=false;status.onclick=null;
+                status.textContent=pageLabel+(full?'正在加载原图…':'正在加载预览…');status.hidden=false;status.onclick=null;
                 dialog.querySelectorAll('.px-reader-prev').forEach(node=>node.disabled=position===0);
                 dialog.querySelectorAll('.px-reader-next').forEach(node=>node.disabled=position===allPages.length-1);
                 try {
                     if(!dialog.isConnected||generation!==pageGeneration)return;
                     const base=item.reader_preview_url||`/api/pixiv-ol/${cartRow?`cart/${cartRow.id}`:`artworks/${item.pid}`}/reader-preview`;
-                    const url=await this.media.load(`${base}?page=${page}`);
+                    // Originals load directly through authenticated endpoints without the
+                    // preview cache's 12 MB blob limit.
+                    const originalBase=cartRow?`/api/pixiv-ol/cart/${cartRow.id}/original`:`/api/pixiv-ol/artworks/${item.pid}/original`;
+                    const url=full?`${originalBase}?page=${page}`:await this.media.load(`${base}?page=${page}`);
                     if(!dialog.isConnected||generation!==pageGeneration)return;
                     image.src=url;await image.decode();await opening;
                     if(generation!==pageGeneration||!dialog.isConnected)return;
                     dialog.style.setProperty('--px-reader-image-ratio',String(image.naturalWidth/image.naturalHeight));
                     cover.classList.remove('is-loading');cover.classList.add('is-ready');loader.hidden=true;
+                    originalState(full,'ready');
                     if(page===0){this.similaritySeen.delete(item.pid);this.queueSimilarity(item.pid);}
-                    status.textContent=pageLabel+'清晰预览';status.hidden=item.page_count===1;
-                    const next=allPages[position+1];if(next!==undefined)this.media.load(`${base}?page=${next}`,undefined,'low').catch(()=>{});
-                } catch(error) {if(generation===pageGeneration&&dialog.isConnected){cover.classList.remove('is-loading');loader.hidden=true;status.hidden=false;status.textContent='预览加载失败，点击这里重试';status.onclick=()=>showPage(position);}}
+                    status.textContent=pageLabel+(full?'原图':'清晰预览');status.hidden=item.page_count===1;
+                    const next=allPages[position+1];if(!full&&next!==undefined)this.media.load(`${base}?page=${next}`,undefined,'low').catch(()=>{});
+                } catch(error) {if(generation===pageGeneration&&dialog.isConnected){cover.classList.remove('is-loading');loader.hidden=true;originalState(full,'error');status.hidden=false;status.textContent=(full?'原图':'预览')+'加载失败，点击这里重试';status.onclick=()=>showPage(position,full);}}
             };
+            originalButton.onclick=()=>showPage(position,true);
             dialog.querySelectorAll('.px-reader-prev').forEach(node=>node.onclick=()=>showPage(position-1));
             dialog.querySelectorAll('.px-reader-next').forEach(node=>node.onclick=()=>showPage(position+1));
             dialog.addEventListener('keydown',event=>{
@@ -862,7 +892,7 @@
             await this.entities(true);this.preferences=await request('/preferences');
             const root=window.auth.isRoot(),pref=this.preferences,content=this.settingsRoot;
             const rows=this.groups.map(group=>{const p=(pref.groups||{})[group.id]||{},enabled=p.enabled??((pref.inventory||{})[group.id]>0),characters=this.characters.filter(c=>c.group_id===group.id);return `<div class="px-preference-group" data-group="${group.id}"><label><input type="checkbox" ${enabled?'checked':''}><span>${esc(group.name)}</span><small>${((pref.quotas||{})[group.id]*100||0).toFixed(1)}%</small></label><p>${pref.inventory?.[group.id]||0} 张库存</p>${characters.length?`<details class="px-preference-character-fold"><summary>${characters.length} 个角色<span>展开全部</span></summary><div class="px-preference-characters">${characters.map(c=>`<span class="pm-tag pm-tag-character">${esc(c.name)}</span>`).join('')}</div></details>`:'<p class="px-group-no-characters">暂无角色</p>'}</div>`;}).join('');
-            content.innerHTML=`<div class="px-preference-layout"><section class="px-preference-panel px-account-panel"><span class="px-eyebrow">PIXIV ACCOUNT</span><a class="px-settings-identity" ${this.account.connected?`href="https://www.pixiv.net/users/${esc(this.account.user_id)}" target="_blank" rel="noopener noreferrer"`:''}><span class="px-settings-avatar"><img src="/static/icon/Pic.ico" alt="" data-account-avatar></span><div><h3>${this.account.connected?esc(this.account.name):'连接你的 Pixiv'}</h3>${this.account.connected?`<span class="px-settings-user-id">Pixiv ID · ${esc(this.account.user_id)}</span>`:''}</div></a><p id="pixiv-account-status" class="px-account-status ${this.account.status==='connected'?'is-connected':''}">${this.account.connected?(this.account.status==='connected'?'已连接':'需要重新登录'):'尚未连接'}</p><p class="px-help">${this.account.connected?'推荐与关注更新会使用此账号，偏好与标签关联由你的图库共同决定。':'使用 Pixiv 本站登录，开始发现画作。'}</p><div class="px-account-actions">${root?`<button class="px-button px-primary" data-action="login">${this.account.connected?'重新登录':'登录 Pixiv'}</button>${this.account.connected?'<button class="px-text-button px-remove" data-action="disconnect">解除绑定</button>':''}`:'<span class="px-help">由 Root 连接账号</span>'}</div></section>
+            content.innerHTML=`<div class="px-preference-layout"><section class="px-preference-panel px-account-panel"><span class="px-eyebrow">PIXIV ACCOUNT</span><a class="px-settings-identity" ${this.account.connected?`href="https://www.pixiv.net/users/${esc(this.account.user_id)}" target="_blank" rel="noopener noreferrer"`:''}><span class="px-settings-avatar"><img src="/static/icon/Pic.png" alt="" data-account-avatar></span><div><h3>${this.account.connected?esc(this.account.name):'连接你的 Pixiv'}</h3>${this.account.connected?`<span class="px-settings-user-id">Pixiv ID · ${esc(this.account.user_id)}</span>`:''}</div></a><p id="pixiv-account-status" class="px-account-status ${this.account.status==='connected'?'is-connected':''}">${this.account.connected?(this.account.status==='connected'?'已连接':'需要重新登录'):'尚未连接'}</p><p class="px-help">${this.account.connected?'推荐与关注更新会使用此账号，偏好与标签关联由你的图库共同决定。':'使用 Pixiv 本站登录，开始发现画作。'}</p><div class="px-account-actions">${root?`<button class="px-button px-primary" data-action="login">${this.account.connected?'重新登录':'登录 Pixiv'}</button>${this.account.connected?'<button class="px-text-button px-remove" data-action="disconnect">解除绑定</button>':''}`:'<span class="px-help">由 Root 连接账号</span>'}</div></section>
                 <section class="px-preference-panel px-content-panel"><h3>推荐与内容偏好</h3><fieldset ${root&&this.account.connected?'':'disabled'}><div class="px-preferences"><label>补图强度<input id="pixiv-alpha" type="number" min="0" max="1" step="0.1" value="${pref.alpha??.5}"></label><label>AI 作品<select id="pixiv-ai"><option value="exclude">排除已标记 AI</option><option value="include">包含 AI 作品</option><option value="only">只看 AI 作品</option></select></label><label><input id="pixiv-r18" type="checkbox" ${pref.include_r18?'checked':''}>包含 R18</label><label><input id="pixiv-r18g" type="checkbox" ${pref.include_r18g?'checked':''}>包含 R18G</label><label><input id="pixiv-private" type="checkbox" ${pref.private_following?'checked':''}>同步私密关注</label></div><p class="px-help">按库存自动计算推荐占比，库存较少的分组获得更多补图。</p><button class="px-button px-primary" data-action="save-settings">保存偏好与分组选择</button></fieldset></section></div><details class="px-preference-panel px-group-panel"><summary class="px-group-panel-toggle"><h3>参与推荐的分组</h3><span class="px-group-fold-hint" aria-hidden="true"></span></summary><div class="px-group-panel-body"><div class="px-group-panel-heading"><p class="px-help">角色默认收起，展开可查看该分组的全部角色。</p><label>筛选分组或角色<input id="pixiv-group-search" type="search" placeholder="输入名称"></label></div><fieldset ${root&&this.account.connected?'':'disabled'}><div class="px-preference-groups">${rows||'<p class="px-help">请先在分组管理页创建分组。</p>'}</div></fieldset></div></details>`;
             const avatar=content.querySelector('[data-account-avatar]');
             if(this.account.avatar_url)this.media.load(this.account.avatar_url,'account-avatar').then(url=>{if(avatar.isConnected)avatar.src=url;}).catch(()=>{});

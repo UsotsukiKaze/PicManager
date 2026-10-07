@@ -3,7 +3,7 @@
 window.PicManagerShell={
  init(){
   const toggle=document.getElementById('sidebar-toggle'),sidebar=document.querySelector('.sidebar');
-  if(!toggle||toggle.dataset.bound)return;toggle.dataset.bound='true';
+  if(!toggle||toggle.dataset.bound||sidebar?.dataset.shellOwner==='vue')return;toggle.dataset.bound='true';
   const apply=collapsed=>{document.documentElement.classList.toggle('sidebar-collapsed',collapsed);toggle.setAttribute('aria-expanded',String(!collapsed));toggle.setAttribute('aria-label',collapsed?'展开侧栏':'收起侧栏');toggle.querySelector('.shell-toggle-label').textContent=collapsed?'展开侧栏':'收起侧栏';try{localStorage.setItem('picmanager.sidebarCollapsed',String(collapsed));}catch{};window.setTimeout(()=>ui.updateSidebarIndicator(),260);};
   let collapsed=false;try{collapsed=localStorage.getItem('picmanager.sidebarCollapsed')==='true';}catch{};apply(collapsed);
   toggle.onclick=()=>apply(!document.documentElement.classList.contains('sidebar-collapsed'));
@@ -43,7 +43,7 @@ window.PicManagerShell={
  openProfile(){
   const frame=document.getElementById('profile-frame');if(frame.dataset.loaded)return;frame.dataset.loaded='true';
   frame.onload=()=>{const doc=frame.contentDocument;if(!doc)return;doc.documentElement.dataset.theme=document.documentElement.dataset.theme||'light';const fit=()=>{const height=Math.ceil(doc.querySelector('.profile-container')?.getBoundingClientRect().height||600);if(Math.abs(frame.clientHeight-height)>2)frame.style.height=`${height}px`;};this.profileResize?.disconnect();this.profileResize=new ResizeObserver(fit);this.profileResize.observe(doc.body);fit();};
-  frame.src='/profile?embedded=1&v=20261004f';
+  frame.src='/profile?embedded=1&v=20261007a';
  }
 };
 window.managePixivMappings=async(kind,id)=>{try{await auth.loadStyle('/static/css/pixiv-ol.css?v=20261004f');const pixiv=await auth.loadFeature('pixiv');await pixiv.entities(true);const entity=(kind==='group'?pixiv.groups:kind==='character'?pixiv.characters:pixiv.features).find(item=>item.id===id);if(!entity)throw new Error('标签已删除，请刷新列表');await pixiv.editMappings(kind,id,entity.name);}catch(error){ui.showToast(error.message,'error');}};

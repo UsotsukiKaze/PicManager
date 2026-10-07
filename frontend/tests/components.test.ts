@@ -12,11 +12,13 @@ afterEach(() => { delete window.pinyinPro; document.querySelectorAll('script').f
 
 const image: ImageCardRecord = { image_id: 'ABCD123456', pid: '123_p0', age_rating: 'r12', characters: [{ id: 1, name: '角色' }], groups: [{ id: 2, name: '分组' }] };
 describe('card interaction', () => {
-  it('does not download restricted images before explicit reveal', async () => {
+  it('shows an acrylic thumbnail until restricted content is explicitly revealed', async () => {
     const wrapper = mount(ImageCard, { props: { image: { ...image, age_rating: 'r18' } } });
-    expect(wrapper.find('.modern-image-open img').attributes('src')).toBeUndefined();
-    await wrapper.find('.modern-reveal').trigger('click');
+    expect(wrapper.classes()).toContain('restricted');
     expect(wrapper.find('.modern-image-open img').attributes('src')).toContain('/resource/thumbs/');
+    await wrapper.find('.modern-reveal').trigger('click');
+    expect(wrapper.classes()).not.toContain('restricted');
+    expect(wrapper.find('.modern-reveal').exists()).toBe(false);
   });
   it('hides action state after closing and resumes only upon leaving or keyboard input', async () => {
     const wrapper = mount(ImageCard, { props: { image, suppressActions: true } });

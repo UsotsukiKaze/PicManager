@@ -19,4 +19,4 @@ async function activate() {
 watch(() => route.fullPath, activate, { immediate: true });
 onUnmounted(() => { generation++; suspendFeatures(); });
 </script>
-<template><div v-if="loading" class="modern-feature-status" role="status">正在加载…</div><div v-else-if="error" class="modern-feature-status" role="alert"><p>{{ error }}</p><button class="btn btn-secondary" @click="activate">重试</button></div></template>
+<template><div class="modern-feature-status" :hidden="!loading && !error"><span v-if="loading" role="status">正在加载…</span><div v-else-if="error" role="alert"><p>{{ error }}</p><button class="btn btn-secondary" @click="activate">重试</button></div></div></template>

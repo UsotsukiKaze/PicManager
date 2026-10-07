@@ -1,0 +1,6 @@
+/* Preserve the pre-refactor homepage from 78d32e6; base styles live in style.css. */
+.modern-home .home-hero-copy { min-width:0; }
+.modern-home .orbit-chip { text-decoration:none; }
+.modern-home .orbit-chip-label { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.modern-home .orbit-chip:hover,.modern-home .orbit-chip:focus-visible { animation-play-state:paused; border-color:#007aff; }
+.modern-home .orbit-chip:focus-visible { outline:2px solid #007aff; outline-offset:3px; }

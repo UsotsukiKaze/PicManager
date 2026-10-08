@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func
 
@@ -71,13 +71,21 @@ class ConnectBody(BaseModel):
 class SyncBody(BaseModel):
     kind: Literal["sync", "following", "recommendations"] = "sync"
     restrict: Literal["public", "private"] = "public"
-    mode: Literal["combined", "native"] = "combined"
+    mode: Literal["personal", "stock", "discovery", "combined", "native"] = "combined"
     first_page: bool = False
 
 
 class BrowseBody(BaseModel):
     view: Literal["recommendations", "feed"]
-    mode: Literal["combined", "native"] = "combined"
+    mode: Literal["personal", "stock", "discovery", "combined", "native"] = "combined"
+    seen_pids: list[str] = Field(default_factory=list, max_length=2000)
+
+    @field_validator('seen_pids')
+    @classmethod
+    def validate_seen_pids(cls, values):
+        if any(not value.isascii() or not value.isdigit() or len(value) > 30 for value in values):
+            raise ValueError('invalid seen PID')
+        return list(dict.fromkeys(values))
 
 
 class LookupBody(BaseModel):
@@ -1005,7 +1013,7 @@ def cart_original(cart_id: str, page: int = Query(0, ge=0, le=999), actor_id=Dep
 @router.get("/recommendations")
 def recommendations(
     batch_id: str | None = None,
-    mode: Literal["combined", "native"] = "combined",
+    mode: Literal["personal", "stock", "discovery", "combined", "native"] = "combined",
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=50),
     actor_id=Depends(require_admin_user_id),
@@ -1015,6 +1023,8 @@ def recommendations(
         if not account:
             return {"items": [], "total": 0, "batch_id": None}
         query = db.query(models.PixivRecommendationBatch).filter_by(account_revision=account.revision, mode=mode)
+        if mode in ('personal', 'stock', 'discovery'):
+            query = query.filter(models.PixivRecommendationBatch.profile['actor_id'].as_integer() == actor_id)
         batch = (
             query.filter_by(id=batch_id).first()
             if batch_id
@@ -1033,7 +1043,12 @@ def recommendations(
                  if item['pid'] not in excluded and allowed(item, account.preferences)]
         # Offsets refer to the immutable batch, not the shrinking visible list.
         # Adding/importing earlier cards must not skip unseen cards on continuation.
-        page = [(position, item) for position, item in items if position >= offset][:limit]
+        remaining = [(position, item) for position, item in items if position >= offset]
+        if mode == 'stock':
+            from ...integrations.pixiv_ol.strategies import stock_page
+            page = stock_page(remaining, limit)
+        else:
+            page = remaining[:limit]
         next_offset = page[-1][0] + 1 if page else len(batch.items)
         output = [
             {
@@ -1060,7 +1075,7 @@ def recommendations(
         }
         for item in output:
             item["liked"] = item["pid"] in likes
-        return {"items": output, "total": len(items), "batch_id": batch.id, "profile": batch.profile,
+        return {"items": output, "total": len(items), "batch_id": batch.id, "profile": {} if mode == 'personal' else batch.profile,
                 "next_offset": next_offset, "has_more": any(position >= next_offset for position, _ in items)}
 
 

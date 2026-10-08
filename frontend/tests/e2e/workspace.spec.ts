@@ -51,6 +51,42 @@ async function mockWorkspace(page: Page, role = 'root', firstRating = 'r12') {
   return { errors, requested };
 }
 
+test('Pixiv switches three independent recommendation modes and restores each reading state', async ({ page }) => {
+  const { errors } = await mockWorkspace(page);
+  const modes: string[] = [];
+  await page.route('**/api/pixiv-ol/**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/account')) {
+      await route.fulfill({ json: { connected: true, user_id: '7', name: '测试画友', media_revision: 'test' } });
+    } else if (url.pathname.endsWith('/recommendations')) {
+      const mode = url.searchParams.get('mode')!;
+      modes.push(mode);
+      const offset = Number(url.searchParams.get('offset') || 0);
+      await route.fulfill({ json: { batch_id: `${mode}-batch`, total: 40, next_offset: offset + 20, has_more: offset < 20,
+        items: Array.from({ length: 20 }, (_, n) => ({ pid: String(1000 + offset + n), title: `${mode}作品${n}`, author: '测试画师', author_id: '9',
+          page_count: 1, preview_url: '/static/icon/Pic.png', author_avatar_url: '/static/icon/Pic.png', imported_pages: [] })) } });
+    } else if (url.pathname.endsWith('/similarity')) {
+      await route.fulfill({ json: { items: [] } });
+    } else {
+      await route.fallback();
+    }
+  });
+  await page.goto('/#/pixiv');
+  const selector = page.getByRole('combobox', { name: '推荐方式' });
+  await expect(selector).toHaveValue('personal');
+  await expect(selector.locator('option')).toHaveText(['猜你喜欢', '进货模式', 'Pixiv 发现']);
+  await expect(page.locator('.px-card')).toHaveCount(20);
+  await selector.selectOption('stock');
+  await expect(page.locator('.px-card')).toHaveCount(20);
+  await expect(page.locator('.px-gallery')).toContainText('stock作品');
+  await selector.selectOption('discovery');
+  await expect(page.locator('.px-gallery')).toContainText('discovery作品');
+  await selector.selectOption('personal');
+  await expect(page.locator('.px-gallery')).toContainText('personal作品');
+  expect(modes).toEqual(['personal', 'stock', 'discovery']);
+  expect(errors).toEqual([]);
+});
+
 test('homepage is native and does not download legacy controllers or phonetic dictionary', async ({ page }) => {
   const { requested, errors } = await mockWorkspace(page);
   await page.goto('/');

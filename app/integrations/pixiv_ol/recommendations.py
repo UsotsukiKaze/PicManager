@@ -348,7 +348,10 @@ def allowed(art, preferences):
     return not any(normalize(x["name"]) in blocked for x in art.get("tags", []))
 
 
-def rank_candidates(db, account, mode="combined"):
+def rank_candidates(db, account, mode="combined", *, actor_id=None, seen_pids=()):
+    from .strategies import MODES, rank
+    if mode in MODES:
+        return rank(db, TagIndex(db), account, mode, actor_id or account.owner_id, seen_pids)
     index = TagIndex(db)
     profile = build_profile(db, index, account.preferences)
     source_pages = library_pixiv_pages(db)

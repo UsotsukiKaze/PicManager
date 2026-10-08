@@ -23,9 +23,12 @@ ACTIVE = ("queued", "running", "retry", "awaiting_duplicate")
 
 
 def enqueue(db, actor_id, kind, payload=None, key=None):
+    from .strategies import MODES
     account = service.require_account(db)
     service.require_actor(db, actor_id)
     if key:
+        if (payload or {}).get('mode') in MODES:
+            key = f'{actor_id}:{key}'
         key = f"{account.revision}:{kind}:{key}"
         existing = db.query(models.PixivJob).filter_by(dedupe_key=key).first()
         if existing:
@@ -43,6 +46,8 @@ def enqueue(db, actor_id, kind, payload=None, key=None):
             .all()
         )
         for existing in active:
+            if (payload or {}).get('mode') in MODES and existing.actor_id != actor_id:
+                continue
             if all(
                 existing.payload.get(k, default) == (payload or {}).get(k, default)
                 for k, default in (("restrict", "public"), ("mode", "combined"))
@@ -366,7 +371,8 @@ class Worker:
                         progressive=payload.get("first_page", False))
                 elif kind == "browse_recommendations":
                     result = service.refresh_candidates(
-                        provider, revision, actor_id, payload.get("mode", "combined"), continuation=True, progressive=True
+                        provider, revision, actor_id, payload.get("mode", "combined"), continuation=True, progressive=True,
+                        seen_pids=payload.get('seen_pids', ())
                     )
                 elif kind == "browse_feed":
                     with get_db_context() as db:

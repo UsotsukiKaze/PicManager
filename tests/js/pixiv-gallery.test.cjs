@@ -16,6 +16,16 @@ function harness(){
     return {pol,flow,calls,timers,gallery,sentinel,scroll,context,fireScroll:()=>scrollListener(),fireIntersection:()=>intersection([{isIntersecting:true}])};
 }
 
+test('new recommendation modes send already-read PIDs and keep separate reading keys',async()=>{
+    const h=harness();h.flow.mode='stock';h.flow.seen=new Set(['101','102']);
+    h.context.fetch=async(url,options)=>{h.calls.push({url,options});return {ok:true,json:async()=>({id:8})};};
+    await h.pol.continueReading(h.flow);
+    const payload=JSON.parse(h.calls[0].options.body);
+    assert.deepEqual(payload,{view:'recommendations',mode:'stock',seen_pids:['101','102']});
+    assert.equal(h.flow.continueJob,8);
+    assert.equal(new Set(['personal','stock','discovery'].map(mode=>h.pol.readingKey('recommendations',mode))).size,3);
+});
+
 test('first render fetches exactly twenty and never eagerly chains later pages',async()=>{
     const {pol,flow,calls,timers,gallery}=harness();await pol.loadMore(flow);
     assert.match(calls[0].url,/limit=20/);assert.equal(pol.items.length,20);assert.equal(timers.length,0);

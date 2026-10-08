@@ -7,7 +7,7 @@ import { allEntities } from '../api/catalog';
 import { loadClassicScript, PINYIN_SCRIPT } from './scripts';
 
 const scripts = [
-  '/static/js/auth.js?v=20261007f', '/static/js/security.js?v=20260820a',
+  '/static/js/auth.js?v=20261008-modes', '/static/js/security.js?v=20260820a',
   PINYIN_SCRIPT, '/static/js/pinyin-search.js?v=20260820c',
   '/static/js/character-selector.js?v=20260820b', '/static/js/tag-selector.js?v=20261004f',
   '/static/js/api.js?v=20261007a', '/static/js/upload-queue.js?v=20261007a',

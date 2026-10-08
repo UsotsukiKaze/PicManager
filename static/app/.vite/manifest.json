@@ -1,25 +1,25 @@
 {
-  "_bridge-COLrwYp8.js": {
-    "file": "assets/bridge-COLrwYp8.js",
+  "_bridge-CTHHOIGe.js": {
+    "file": "assets/bridge-CTHHOIGe.js",
     "name": "bridge",
     "imports": [
       "index.html",
-      "_scripts-Cd1gQFxB.js"
+      "_scripts-D_wlblc8.js"
     ]
   },
   "_runtime-core.esm-bundler-BfBWlVuP.js": {
     "file": "assets/runtime-core.esm-bundler-BfBWlVuP.js",
     "name": "runtime-core.esm-bundler"
   },
-  "_scripts-Cd1gQFxB.js": {
-    "file": "assets/scripts-Cd1gQFxB.js",
+  "_scripts-D_wlblc8.js": {
+    "file": "assets/scripts-D_wlblc8.js",
     "name": "scripts",
     "imports": [
       "index.html"
     ]
   },
-  "_useQuery-D0jkc9Sn.js": {
-    "file": "assets/useQuery-D0jkc9Sn.js",
+  "_useQuery-P-KWxKuu.js": {
+    "file": "assets/useQuery-P-KWxKuu.js",
     "name": "useQuery",
     "imports": [
       "_runtime-core.esm-bundler-BfBWlVuP.js",
@@ -27,7 +27,7 @@
     ]
   },
   "index.html": {
-    "file": "assets/index-syIFQHEd.js",
+    "file": "assets/index-DKG44RqI.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -39,59 +39,59 @@
       "src/views/GalleryView.vue",
       "src/views/ProfileView.vue",
       "src/views/FeatureView.vue",
-      "_bridge-COLrwYp8.js"
+      "_bridge-CTHHOIGe.js"
     ],
     "css": [
       "assets/index-D94gBUH8.css"
     ]
   },
   "src/components/ImageDetail.vue": {
-    "file": "assets/ImageDetail-5gMjrzJW.js",
+    "file": "assets/ImageDetail-Hg_73Lcd.js",
     "name": "ImageDetail",
     "src": "src/components/ImageDetail.vue",
     "isDynamicEntry": true,
     "imports": [
       "_runtime-core.esm-bundler-BfBWlVuP.js",
-      "_useQuery-D0jkc9Sn.js",
+      "_useQuery-P-KWxKuu.js",
       "index.html",
-      "_scripts-Cd1gQFxB.js"
+      "_scripts-D_wlblc8.js"
     ]
   },
   "src/views/FeatureView.vue": {
-    "file": "assets/FeatureView-B8hQriqF.js",
+    "file": "assets/FeatureView-B-O-yGs9.js",
     "name": "FeatureView",
     "src": "src/views/FeatureView.vue",
     "isDynamicEntry": true,
     "imports": [
-      "_bridge-COLrwYp8.js",
+      "_bridge-CTHHOIGe.js",
       "_runtime-core.esm-bundler-BfBWlVuP.js",
       "index.html"
     ]
   },
   "src/views/GalleryView.vue": {
-    "file": "assets/GalleryView-CkIXDCHc.js",
+    "file": "assets/GalleryView-DUxG031m.js",
     "name": "GalleryView",
     "src": "src/views/GalleryView.vue",
     "isDynamicEntry": true,
     "imports": [
       "_runtime-core.esm-bundler-BfBWlVuP.js",
-      "_useQuery-D0jkc9Sn.js",
+      "_useQuery-P-KWxKuu.js",
       "index.html",
-      "_scripts-Cd1gQFxB.js"
+      "_scripts-D_wlblc8.js"
     ],
     "dynamicImports": [
       "src/components/ImageDetail.vue",
-      "_bridge-COLrwYp8.js"
+      "_bridge-CTHHOIGe.js"
     ]
   },
   "src/views/HomeView.vue": {
-    "file": "assets/HomeView-BWn-I7wi.js",
+    "file": "assets/HomeView-CTV6xXxt.js",
     "name": "HomeView",
     "src": "src/views/HomeView.vue",
     "isDynamicEntry": true,
     "imports": [
       "_runtime-core.esm-bundler-BfBWlVuP.js",
-      "_useQuery-D0jkc9Sn.js",
+      "_useQuery-P-KWxKuu.js",
       "index.html"
     ],
     "css": [

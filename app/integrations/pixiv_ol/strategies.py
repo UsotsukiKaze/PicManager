@@ -1,7 +1,7 @@
 """Independent personal affinity, inventory purchasing and native discovery policies."""
 import math
 from collections import Counter, defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import selectinload
 
@@ -11,7 +11,7 @@ from ...pixiv_metadata import library_pixiv_pages, split_pid
 from .recommendations import allowed, normalize, recommendation_match
 
 MODES = ('personal', 'stock', 'discovery')
-POLICY_VERSION = 'three-modes-v2'
+POLICY_VERSION = 'three-modes-v3'
 
 
 def stream_key(mode, actor_id):
@@ -247,6 +247,26 @@ def cosine(vector, ids):
     return sum(vector.get(id_, 0) for id_ in ids) / math.sqrt(len(ids)) if ids else 0
 
 
+def recent_popularity(item, now):
+    """Balance bookmark traction against publication age without rewarding age alone."""
+    try:
+        published = datetime.fromisoformat(str(item['published_at']).replace('Z', '+00:00'))
+        if published.tzinfo:
+            published = published.astimezone(timezone.utc).replace(tzinfo=None)
+        age_days = max(0, (now - published).total_seconds() / 86400)
+    except (KeyError, TypeError, ValueError):
+        age_days = 90
+    recency = 2 ** (-age_days / 45)
+    try:
+        bookmarks = max(0, int(item['bookmarks'])) if item.get('bookmarks') is not None else None
+    except (TypeError, ValueError):
+        bookmarks = None
+    if bookmarks is None:
+        return 0.1 * recency
+    popularity = min(1, math.log1p(bookmarks) / math.log1p(1000))
+    return popularity * (0.25 + 0.75 * recency)
+
+
 def _candidates(db, index, account, mode, actor_id, seen_pids, *, source_batch=None):
     excluded = set(library_pixiv_pages(db)) | set(seen_pids)
     excluded.update(row[0] for row in db.query(models.PixivCartItem.pid).filter_by(
@@ -283,16 +303,16 @@ def rank(db, index, account, mode, actor_id, seen_pids=()):
     for item, native_rank in candidates:
         match = item['match']
         native = 1 / math.log2(native_rank + 2)
-        fresh = 2 ** (-max(0, (now - datetime.fromisoformat(item['published_at'].replace('Z', '+00:00')).replace(tzinfo=None)).days) / 90)
+        quality = recent_popularity(item, now)
         if mode == 'personal':
             v = profile['vectors']
             affinity = (0.55 * cosine(v.get('raw', {}), [normalize(t['name']) for t in item['tags']])
                         + 0.20 * cosine(v.get('feature', {}), match['feature_tag_ids'])
                         + 0.15 * cosine(v.get('character', {}), match['character_ids'])
                         + 0.10 * cosine(v.get('group', {}), match['group_ids']))
-            item['_score'] = 0.85 * affinity + 0.10 * native + 0.05 * fresh
+            item['_score'] = 0.70 * affinity + 0.20 * quality + 0.10 * native
         else:
-            item['_score'] = 0.70 * cosine(profile['feature_vector'], match['feature_tag_ids']) + 0.20 * native + 0.10 * fresh
+            item['_score'] = 0.30 * cosine(profile['feature_vector'], match['feature_tag_ids']) + 0.55 * quality + 0.15 * native
     if mode == 'personal':
         pool, chosen, authors = sorted([item for item, _ in candidates], key=lambda item:(-item['_score'], item['pid'])), [], Counter()
         while pool and len(chosen) < 180:

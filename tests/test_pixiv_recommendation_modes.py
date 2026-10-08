@@ -1,4 +1,5 @@
 from collections import Counter
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -8,6 +9,7 @@ from test_pixiv_recommendation_preferences import mapping, image, like, cached
 from app import models
 from app.integrations.pixiv_ol import service, strategies, jobs, provider
 from app.integrations.pixiv_ol.recommendations import TagIndex, rank_candidates
+from app.routers.integrations import pixiv_ol as pixiv_api
 
 
 def roles(db):
@@ -83,6 +85,52 @@ def test_personal_deduplicates_multi_page_work_and_has_no_inverse_inventory_weig
         assert after['vectors'] == before['vectors']
         assert after['quotas'] == before['quotas']
         assert after['algorithm'] != strategies.build_profile(db, index, account, 'stock')['algorithm']
+
+
+@pytest.mark.parametrize('mode', ['personal', 'stock'])
+def test_rank_prefers_recent_popular_work_within_same_interest_or_role(environment, mode):
+    context, _, _ = environment
+    with context() as db:
+        roles(db)
+    raws = []
+    for pid, age, bookmarks in [('800', 180, 10000), ('801', 3, 120), ('802', 1, 1)]:
+        raw = artwork(pid, [{'name':'GameNative'}, {'name':'RareNative'}, {'name':'WhiteNative'}])
+        raw['user']['id'] = int(pid)
+        raw['create_date'] = (datetime.utcnow() - timedelta(days=age)).isoformat() + 'Z'
+        raw['total_bookmarks'] = bookmarks
+        raws.append(raw)
+    source = strategies.source_key('recommended', mode, 1)
+    service.save_artworks('rev', raws, source, 1, ranks=True, source_batch='quality')
+    with context() as db:
+        account = db.get(models.PixivAccount, 1)
+        account.sync_state = {source:{'batch':'quality'}}
+        items, _ = strategies.rank(db, TagIndex(db), account, mode, 1)
+        assert [item['pid'] for item in items] == ['801', '800', '802']
+
+
+def test_personal_relevance_still_beats_unrelated_popularity(environment):
+    context, _, _ = environment
+    with context() as db:
+        cached(db, '810', ['Atmosphere'])
+        like(db, '810')
+        cached(db, '811', ['Atmosphere'])
+        cached(db, '812', ['Unrelated'])
+        for pid, bookmarks in [('811', 1), ('812', 1000)]:
+            art = db.query(models.PixivArtwork).filter_by(pid=pid).one()
+            art.metadata_json = {**art.metadata_json, 'bookmarks':bookmarks,
+                                 'published_at':datetime.utcnow().isoformat()}
+        items, _ = strategies.rank(db, TagIndex(db), db.get(models.PixivAccount, 1), 'personal', 1)
+        assert [item['pid'] for item in items].index('811') < [item['pid'] for item in items].index('812')
+
+
+def test_missing_bookmark_count_keeps_previous_known_value(environment):
+    context, _, _ = environment
+    first = artwork('820')
+    first['total_bookmarks'] = 42
+    service.save_artworks('rev', [first], 'recommended_personal_1', 1)
+    service.save_artworks('rev', [artwork('820')], 'search_personal_1', 1)
+    with context() as db:
+        assert db.query(models.PixivArtwork).filter_by(pid='820').one().metadata_json['bookmarks'] == 42
 
 
 def stock_fixture(known=400, unknown_role=50, unknown_group=50):
@@ -279,13 +327,38 @@ def test_preferences_display_actual_stock_inverse_weights(environment):
     assert quotas['2'] / quotas['1'] == pytest.approx(55)
 
 
-def test_stock_default_view_ignores_old_policy_but_explicit_reading_batch_remains_available(environment):
-    context, client, _ = environment
+@pytest.mark.parametrize('mode', ['personal', 'stock'])
+def test_default_view_ignores_old_policy_but_explicit_reading_batch_remains_available(environment, mode):
+    context, _, _ = environment
     with context() as db:
-        db.add(models.PixivRecommendationBatch(id='old-policy', account_revision='rev', mode='stock',
+        db.add(models.PixivRecommendationBatch(id='old-policy', account_revision='rev', mode=mode,
             items=[service.normalize_artwork(artwork('800'))], profile={'actor_id':1, 'policy_version':'three-modes-v1'}))
-    assert client.get('/api/pixiv-ol/recommendations?mode=stock').json()['batch_id'] is None
-    assert client.get('/api/pixiv-ol/recommendations?mode=stock&batch_id=old-policy').json()['items'][0]['pid'] == '800'
+    assert pixiv_api.recommendations(mode=mode, actor_id=1, offset=0, limit=20)['batch_id'] is None
+    assert pixiv_api.recommendations(batch_id='old-policy', mode=mode, actor_id=1,
+                                     offset=0, limit=20)['items'][0]['pid'] == '800'
+
+
+def test_personal_continuation_restarts_old_policy_stream(environment):
+    context, _, _ = environment
+    with context() as db:
+        account = db.get(models.PixivAccount, 1)
+        account.sync_state = {'recommendation_stream_personal_1':{
+            'policy_version':'three-modes-v2', 'source_batch':'old',
+            'exhausted':True, 'deferred_queries':[], 'deferred_seeds':[]}}
+    class Remote(FakeProvider):
+        def __init__(self):
+            self.calls = []
+        def call(self, method, **params):
+            self.calls.append(method)
+            return {'illusts':[artwork('830')], 'next_url':None}
+    remote = Remote()
+    result = service.refresh_candidates(remote, 'rev', 1, 'personal', continuation=True, progressive=True)
+    assert remote.calls == ['illust_recommended']
+    assert result['count'] == 1
+    with context() as db:
+        stream = db.get(models.PixivAccount, 1).sync_state['recommendation_stream_personal_1']
+        assert stream['policy_version'] == strategies.POLICY_VERSION
+        assert stream['source_batch'] != 'old'
 
 
 def test_background_waves_do_not_hide_pending_imports_from_the_job_list(environment):

@@ -201,6 +201,8 @@ def save_artworks(revision, raws, source, actor_id, *, ranks=False, rank_offset=
             if not row:
                 row = models.PixivArtwork(account_revision=revision, pid=art["pid"], origins=[])
                 db.add(row)
+            elif art["bookmarks"] is None and row.metadata_json:
+                art["bookmarks"] = row.metadata_json.get("bookmarks")
             row.author_id, row.title = art["author_id"], art["title"]
             row.published_at, row.metadata_json = iso_date(art["published_at"]), art
             row.fetched_at = datetime.utcnow()
@@ -334,7 +336,7 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
         stream = dict(account.sync_state.get(stream_name, {}))
         if replenish_batch is not None and (mode != 'stock' or not current_stock_replenishment(account, actor_id, replenish_batch)):
             return {'count':0, 'more':False, 'replenish':False}
-        if mode == 'stock' and stream.get('policy_version') != strategies.POLICY_VERSION:
+        if mode in ('personal', 'stock') and stream.get('policy_version') != strategies.POLICY_VERSION:
             continuation = False
         if independent and continuation and not stream:
             continuation = False

@@ -22,3 +22,14 @@ test('ignore mappings and conflicting scopes are never displayed as false bindin
 test('legacy binding normalizes repeated spaces and fullwidth tag names',async()=>{
     assert.deepEqual(await edit([1],[{tag:'A B',target_type:'feature',target_id:1,group_context:0}],'Ａ  Ｂ'),[{pixiv_tag:'Ａ  Ｂ',type:'feature',id:1}]);
 });
+test('image editor retains every role in an explicit scoped pairing and a global costume',async()=>{
+    assert.deepEqual(await edit([1],[
+        {tag:'anosoyo',target_type:'character',target_id:10,group_context:1},
+        {tag:'anosoyo',target_type:'character',target_id:11,group_context:1},
+        {tag:'anosoyo',target_type:'feature',target_id:2,group_context:0}
+    ],'anosoyo'),[
+        {pixiv_tag:'anosoyo',type:'character',id:10},
+        {pixiv_tag:'anosoyo',type:'character',id:11},
+        {pixiv_tag:'anosoyo',type:'feature',id:2}
+    ]);
+});

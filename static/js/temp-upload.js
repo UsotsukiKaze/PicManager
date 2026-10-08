@@ -10,7 +10,7 @@
             const name=decodeURIComponent(encodedName),upload=this.upload;
             const [groups,characters,featureTags,pixiv]=await Promise.all([api.getGroups(),api.getCharacters(),api.getFeatureTags(),window.auth.loadFeature('pixiv')]);
             if(!upload.tempVisible())return;
-            await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261004l');
+            await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261008-compound');
             if(!upload.tempVisible())return;
             this.editor?.destroy();
             this.name=name;this.dirty=false;this.closed=false;this.catalogs={groups,characters,featureTags};this.pixiv=pixiv;

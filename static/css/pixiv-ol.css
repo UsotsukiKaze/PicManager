@@ -373,6 +373,8 @@ body:has(#upload-queue-dock:not([hidden])) .px-floating-tools { top:min(calc(42v
 .px-tag-feedback:empty { display:none; }
 .px-associate-targets { margin:20px 0; }
 .px-associate-targets .pm-tag { white-space:normal; overflow-wrap:anywhere; text-align:left; }
+.px-associate-targets .pm-tag.is-selected { outline:2px solid var(--px-accent); outline-offset:2px; background:var(--px-soft); color:var(--px-accent); }
+.px-associate-targets .pm-tag:disabled { cursor:default; opacity:.7; }
 @media(max-width:900px) { .px-preference-layout { grid-template-columns:1fr; } }
 @media(max-width:600px) { .px-preference-groups { grid-template-columns:1fr; }.px-group-panel-heading { flex-direction:column; align-items:stretch; gap:15px; }.px-group-panel-heading label { width:100%; }.px-settings-identity h3 { font-size:21px; }.px-settings-avatar { width:64px; height:64px; }.px-mapping-dialog .px-detail-body { padding:25px 20px; } }
 @media(prefers-reduced-motion:reduce) { .px-preference-character-fold[open] .px-preference-characters { animation:none; } }

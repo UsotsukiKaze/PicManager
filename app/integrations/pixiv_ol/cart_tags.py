@@ -1,5 +1,6 @@
 """Refresh cached cart suggestions without replacing deliberate page labels."""
 from copy import deepcopy
+from .recommendations import explicit_role_bundle
 
 FIELDS = ('group_ids', 'character_ids', 'feature_tag_ids')
 
@@ -53,7 +54,7 @@ def refresh_draft(index, art, draft, *, confirmed_page=False):
                 candidates &= selected
             elif art.get('page_count', 1) > 1:
                 candidates &= old_auto
-            elif len(candidates) > 1:
+            elif len(candidates) > 1 and not explicit_role_bundle(match, candidates):
                 candidates &= old_auto
         elif key == 'group_ids' and manual_groups:
             candidates &= selected

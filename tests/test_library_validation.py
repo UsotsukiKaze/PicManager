@@ -30,6 +30,19 @@ def test_mapping_and_check_migration_is_idempotent_and_preserves_existing_comple
         assert image.local_checked_at is None
         assert mapping.group_id==1 and mapping.original_tag=='游戏' and mapping.source=='manual'
         assert db.query(models.PixivTagMapping).count()==1
+        db.add(models.FeatureTag(id=12,name='组合特征'))
+        db.commit()
+        from app.tag_mappings import save_mapping
+        save_mapping(db,'游戏','feature',12)
+        db.commit()
+    database.apply_migrations()
+    with Session() as db:
+        assert db.get(models.PixivTagMapping,1).group_id == 1
+        assert db.query(models.PixivTagMapping).count() == 2
+        from app.integrations.pixiv_ol.recommendations import TagIndex
+        match=TagIndex(db).match([{'name':'游戏'}])
+        assert match['group_ids'] == [1] and match['feature_tag_ids'] == [12]
+        assert db.get(models.Image,'0000000001').pixiv_checked_at == datetime(2026,1,1)
     engine.dispose()
 
 

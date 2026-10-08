@@ -5,7 +5,7 @@ from . import models
 from .integrations.pixiv_ol.recommendations import normalize
 
 
-def save_mapping(db, tag, kind, target_id, context=0, source='manual'):
+def save_mapping(db, tag, kind, target_id, context=0, source='manual', *, replace=False):
     classes={'group':models.Group,'character':models.Character,'feature':models.FeatureTag}
     target=db.get(classes[kind],target_id) if kind in classes else None
     if kind not in (*classes,'ignore') or (kind!='ignore' and not target):
@@ -19,12 +19,19 @@ def save_mapping(db, tag, kind, target_id, context=0, source='manual'):
     if context and not db.get(models.Group,context):
         raise ValueError('上下文分组不存在')
     key=normalize(tag)
-    row=db.query(models.PixivTagMapping).filter_by(normalized_tag=key,group_context=context).first()
-    if not row and context and source=='exact':
+    query=db.query(models.PixivTagMapping).filter_by(normalized_tag=key,group_context=context)
+    rows=query.all()
+    if not rows and context and source=='exact':
         existing=db.query(models.PixivTagMapping).filter_by(normalized_tag=key,group_context=0,source='manual').first()
         if existing:return existing,False
-    if row and source=='exact':
-        return row,False
+    if rows and source=='exact':
+        return rows[0],False
+    row=next((row for row in rows if (row.target_type,row.target_id)==(kind,target_id if kind!='ignore' else None)),None)
+    # Ignore is a scope-wide decision; adding a target explicitly lifts it.
+    for previous in rows:
+        if previous is not row and (replace or kind=='ignore' or previous.target_type=='ignore'):
+            db.delete(previous)
+    db.flush()
     if not row:
         row=models.PixivTagMapping(normalized_tag=key,group_context=context)
         db.add(row)
@@ -95,7 +102,7 @@ class CachedImageTagCheck:
 
     def check(self, image):
         from .pixiv_metadata import backfill_checked_tags, ensure_source_tag
-        from .integrations.pixiv_ol.recommendations import TagIndex
+        from .integrations.pixiv_ol.recommendations import TagIndex, explicit_role_bundle
 
         result = dict(tag_checked=0, tag_updated=0, tag_links_added=0,
                       tag_mappings_created=0, tag_pending=0)
@@ -124,12 +131,15 @@ class CachedImageTagCheck:
             image.groups.extend(index.groups[id_] for id_ in match['group_ids'])
         # Work tags cannot decide a multi-page image's characters. A populated
         # role selection is always a manual decision, even for single-page work.
-        if not image.characters and meta.page_count == 1 and len(match['character_ids']) == 1:
-            role = index.characters[match['character_ids'][0]]
-            if not image.groups or role.group_id in {row.id for row in image.groups}:
-                image.characters.append(role)
-                if role.group not in image.groups:
-                    image.groups.append(role.group)
+        if not image.characters and meta.page_count == 1 and (
+            len(match['character_ids']) == 1 or explicit_role_bundle(match, match['character_ids'])
+        ):
+            for id_ in match['character_ids']:
+                role = index.characters[id_]
+                if not image.groups or role.group_id in {row.id for row in image.groups}:
+                    image.characters.append(role)
+                    if role.group not in image.groups:
+                        image.groups.append(role.group)
         for id_ in match['feature_tag_ids']:
             tag = index.features[id_]
             if tag not in image.feature_tags:
@@ -151,7 +161,8 @@ class CachedImageTagCheck:
                 pending.add(evidence['pixiv_tag'])
                 continue
             row, created = save_mapping(self.db, evidence['pixiv_tag'], kind, target_id, source='exact')
-            index.mappings[(row.normalized_tag, row.group_context)] = (row.target_type, row.target_id)
+            key = (row.normalized_tag, row.group_context)
+            index.mappings[key] = index.mappings.get(key, frozenset()) | {(row.target_type, row.target_id)}
             result['tag_mappings_created'] += int(created)
         after = (selected['group'], selected['character'], selected['feature'])
         result['tag_checked'] = 1

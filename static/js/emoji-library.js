@@ -169,6 +169,9 @@ class EmojiLibrary {
     }
 
     clearUploadTag(key) {
+        const source = key === 'group_id' ? this.groups : key === 'character_id' ? this.characters : this.emotions;
+        const tag = this.getById(source, this.uploadTags[key]);
+        if (!this.uploadTags[key] || !confirm(`确认从当前表情包移除“${tag?.name || '所选标签'}”？\n不会删除标签资料。`)) return;
         this.uploadTags[key] = null;
         if (key === 'group_id') {
             const character = this.getById(this.characters, this.uploadTags.character_id);
@@ -295,12 +298,15 @@ class EmojiLibrary {
     confirmUploadTagPicker(modalId) {
         const draft = this.uploadPickerDraft || this.uploadTags;
         const character = this.getById(this.characters, draft.character_id);
-        this.uploadTags = {
+        const selected = {
             group_id: character?.group_id || draft.group_id || null,
             character_id: draft.character_id || null,
             emotion_id: draft.emotion_id || null,
             function_id: draft.function_id || null,
         };
+        const removed = Object.keys(selected).filter(key => this.uploadTags[key] && !selected[key]);
+        if (removed.length && !confirm(`确认从当前表情包移除 ${removed.length} 个标签？\n不会删除标签资料。`)) return;
+        this.uploadTags = selected;
         this.uploadPickerDraft = null;
 
         ui.closeModal();
@@ -599,7 +605,7 @@ class EmojiLibrary {
                         <div class="emoji-file-preview-info">
                             <strong id="emoji-preview-name"></strong>
                             <span id="emoji-preview-meta"></span>
-                            <button type="button" class="btn-link emoji-file-remove" onclick="event.stopPropagation(); emojiLibrary.clearUploadFile()">重新选择</button>
+                            <button type="button" class="btn-link emoji-file-remove" onclick="event.stopPropagation(); emojiLibrary.removeUploadFile()">重新选择</button>
                         </div>
                     </div>
                 </div>
@@ -670,6 +676,11 @@ class EmojiLibrary {
         const meta = document.getElementById('emoji-preview-meta');
         if (name) name.textContent = file.name;
         if (meta) meta.textContent = `${file.name.toLowerCase().endsWith('.gif') ? 'GIF 动图' : '静态图片'} · ${(file.size / 1024 / 1024).toFixed(2)} MB`;
+    }
+
+    removeUploadFile() {
+        if (!this.uploadFile || !confirm(`确认移除当前选择的“${this.uploadFile.name}”？\n原文件不会被删除。`)) return;
+        this.clearUploadFile();
     }
 
     clearUploadFile(resetInput = true) {

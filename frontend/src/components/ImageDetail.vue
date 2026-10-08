@@ -22,7 +22,6 @@ const revealed = ref(false);
 const original = ref(false);
 const previewSource = ref('');
 const decodedRatio = ref<number>();
-const confirmDelete = ref(false);
 const deleting = ref(false);
 const { data, isPending, error, refetch } = useQuery({
   queryKey: computed(() => ['images', session.identity, 'detail', props.image?.image_id]),
@@ -60,7 +59,7 @@ const pidURL = computed(() => {
   return pid ? `https://www.pixiv.net/artworks/${pid}` : undefined;
 });
 watch(() => props.image?.image_id, async value => {
-  ready.value = false; broken.value = false; revealed.value = false; original.value = false; confirmDelete.value = false; decodedRatio.value = undefined;
+  ready.value = false; broken.value = false; revealed.value = false; original.value = false; decodedRatio.value = undefined;
   await nextTick();
   if (value && !dialog.value?.open) {
     dialog.value?.showModal();
@@ -113,6 +112,9 @@ async function dismiss() {
 async function remove() {
   if (!data.value || deleting.value) return;
   const id = data.value.image_id;
+  if (!window.confirm(session.isAdmin
+    ? `确认删除图片“${data.value.pid || id}”及其标签关联？\n原图和预览文件也会删除，此操作无法恢复。`
+    : `确认提交图片“${data.value.pid || id}”的删除申请？\n图片将在管理员审核后处理。`)) return;
   deleting.value = true;
   try {
     const result = await requestJSON<{ status: string; message: string }>(`/api/images/${id}`, { method: 'DELETE' });
@@ -148,8 +150,7 @@ onBeforeUnmount(() => { closing = true; dialog.value?.close(); });
         <section v-if="data.pixiv_tags.length" class="modern-tag-section"><h3>Pixiv 标签</h3><div class="modern-pixiv-tags"><span v-for="item in data.pixiv_tags" :key="item.name" class="pm-tag">{{ item.translated_name || item.name }}</span></div></section>
         <details class="modern-file-info"><summary>文件信息</summary><dl class="modern-detail-facts"><div><dt>尺寸</dt><dd>{{ data.width }} × {{ data.height }}</dd></div><div><dt>分级</dt><dd>{{ data.age_rating.toUpperCase() }}</dd></div><div v-if="(data.pixiv_page_count || 0) > 1"><dt>作品页码</dt><dd>{{ (data.pixiv_page || 0) + 1 }} / {{ data.pixiv_page_count }}</dd></div></dl></details>
         <div class="modern-validation"><span :class="{ checked: data.local_verified }">{{ data.local_verified ? '本地已校验' : '本地未校验' }}</span><span :class="{ checked: data.pixiv_verified }">{{ data.pixiv_verified ? 'Pixiv 已校验' : 'Pixiv 未校验' }}</span></div>
-        <div class="modern-detail-actions"><button class="btn btn-primary" @click="emit('edit', data.image_id)"><AppIcon name="edit"/>编辑标签</button><a v-if="visible" class="modern-detail-icon" :href="`/api/images/${data.image_id}/download`" aria-label="下载原图" title="下载原图"><AppIcon name="download"/></a><button v-else class="modern-detail-icon" disabled aria-label="下载原图" title="请先揭示受限内容"><AppIcon name="download"/></button><button class="modern-detail-icon modern-detail-delete" :aria-label="session.isAdmin ? '删除图片' : '请求删除图片'" :title="session.isAdmin ? '删除图片' : '请求删除图片'" :aria-expanded="confirmDelete" @click="confirmDelete = !confirmDelete"><AppIcon name="trash"/></button></div>
-        <div v-if="confirmDelete" class="modern-delete-confirm"><p>{{ session.isAdmin ? '确认删除这张图片及其标签关联？' : '提交删除申请，由管理员审核？' }}</p><button class="btn btn-danger" :disabled="deleting" @click="remove">{{ deleting ? '处理中…' : '确认' }}</button><button class="btn btn-secondary" @click="confirmDelete = false">取消</button></div>
+        <div class="modern-detail-actions"><button class="btn btn-primary" @click="emit('edit', data.image_id)"><AppIcon name="edit"/>编辑标签</button><a v-if="visible" class="modern-detail-icon" :href="`/api/images/${data.image_id}/download`" aria-label="下载原图" title="下载原图"><AppIcon name="download"/></a><button v-else class="modern-detail-icon" disabled aria-label="下载原图" title="请先揭示受限内容"><AppIcon name="download"/></button><button class="modern-detail-icon modern-detail-delete" :aria-label="session.isAdmin ? '删除图片' : '请求删除图片'" :title="session.isAdmin ? '删除图片' : '请求删除图片'" :disabled="deleting" @click="remove"><AppIcon name="trash"/></button></div>
       </template>
     </aside>
   </div>

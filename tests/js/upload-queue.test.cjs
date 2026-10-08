@@ -36,8 +36,11 @@ const ids = Object.fromEntries([
     'upload-queue-close', 'upload-queue-clear',
 ].map(id => [id, element()]));
 
+let accepted = true;
+let confirmations = 0;
 const context = vm.createContext({
     console,
+    confirm() { confirmations++; return accepted; },
     document: {
         getElementById(id) { return ids[id] || null; },
         createElement() { return element(); },
@@ -70,8 +73,27 @@ assert.equal(queue.get(id).status, 'queued');
 queue.update(id, { status: 'uploading', progress: 48 });
 assert.equal(queue.get(id).progress, 48);
 queue.update(id, { status: 'success', progress: 100 });
+accepted = false;
+queue.clearFinished();
+assert.equal(queue.tasks.length, 1);
+queue.remove(id);
+assert.equal(queue.tasks.length, 1);
+accepted = true;
 queue.clearFinished();
 assert.equal(queue.tasks.length, 0);
+const activeId = queue.add({ name: 'active.png', status: 'uploading' });
+const countBeforeActive = confirmations;
+queue.remove(activeId);
+assert.equal(confirmations, countBeforeActive);
+assert(queue.get(activeId));
+queue.add({ name: 'done.png', status: 'success' });
+queue.add({ name: 'cancelled.png', status: 'cancelled' });
+queue.clearFinished();
+assert.equal(confirmations, countBeforeActive + 1);
+assert.equal(queue.tasks.length, 1);
+const removableId = queue.add({ name: 'failed.png', status: 'failed' });
+queue.remove(removableId);
+assert.equal(queue.get(removableId), null);
 
 let retried = 0;
 const failedId = queue.add({ name: 'retry.jpg', status: 'failed', retry: async () => { retried += 1; } });

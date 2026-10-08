@@ -2113,7 +2113,7 @@
                     const approveLabel = req.has_changes === false ? '判定未修改' : '批准';
                     const contentClass = mediaHtml ? 'request-content has-media' : 'request-content';
                     return `
-                        <div class="request-card">
+                        <div class="request-card" data-request-id="${req.id}" data-request-type="${escapeReviewHtml(req.request_type)}" data-duplicate-keep="${escapeReviewHtml(req.image_data?.duplicate_keep || '')}">
                             <div class="request-header">
                                 <div class="request-user">
                                     <img src="${avatar}" class="request-avatar" alt="${isGuest ? '网站图标' : '用户头像'}" onerror="this.onerror=null;this.src='/static/icon/Pic.png'">
@@ -2151,6 +2151,19 @@
 
         // 处理审核请求
         async function handleRequest(requestId, action) {
+            const card = document.querySelector(`[data-request-id="${requestId}"]`);
+            const type = card?.dataset.requestType;
+            let warning = '';
+            if (action === 'approve') {
+                if (type === 'delete') warning = '图片及其标签关联将被删除，此操作无法恢复。';
+                else if (type === 'group_delete') warning = '该分组及旗下角色将被删除。';
+                else if (type === 'character_delete') warning = '该角色及其图片关联将被移除。';
+                else if (type === 'duplicate_archive') warning = '重复图片将被归档，并从图库移除。';
+                else if (type === 'add' && ['merge-existing', 'merge-new'].includes(card?.dataset.duplicateKeep)) warning = '重复图片将被合并，只保留选定的文件，此操作无法恢复。';
+            } else if (action === 'reject' && type === 'add') {
+                warning = '本次上传的待审核文件将被删除。';
+            }
+            if (warning && !confirm(`确认${action === 'approve' ? '批准' : '拒绝'}审核 #${requestId}？\n${warning}`)) return;
             try {
                 let reason = null;
                 if (action === 'reject') {

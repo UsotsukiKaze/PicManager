@@ -19,8 +19,7 @@ def build_search_plan(db, index, profile, preferences, *, rotation=0, stock=Fals
 
     def words(kind, id_, group):
         values = [word for context, word in mapped[(kind, id_)] if context in (0, group)
-                  and index.mappings.get((normalize(word), group),
-                                         index.mappings.get((normalize(word), 0))) == (kind, id_)]
+                  and index.has_binding(word, kind, id_, group)]
         unique = list(dict.fromkeys(values))
         if stock:
             # Popularity qualifiers are narrower than the actual series/role tag.
@@ -50,8 +49,7 @@ def build_search_plan(db, index, profile, preferences, *, rotation=0, stock=Fals
             key = normalize(word)
             terms = terms or [word]
             if any(normalize(term) in blocked or
-                   index.mappings.get((normalize(term), group),
-                                      index.mappings.get((normalize(term), 0), ('', None)))[0] == 'ignore'
+                   index.is_ignored(term, group)
                    for term in terms):
                 return
             if key and key not in seen and len(word) <= 512:

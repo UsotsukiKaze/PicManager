@@ -219,6 +219,32 @@ def start_daily_snapshot_scheduler() -> None:
     threading.Thread(target=_worker, name="db_snapshot_scheduler", daemon=True).start()
 
 
+def _migrate_pixiv_mapping_targets(conn):
+    """Remove the old one-target constraint without losing mapping IDs or links."""
+    from sqlalchemy.schema import CreateTable, CreateIndex
+    from .models import PixivTagMapping
+
+    old_unique = False
+    for index in conn.execute(text('PRAGMA index_list(pixiv_tag_mappings)')).mappings():
+        if not index['unique']:
+            continue
+        name = index['name'].replace('"', '""')
+        columns = [row[2] for row in conn.execute(text(f'PRAGMA index_info("{name}")'))]
+        if columns == ['normalized_tag', 'group_context']:
+            old_unique = True
+    if not old_unique:
+        return
+    table = PixivTagMapping.__table__
+    ddl = str(CreateTable(table).compile(dialect=conn.dialect))
+    conn.execute(text(ddl.replace('CREATE TABLE pixiv_tag_mappings', 'CREATE TABLE pixiv_tag_mappings_multi', 1)))
+    columns = ', '.join(column.name for column in table.columns)
+    conn.execute(text(f'INSERT INTO pixiv_tag_mappings_multi ({columns}) SELECT {columns} FROM pixiv_tag_mappings'))
+    conn.execute(text('DROP TABLE pixiv_tag_mappings'))
+    conn.execute(text('ALTER TABLE pixiv_tag_mappings_multi RENAME TO pixiv_tag_mappings'))
+    for index in table.indexes:
+        conn.execute(CreateIndex(index))
+
+
 def apply_migrations():
     """对SQLite执行必要的结构迁移（增量）"""
     with engine.connect() as conn:
@@ -306,6 +332,7 @@ def apply_migrations():
                 conn.execute(text(f"CREATE INDEX IF NOT EXISTS ix_pixiv_tag_mappings_{column} ON pixiv_tag_mappings ({column})"))
             conn.execute(text("UPDATE pixiv_tag_mappings SET original_tag=normalized_tag WHERE original_tag IS NULL"))
             conn.execute(text("UPDATE pixiv_tag_mappings SET confirmed_at=CURRENT_TIMESTAMP WHERE confirmed_at IS NULL"))
+            _migrate_pixiv_mapping_targets(conn)
         # Preserve every prior Pixiv completion, including metadata and legacy HD checks.
         conn.execute(text("UPDATE images SET pixiv_checked_at=(SELECT validated_at FROM pixiv_image_metadata m WHERE m.image_id=images.image_id) WHERE pixiv_checked_at IS NULL AND EXISTS (SELECT 1 FROM pixiv_image_metadata m WHERE m.image_id=images.image_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_images_local_checked_at ON images (local_checked_at)"))

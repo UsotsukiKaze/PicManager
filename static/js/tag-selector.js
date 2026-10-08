@@ -65,6 +65,8 @@ class ImageTagSelector {
 
     remove(type, id) {
         const key = `${type}_ids`;
+        if (!(this.selected[key] || []).includes(id)) return;
+        if (!confirm(`确认从当前图片移除“${this.getLabel(type, id)}”标签？\n不会删除图库中的标签或 Pixiv 关联。`)) return;
         this.selected[key] = (this.selected[key] || []).filter(item => item !== id);
         this.notify();
     }

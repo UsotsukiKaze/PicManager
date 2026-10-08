@@ -327,7 +327,7 @@ class UIManager {
                     return;
                 }
                 this.activateFeature('pixiv-ol-page', 'pixiv-ol', async () => {
-                    await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261007b');
+                    await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261008-compound');
                     const feature = await window.auth.loadFeature('pixiv');
                     await feature.init();
                 }, 'Pixiv-ol 加载失败，请重试');
@@ -339,7 +339,7 @@ class UIManager {
                 this.loadSystemStatus();
                 if (window.auth.isAdmin()) {
                     this.activateFeature('pixiv-settings', 'settings', async () => {
-                        await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261007b');
+                        await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261008-compound');
                         const feature = await window.auth.loadFeature('pixiv');
                         await feature.initSettings();
                     }, 'Pixiv 设置加载失败，请重试');
@@ -708,6 +708,7 @@ class UIManager {
     resetAvatarUpload(prefix) {
         const hidden = document.getElementById(`${prefix}-avatar-url`);
         const preview = document.getElementById(`${prefix}-avatar-preview`);
+        if (hidden?.value && !confirm('确认移除自定义头像并恢复网页图标？\n保存资料后生效。')) return;
         if (hidden) hidden.value = '';
         if (preview) preview.src = '/static/icon/Pic.png';
     }
@@ -1872,7 +1873,7 @@ class UIManager {
                 api.getFeatureTags()
             ]);
             const pixiv = await auth.loadFeature('pixiv');
-            await auth.loadStyle('/static/css/pixiv-ol.css?v=20261007b');
+            await auth.loadStyle('/static/css/pixiv-ol.css?v=20261008-compound');
             const rawTags = (image.pixiv_tags || []).filter(tag => tag && tag.name);
             let mappings = [], mappingError = '';
             if (rawTags.length) {
@@ -1892,10 +1893,14 @@ class UIManager {
             const evidence = rawTags.flatMap(tag => {
                 const candidates = mappings.filter(row => normalize(row.tag) === normalize(tag.name));
                 const scoped = candidates.filter(row=>row.group_context&&mappingContext.has(row.group_context));
-                const choices = scoped.length ? scoped : candidates.filter(row=>!row.group_context);
-                const targets = new Set(choices.map(row=>`${row.target_type}:${row.target_id}`));
-                const mapping = targets.size===1 ? choices[0] : null;
-                return mapping && mapping.target_type!=='ignore' ? [{pixiv_tag:tag.name, type:mapping.target_type, id:mapping.target_id}] : [];
+                const scopes = [...new Set(scoped.map(row=>row.group_context))];
+                const signatures = new Set(scopes.map(scope=>scoped.filter(row=>row.group_context===scope).map(row=>`${row.target_type}:${row.target_id}`).sort().join('|')));
+                if(signatures.size>1||scoped.some(row=>row.target_type==='ignore'))return [];
+                const scopedKinds = new Set(scoped.map(row=>row.target_type));
+                const choices = scoped.length ? [...scoped,...candidates.filter(row=>!row.group_context&&row.target_type!=='ignore'&&!scopedKinds.has(row.target_type))] : candidates.filter(row=>!row.group_context);
+                if(choices.some(row=>row.target_type==='ignore'))return [];
+                const unique = new Map(choices.map(row=>[`${row.target_type}:${row.target_id}`,row]));
+                return [...unique.values()].map(row=>({pixiv_tag:tag.name,type:row.target_type,id:row.target_id}));
             });
             
             const content = `
@@ -2337,7 +2342,7 @@ function formatMaintenanceBytes(value) {
 }
 
 async function reviewPixivCheck(result, onConfirm=null) {
-    await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261007b');
+    await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261008-compound');
     if(result.queue_processing&&(window.pixivValidationStop||ui.currentPage!=='settings'||!ui.isAdminView()))return null;
     return new Promise(resolve=>{
         const safe=value=>ui.escapeHomeRankingText(value??'');
@@ -2688,6 +2693,7 @@ async function scanPixivUpgrades() {
     if(!ui.isAdminView()){ui.showToast('只有管理员可以执行维护操作','warning');return;}
     const state=pixivCheckQueueState;
     if(state.starting)return;
+    if(!confirm('确认开始 Pixiv 校验？\n连续三次拒绝访问的失效作品会清除 PID，图片文件会保留；有争议的作品进入待确认队列。'))return;
     state.starting=true;state.autoPaused=false;state.offset=0;state.deferred.clear();window.pixivValidationStop=false;
     const button=document.getElementById('scan-pixiv-upgrades-button');if(button)button.disabled=true;
     try {

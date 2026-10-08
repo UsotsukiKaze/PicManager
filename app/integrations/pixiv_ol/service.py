@@ -363,8 +363,7 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
     blocked = {normalize(tag) for tag in preferences.get('blocked_tags', [])}
     pending_queries = [query for query in pending_queries if (query["group"] in profile["quotas"] or independent and query['group'] is None)
                        and not any(normalize(term) in blocked or
-                                   index.mappings.get((normalize(term), query['group']),
-                                                      index.mappings.get((normalize(term), 0), ('', None)))[0] == 'ignore'
+                                   index.is_ignored(term, query['group'])
                                    for term in query.get('terms', [query['word']]))]
     pending_seeds = list(stream.get("deferred_seeds", [])) if continuation else list(seeds)
     if mode in ("native", "discovery"):

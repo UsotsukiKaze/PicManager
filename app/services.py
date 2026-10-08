@@ -259,7 +259,7 @@ class CharacterService:
                 for mapping in db_character.pixiv_mappings:
                     conflicting = db.query(models.PixivTagMapping).filter_by(
                         normalized_tag=mapping.normalized_tag, group_context=update_data["group_id"]
-                    ).first()
+                    ).filter(models.PixivTagMapping.target_type == 'ignore').first()
                     if conflicting and conflicting.id != mapping.id:
                         raise ValueError("目标分组已有同名 Pixiv 标签映射，请先在标签管理中处理映射冲突")
             for field, value in update_data.items():

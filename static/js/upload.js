@@ -279,10 +279,11 @@ class UploadManager {
         return document.querySelector(`.batch-item[data-batch-id="${itemId}"]`);
     }
 
-    removeBatchItem(itemId) {
+    removeBatchItem(itemId, confirmed = false) {
         if (this.batchSubmitting) return;
         const index = this.batchFiles.findIndex(item => item.id === Number(itemId));
         if (index < 0) return;
+        if (!confirmed && !confirm(`确认从上传列表移除“${this.batchFiles[index].file.name}”？\n已入库的图片和原文件不会被删除。`)) return;
         const [item] = this.batchFiles.splice(index, 1);
         if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
         delete window.imageTagSelectors[`batch-tag-selector-${item.id}`];
@@ -307,10 +308,11 @@ class UploadManager {
 
     clearSuccessfulBatchItems() {
         if (this.batchSubmitting) return;
-        this.batchFiles
+        const completed = this.batchFiles
             .filter(item => item.status === 'success' || item.status === 'pending-review')
-            .map(item => item.id)
-            .forEach(itemId => this.removeBatchItem(itemId));
+            .map(item => item.id);
+        if (!completed.length || !confirm(`确认清理 ${completed.length} 条已提交的上传记录？\n已入库图片及待审核申请不会被删除。`)) return;
+        completed.forEach(itemId => this.removeBatchItem(itemId, true));
     }
 
     syncBatchItemFromDom(item) {
@@ -477,6 +479,8 @@ class UploadManager {
             layer.querySelector('[data-duplicate-action="distinct"]').onclick=()=>finish({action:'distinct',otherImageId:items.find(item=>item.image_id!=='new')?.image_id});
             layer.querySelector('[data-duplicate-action="confirm-merge"]').onclick=()=>{
                 const keep=layer.querySelector('input[name="duplicate-file-keep"]:checked').value,metadataSources={};
+                const discarded=items.find(item=>item.image_id!==keep);
+                if(!confirm(`确认合并并删除另一份图片“${discarded?.image_id==='new'?'本次上传图片':discarded?.image_id||'重复图片'}”？\n只保留选定的文件，此操作无法恢复。`))return;
                 layer.querySelectorAll('[data-merge-field]').forEach(select=>metadataSources[select.dataset.mergeField]=select.value);
                 finish({action:'merge',keep,otherImageId:items.find(item=>item.image_id!=='new')?.image_id,metadataSources});
             };
@@ -527,7 +531,7 @@ class UploadManager {
         // Transfer ownership of the preview URL to the queued task before the
         // form resets, so another single image can be submitted immediately.
         this.singlePreviewUrl = null;
-        this.clearSingleUpload();
+        this.clearSingleUpload(true);
     }
 
     async uploadSingleImage(queueContext = null) {
@@ -750,7 +754,8 @@ class UploadManager {
         }
     }
 
-    clearSingleUpload() {
+    clearSingleUpload(confirmed = false) {
+        if (!confirmed && !confirm('确认清空当前上传文件和标签草稿？\n原文件及已提交的后台任务不会被删除。')) return;
         // 清空文件输入
         const fileInput = document.getElementById('single-file-input');
         if (fileInput) fileInput.value = '';
@@ -1114,7 +1119,7 @@ class UploadManager {
         const source={rect:sourceImage?.getBoundingClientRect(),url:sourceImage?.currentSrc||sourceImage?.src,ratio:sourceImage?.naturalWidth&&sourceImage?.naturalHeight?sourceImage.naturalWidth/sourceImage.naturalHeight:1};
         this.tempOpening=true;
         try {
-            if(!window.TempUploadWorkbench)await window.auth.loadScript('/static/js/temp-upload.js?v=20261004s');
+            if(!window.TempUploadWorkbench)await window.auth.loadScript('/static/js/temp-upload.js?v=20261008-compound');
             this.tempWorkbench ||= new window.TempUploadWorkbench(this);
             await this.tempWorkbench.open(imageNameEncoded,source);
         } catch(error) {ui.showToast(error.message||'加载表单失败','error');}

@@ -136,6 +136,11 @@ class MappingBody(BaseModel):
     group_context: int = Field(default=0, ge=0)
     target_type: Literal["group", "character", "feature", "ignore"]
     target_id: int | None = None
+    replace: bool = False
+
+
+class MappingBatchBody(BaseModel):
+    bindings: list[MappingBody] = Field(min_length=1, max_length=50)
 
 
 class CartAddBody(BaseModel):
@@ -1298,8 +1303,22 @@ def mappings(target_type: Literal["group", "character", "feature", "ignore"] | N
 def save_mapping(body: MappingBody):
     with get_db_context() as db:
         from ...tag_mappings import save_mapping as persist
-        try: persist(db, body.tag, body.target_type, body.target_id, body.group_context)
+        try: persist(db, body.tag, body.target_type, body.target_id, body.group_context, replace=body.replace)
         except ValueError as exc: raise HTTPException(422, str(exc)) from None
+    return {"saved": True}
+
+
+@router.post("/tag-mappings/batch", dependencies=[Depends(write_guard), Depends(require_root_user_id)])
+def save_mapping_batch(body: MappingBatchBody):
+    from ...tag_mappings import save_mapping as persist
+    with get_db_context() as db:
+        try:
+            for binding in body.bindings:
+                if binding.replace or binding.target_type == 'ignore':
+                    raise ValueError('批量关联只能添加标签，请单独处理忽略或替换')
+                persist(db, binding.tag, binding.target_type, binding.target_id, binding.group_context)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
     return {"saved": True}
 
 

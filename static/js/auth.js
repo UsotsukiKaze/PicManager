@@ -7,15 +7,15 @@ class AuthManager {
         this.featureLoadPromises = {};
         this.featureAssets = {
             pixiv: {
-                src: '/static/js/pixiv-ol.js?v=20261008-modes',
+                src: '/static/js/pixiv-ol.js?v=20261008-confirm',
                 resolve: () => window.pixivOL,
             },
             upload: {
-                src: '/static/js/upload.js?v=20261004s',
+                src: '/static/js/upload.js?v=20261008-confirm',
                 resolve: () => window.upload,
             },
             emoji: {
-                src: '/static/js/emoji-library.js?v=20260927a',
+                src: '/static/js/emoji-library.js?v=20261008-confirm',
                 resolve: () => window.emojiLibrary,
             },
         };
@@ -131,17 +131,17 @@ class AuthManager {
                 '/static/js/security.js?v=20260820a',
                 '/static/vendor/pinyin-pro-3.29.2.min.js?v=3.29.2',
                 '/static/js/pinyin-search.js?v=20260820c',
-                '/static/js/character-selector.js?v=20260820b',
-                '/static/js/tag-selector.js?v=20261004f',
+                '/static/js/character-selector.js?v=20261008-confirm',
+                '/static/js/tag-selector.js?v=20261008-confirm',
                 '/static/js/api.js?v=20261007a',
-                '/static/js/upload-queue.js?v=20261007a',
+                '/static/js/upload-queue.js?v=20261008-confirm',
                 '/static/js/query-panel.js?v=20260820d',
                 '/static/js/entity-cache.js?v=20260820a',
                 '/static/js/search-selector.js?v=20260820d',
                 '/static/js/image-list.js?v=20261007a',
                 '/static/js/modal.js?v=20261004q',
-                '/static/js/workspace-shell.js?v=20261007a',
-                '/static/js/ui.js?v=20261007d',
+                '/static/js/workspace-shell.js?v=20261008-confirm',
+                '/static/js/ui.js?v=20261008-confirm',
                 '/static/js/main.js?v=20261004f',
             ];
 

@@ -676,7 +676,7 @@ class PixivImageSource(Base):
 
 class PixivTagMapping(Base):
     __tablename__ = "pixiv_tag_mappings"
-    __table_args__ = (UniqueConstraint("normalized_tag", "group_context"),)
+    __table_args__ = (UniqueConstraint("normalized_tag", "group_context", "target_type", "target_id"),)
     id = Column(Integer, primary_key=True)
     normalized_tag = Column(String(255), nullable=False)
     group_context = Column(Integer, default=0, nullable=False)

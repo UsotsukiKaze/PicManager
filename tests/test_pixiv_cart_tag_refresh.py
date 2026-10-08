@@ -27,7 +27,7 @@ def add_cart(cart_env, *, split=False):
 
 
 def remap(client, target=2):
-    assert client.post('/api/pixiv-ol/tag-mappings', json={'tag':'外部特征','target_type':'feature','target_id':target}).status_code == 200
+    assert client.post('/api/pixiv-ol/tag-mappings', json={'tag':'外部特征','target_type':'feature','target_id':target,'replace':True}).status_code == 200
 
 
 def refresh(client):

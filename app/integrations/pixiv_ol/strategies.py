@@ -226,7 +226,7 @@ def search_plan(db, index, profile, preferences, mode, rotation):
             words.extend(profile['feature_query_tags'].get(tag, [])[:1] or bound[:1] or [index.features[tag].name])
     blocked = {normalize(word) for word in preferences.get('blocked_tags', [])}
     for word in words:
-        if normalize(word) not in blocked and index.mappings.get((normalize(word), 0), ('', None))[0] != 'ignore':
+        if normalize(word) not in blocked and not index.is_ignored(word):
             broad.append({'group':None, 'word':word, 'search_target':'exact_match_for_tags',
                           'source':'personal_tag' if mode == 'personal' else 'feature_exploration', 'terms':[word]})
     if broad:

@@ -16,6 +16,15 @@ def normalize(text):
     return " ".join(unicodedata.normalize("NFKC", str(text)).casefold().split())
 
 
+def explicit_role_bundle(match, ids):
+    """Multiple roles are intentional only when one confirmed tag binds them."""
+    roles = defaultdict(set)
+    for row in match['evidence']:
+        if row['type'] == 'character' and row['basis'] == 'confirmed_mapping':
+            roles[row['pixiv_tag']].add(row['id'])
+    return bool(ids) and any(set(ids) <= bundle for bundle in roles.values())
+
+
 class TagIndex:
     def __init__(self, db):
         self.groups = {x.id: x for x in db.query(models.Group).options(selectinload(models.Group.aliases)).all()}
@@ -38,14 +47,40 @@ class TagIndex:
                 aliases = [getattr(x, "alias", getattr(x, "nickname", "")) for x in getattr(obj, alias_attr)]
                 for name in {normalize(x) for x in [obj.name, *aliases] if x}:
                     self.names[name].append((kind, obj.id))
-        self.mappings = {
-            (x.normalized_tag, x.group_context): (x.target_type, x.target_id)
-            for x in db.query(models.PixivTagMapping).all()
-        }
+        self.mappings = {}
+        for row in db.query(models.PixivTagMapping).order_by(models.PixivTagMapping.id).all():
+            key = (row.normalized_tag, row.group_context)
+            self.mappings[key] = self.mappings.get(key, frozenset()) | {(row.target_type, row.target_id)}
         self.scoped_characters = defaultdict(set)
-        for (tag, group), (kind, role) in self.mappings.items():
-            if group and kind == 'character' and role in self.characters and self.characters[role].group_id == group:
-                self.scoped_characters[tag].add(group)
+        for (tag, group), targets in self.mappings.items():
+            for kind, role in targets:
+                if group and kind == 'character' and role in self.characters and self.characters[role].group_id == group:
+                    self.scoped_characters[tag].add(group)
+
+    def mapping_targets(self, name, context=()):
+        """Explicit targets are cumulative within a scope, ambiguous across scopes."""
+        key = normalize(name)
+        global_targets = self.mappings.get((key, 0), frozenset())
+        scoped = {self.mappings[(key, group)] for group in context if (key, group) in self.mappings}
+        if len(scoped) > 1:
+            return frozenset(), True
+        if not scoped:
+            return global_targets, False
+        targets = next(iter(scoped))
+        if any(kind == 'ignore' for kind, _ in targets):
+            return frozenset({('ignore', None)}), False
+        # A scoped role can retain a global costume/feature association. Scoped
+        # associations of the same type override the generic interpretation.
+        kinds = {kind for kind, _ in targets}
+        return targets | {(kind, id_) for kind, id_ in global_targets if kind not in kinds and kind != 'ignore'}, False
+
+    def is_ignored(self, name, group=None):
+        targets, conflict = self.mapping_targets(name, [group] if group else ())
+        return not conflict and any(kind == 'ignore' for kind, _ in targets)
+
+    def has_binding(self, name, kind, id_, group):
+        targets, conflict = self.mapping_targets(name, [group])
+        return not conflict and (kind, id_) in targets
 
     def match(self, tags, *, group_context=()):
         context = set(group_context) & self.groups.keys()
@@ -55,52 +90,49 @@ class TagIndex:
         for phase in (0, 1):
             for tag in tags:
                 name = tag["name"]
-                if any(x["pixiv_tag"] == name for x in evidence):
+                previous = [x for x in evidence if x['pixiv_tag'] == name]
+                if previous and any(x['basis'] != 'confirmed_mapping' or x['type'] == 'ignore' for x in previous):
                     continue
-                mapping = self.mappings.get((normalize(name), 0))
-                scoped = {self.mappings[(normalize(name), group_id)]
-                          for group_id in (context or matched["group"])
-                          if (normalize(name), group_id) in self.mappings}
-                if len(scoped) > 1:
+                scope = context or matched['group']
+                if phase and not scope and len(self.scoped_characters.get(normalize(name), ())) == 1:
+                    scope = self.scoped_characters[normalize(name)]
+                mapping, conflict = self.mapping_targets(name, scope)
+                if conflict:
                     if phase:
                         conflicts.append(name)
                     continue
-                if scoped:
-                    mapping = next(iter(scoped))
-                choices = [mapping] if mapping else self.names.get(normalize(name), [])
+                choices = sorted(mapping, key=lambda row:(row[0], row[1] or 0)) if mapping else self.names.get(normalize(name), [])
                 basis = "confirmed_mapping" if mapping else "name_or_alias"
                 if not choices and tag.get("translated_name"):
                     choices = self.names.get(normalize(tag["translated_name"]), [])
                     basis = "translated_name"
                 if phase == 0:
                     choices = [x for x in choices if x[0] in ("group", "ignore")]
-                elif len(choices) > 1 and matched["group"]:
+                elif not mapping and len(choices) > 1 and matched["group"]:
                     choices = [
                         x for x in choices if x[0] != "character" or self.characters[x[1]].group_id in matched["group"]
                     ]
-                if len(choices) != 1:
+                if not choices and previous:
+                    continue
+                if not choices or not mapping and len(choices) != 1:
                     if phase:
                         (conflicts if choices else unmatched).append(name)
                     continue
-                kind, target_id = choices[0]
                 objects = {"group": self.groups, "character": self.characters, "feature": self.features}
-                if kind != "ignore" and target_id not in objects.get(kind, {}):
+                if any(kind != 'ignore' and id_ not in objects.get(kind, {}) for kind, id_ in choices):
                     if phase:
                         conflicts.append(name)
                     continue
-                if kind != "ignore":
-                    matched[kind].add(target_id)
-                evidence.append(
-                    {
-                        "pixiv_tag": name,
-                        "type": kind,
-                        "id": target_id,
-                        "name": objects[kind][target_id].name if kind != "ignore" else name,
-                        "basis": basis,
-                    }
-                )
-                if kind == "character":
-                    matched["group"].add(self.characters[target_id].group_id)
+                for kind, target_id in choices:
+                    if any(x['type'] == kind and x['id'] == target_id for x in previous):
+                        continue
+                    if kind != "ignore":
+                        matched[kind].add(target_id)
+                    evidence.append({"pixiv_tag": name, "type": kind, "id": target_id,
+                                     "name": objects[kind][target_id].name if kind != "ignore" else name,
+                                     "basis": basis})
+                    if kind == "character":
+                        matched["group"].add(self.characters[target_id].group_id)
         return {
             "group_ids": sorted(matched["group"]),
             "character_ids": sorted(matched["character"]),
@@ -136,7 +168,7 @@ def recommendation_match(index, tags, groups):
     groups = set(groups)
     for tag in tags:
         name = normalize(tag.get('name', ''))
-        if (name, 0) in index.mappings:
+        if index.is_ignored(name):
             continue
         scopes.update(index.scoped_characters.get(name, set()) & groups)
     return index.match(tags, group_context=scopes) if len(scopes) == 1 else match

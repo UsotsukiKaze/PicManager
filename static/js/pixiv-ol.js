@@ -454,6 +454,7 @@
                 else if(action==='cart-edit') await this.detail(null,this.cartItems.find(row=>row.id===button.dataset.id),button.closest('.px-cart-page,.px-cart-row')?.querySelector('img'),button.dataset.page===undefined?null:Number(button.dataset.page));
                 else if(action==='cart-remove') {
                     const row=this.cartItems.find(row=>row.id===button.dataset.id);
+                    if(!confirm(`确认将“${row?.artwork.title||'这幅作品'}”移出优选夹？\n缓存原图和标签草稿将被清理，已入库图片和喜欢状态会保留。`))return;
                     const removed=await request(`/cart/${button.dataset.id}`,{method:'DELETE'});
                     await this.loadCart();await this.render();
                     if(removed.liked)this.askRemoveLike(removed.pid,row?.artwork.title);
@@ -467,9 +468,9 @@
                     await this.showImportProgress();
                 } else if(action==='retry') {await request(`/jobs/${Number(button.dataset.id)}/retry`,{method:'POST'});this.watch();}
                 else if(action==='merge-review') {await this.reviewImportJob(Number(button.dataset.id));}
-                else if(action==='resolve') {await request(`/imports/${Number(button.dataset.id)}/resolve`,{method:'POST',body:JSON.stringify({action:button.dataset.choice,image_id:button.dataset.image || null})});this.watch();}
+                else if(action==='resolve') {if(button.dataset.choice?.startsWith('merge')&&!confirm('确认合并并删除另一份重复图片？\n只保留选定的文件，此操作无法恢复。'))return;await request(`/imports/${Number(button.dataset.id)}/resolve`,{method:'POST',body:JSON.stringify({action:button.dataset.choice,image_id:button.dataset.image || null})});this.watch();}
                 else if(action==='login') await this.login();
-                else if(action==='disconnect') {await request('/account',{method:'DELETE'});await this.loadAccount();await this.loadCart();await this.settings();}
+                else if(action==='disconnect') {if(!confirm(`确认解除 Pixiv 账号“${this.account.name||'当前账号'}”的绑定？\n登录凭据、优选夹缓存及 Pixiv 喜欢记录将被清理，已入库图片会保留。`))return;await request('/account',{method:'DELETE'});await this.loadAccount();await this.loadCart();await this.settings();}
                 else if(action==='save-settings') await this.saveSettings();
 
             } finally {button.disabled=button.classList.contains('px-added');this.updateRefreshButton();}
@@ -669,6 +670,7 @@
         }
         async toggleLike(pid, button) {
             const liked=button.getAttribute('aria-pressed')==='true';
+            if(liked&&!confirm('确认取消这幅作品的喜欢状态？\n作品仍保留在图库或优选夹中。'))return;
             button.disabled=true;
             try {
                 await request('/feedback',{method:'POST',body:JSON.stringify({pid,value:liked?'clear':'like'})});
@@ -830,15 +832,22 @@
             // reopening, including tags the user deliberately removed.
             selector.setSelected(draft);
             let newTags=[...(draft.new_tags||[])],chooser=null,dragIndex=null,suppressClickUntil=0;
-            const associations=new Map((item.match.evidence||[]).map(row=>[row.pixiv_tag,{type:row.type==='feature'?'feature_tag':row.type,id:row.id}]));
+            const associations=new Map();
+            for(const row of item.match.evidence||[]){
+                if(row.type==='ignore'||row.basis&&row.basis!=='confirmed_mapping')continue;
+                const values=associations.get(row.pixiv_tag)||[];
+                values.push({type:row.type==='feature'?'feature_tag':row.type,id:row.id});associations.set(row.pixiv_tag,values);
+            }
+            const isAssociated=(name,target)=>(associations.get(name)||[]).some(row=>row.type===target.type&&row.id===target.id);
             const busy=new Set();
             const targets=()=>[['group',selector.groups],['character',selector.characters],['feature_tag',selector.featureTags]].flatMap(([type,items])=>items.filter(entity=>selector.getValue()[`${type}_ids`].includes(entity.id)).map(entity=>({type,id:entity.id,name:entity.name,group:entity.group_id})));
             const targetLabel=target=>`${{group:'分组',character:'角色',feature_tag:'特征'}[target.type]} · ${target.name}${target.type==='character'?`（${selector.getLabel('group',target.group)}）`:''}`;
             const renderSource=()=>{
                 const current=targets();
                 source.innerHTML=item.tags.map((tag,index)=>{
-                    const association=associations.get(tag.name),target=current.find(row=>row.type===association?.type&&row.id===association.id);
-                    return `<button type="button" class="px-source-tag ${target?'is-associated':''}" data-source-index="${index}" draggable="${root&&!busy.has(tag.name)}" ${!root||busy.has(tag.name)?'disabled':''} title="${esc([tag.translated_name,target?`已关联 ${targetLabel(target)}`:'点击或拖拽关联'].filter(Boolean).join(' · '))}" aria-label="${esc(tag.name)}${target?`，已关联 ${esc(targetLabel(target))}`:'，关联到入库标签'}"><span>${esc(tag.name)}</span>${target?`${icon('check')}<small>${esc(target.name)}</small>`:''}</button>`;
+                    const linked=current.filter(row=>isAssociated(tag.name,row));
+                    const label=linked.map(targetLabel).join('、');
+                    return `<button type="button" class="px-source-tag ${linked.length?'is-associated':''}" data-source-index="${index}" draggable="${root&&!busy.has(tag.name)}" ${!root||busy.has(tag.name)?'disabled':''} title="${esc([tag.translated_name,linked.length?`已关联 ${label}；可继续添加关联`:'点击或拖拽关联'].filter(Boolean).join(' · '))}" aria-label="${esc(tag.name)}${linked.length?`，已关联 ${esc(label)}`:'，关联到入库标签'}"><span>${esc(tag.name)}</span>${linked.length?`${icon('check')}<small>${esc(linked.map(row=>row.name).join(' + '))}</small>`:''}</button>`;
                 }).join('');
                 if(!root)feedback.textContent='由 Root 建立 Pixiv 标签关联';
             };
@@ -847,18 +856,22 @@
                 container.hidden=!newTags.length;
                 container.innerHTML=newTags.map((tag,index)=>`<button type="button" class="pm-tag pm-tag-feature_tag" data-legacy-index="${index}" title="原有草稿中的待创建特征标签"><span>${esc(tag)}</span><small>待创建</small><b aria-hidden="true">×</b></button>`).join('');
             };
-            reader.querySelector('.px-legacy-tags').onclick=event=>{const tag=event.target.closest('[data-legacy-index]');if(tag){newTags.splice(Number(tag.dataset.legacyIndex),1);renderLegacy();}};
-            const associate=async(index,target)=>{
+            reader.querySelector('.px-legacy-tags').onclick=event=>{const tag=event.target.closest('[data-legacy-index]');if(tag){const index=Number(tag.dataset.legacyIndex);if(!confirm(`确认移除待创建标签“${newTags[index]}”？`))return;newTags.splice(index,1);renderLegacy();}};
+            const associateMany=async(index,chosen)=>{
                 const tag=item.tags[index];
-                if(!root||!tag||busy.has(tag.name)||!targets().some(row=>row.type===target.type&&row.id===target.id))return;
+                if(!root||!tag||busy.has(tag.name))return;
+                const available=targets(),pending=chosen.filter(target=>!isAssociated(tag.name,target));
+                if(!pending.length)return;
+                if(pending.some(target=>!available.some(row=>row.type===target.type&&row.id===target.id)))throw new Error('标签池已变化，请重新选择关联');
                 busy.add(tag.name);renderSource();feedback.textContent='正在保存关联…';
                 try {
-                    await request('/tag-mappings',{method:'POST',body:JSON.stringify({tag:tag.name,target_type:target.type==='feature_tag'?'feature':target.type,target_id:target.id})});
-                    associations.set(tag.name,{type:target.type,id:target.id});this.readingStates.clear();
-                    if(reader.isConnected){feedback.textContent=`${tag.name} 已关联到 ${target.name}`;const chip=pool.querySelector(`[data-tag-type="${target.type}"][data-tag-id="${target.id}"]`);chip?.animate([{transform:'scale(1)',opacity:.65},{transform:'scale(1.08)',opacity:1},{transform:'scale(1)',opacity:1}],{duration:350});}
+                    await request('/tag-mappings/batch',{method:'POST',body:JSON.stringify({bindings:pending.map(target=>({tag:tag.name,target_type:target.type==='feature_tag'?'feature':target.type,target_id:target.id}))})});
+                    associations.set(tag.name,[...(associations.get(tag.name)||[]),...pending.map(target=>({type:target.type,id:target.id}))]);this.readingStates.clear();
+                    if(reader.isConnected){feedback.textContent=`${tag.name} 已关联到 ${available.filter(target=>isAssociated(tag.name,target)).map(row=>row.name).join(' + ')}`;for(const target of pending){const chip=pool.querySelector(`[data-tag-type="${target.type}"][data-tag-id="${target.id}"]`);chip?.animate([{transform:'scale(1)',opacity:.65},{transform:'scale(1.08)',opacity:1},{transform:'scale(1)',opacity:1}],{duration:350});}}
                 } catch(error) {if(reader.isConnected)feedback.textContent=error.message;throw error;}
                 finally {busy.delete(tag.name);if(reader.isConnected)renderSource();}
             };
+            const associate=(index,target)=>associateMany(index,[target]);
             const clearDrop=()=>pool.querySelectorAll('.is-drop-target').forEach(node=>node.classList.remove('is-drop-target'));
             source.addEventListener('dragstart',event=>{
                 const bubble=event.target.closest('[data-source-index]');if(!root||!bubble||bubble.disabled){event.preventDefault();return;}
@@ -879,13 +892,18 @@
                 const index=Number(bubble.dataset.sourceIndex),options=targets();
                 if(!options.length){feedback.textContent='请先用“添加标签”选择入库标签，再建立关联。';return;}
                 chooser?.close();chooser?.remove();chooser=document.createElement('dialog');chooser.className='px-dialog px-mapping-dialog px-cart-associate';
-                chooser.innerHTML=`<div class="px-detail-body"><button class="px-icon-button px-dialog-close" aria-label="关闭">${icon('close')}</button><span class="px-eyebrow">TAG CONNECTION</span><h3>${esc(item.tags[index].name)}</h3><p class="px-help">选择已加入标签池的标签，关联会在后续匹配中复用。</p><div class="px-associate-targets">${options.map((target,i)=>`<button type="button" class="pm-tag pm-tag-${target.type}" data-target-index="${i}">${esc(targetLabel(target))}</button>`).join('')}</div><p class="px-error" role="alert"></p></div>`;
+                chooser.innerHTML=`<div class="px-detail-body"><button class="px-icon-button px-dialog-close" aria-label="关闭">${icon('close')}</button><span class="px-eyebrow">TAG CONNECTIONS</span><h3>${esc(item.tags[index].name)}</h3><p class="px-help">可同时选择多个标签，例如角色 + 泳装，或两个角色。已有的关联保留，可在标签管理中移除。</p><div class="px-associate-targets">${options.map((target,i)=>{const linked=isAssociated(item.tags[index].name,target);return `<button type="button" class="pm-tag pm-tag-${target.type} ${linked?'is-selected':''}" data-target-index="${i}" aria-pressed="${linked}" ${linked?'disabled':''}>${esc(targetLabel(target))}${linked?'<small>已关联</small>':''}</button>`;}).join('')}</div><p class="px-error" role="alert"></p><button type="button" class="px-button px-primary" data-associate-save disabled>保存关联</button></div>`;
                 const popup=chooser,close=()=>{popup.close();popup.remove();if(chooser===popup)chooser=null;};
                 document.body.append(popup);popup.showModal();popup.querySelector('.px-dialog-close').onclick=close;popup.addEventListener('cancel',event=>{event.preventDefault();close();});
-                popup.querySelectorAll('[data-target-index]').forEach(button=>button.onclick=async()=>{
-                    popup.querySelectorAll('[data-target-index]').forEach(node=>node.disabled=true);
-                    try{await associate(index,options[Number(button.dataset.targetIndex)]);close();}catch(error){popup.querySelector('.px-error').textContent=error.message;popup.querySelectorAll('[data-target-index]').forEach(node=>node.disabled=false);}
+                const selected=new Set(),save=popup.querySelector('[data-associate-save]');
+                popup.querySelectorAll('[data-target-index]').forEach(button=>button.onclick=()=>{
+                    const value=Number(button.dataset.targetIndex);if(selected.has(value))selected.delete(value);else selected.add(value);
+                    button.classList.toggle('is-selected',selected.has(value));button.setAttribute('aria-pressed',String(selected.has(value)));save.disabled=!selected.size;
                 });
+                save.onclick=async()=>{
+                    save.disabled=true;popup.querySelectorAll('[data-target-index]').forEach(node=>node.disabled=true);
+                    try{await associateMany(index,[...selected].map(value=>options[value]));close();}catch(error){popup.querySelector('.px-error').textContent=error.message;save.disabled=false;popup.querySelectorAll('[data-target-index]').forEach(node=>node.disabled=isAssociated(item.tags[index].name,options[Number(node.dataset.targetIndex)]));}
+                };
             };
             renderLegacy();renderSource();
             return {selector,get newTags(){return newTags;},destroy(){chooser?.close();chooser?.remove();clearTimeout(selector.searchTimer);delete window.imageTagSelectors[pool.id];}};
@@ -912,12 +930,12 @@
             await this.entities(true);
             const dialog=document.createElement('dialog');dialog.className='px-dialog px-mapping-dialog';
             const choices=[['group','分组',this.groups],['character','角色',this.characters],['feature','特征',this.features]].flatMap(([type,label,items])=>items.map(item=>`<option value="${type}:${item.id}">${label} · ${esc(item.name)}${type==='character'?`（${esc(item.group_name)}）`:''}</option>`)).join('');
-            dialog.innerHTML=`<div class="px-detail-body"><button class="px-icon-button px-dialog-close" aria-label="关闭">${icon('close')}</button><span class="px-eyebrow">TAG CONNECTIONS</span><h3>${kind?esc(name)+' · Pixiv 标签':'关联 Pixiv 标签'}</h3><p class="px-help">将 Pixiv 原始标签关联到本地分组、角色或特征，推荐和优选夹会复用这些关联。</p><section class="px-mapping-saved"><h4>已关联标签</h4><div class="px-mapping-list pm-tag-box" aria-live="polite"></div></section><section class="px-mapping-add"><h4>添加关联</h4><label>Pixiv 原始标签${tags.length?`<select data-map-tag>${tags.map(tag=>`<option value="${esc(tag.name)}">${esc(tag.name)}</option>`).join('')}</select>`:'<input data-map-tag type="text" maxlength="255" placeholder="输入原始名称，如 白髪">'}</label>${kind?`<p class="px-help">对应本地${kind==='group'?'分组':kind==='character'?'角色':'特征'}：${esc(name)}</p>`:`<label>筛选本地标签<input data-map-search type="search" placeholder="分组、角色或特征名称"></label><label>对应本地标签<select data-map-target>${choices}<option value="ignore:0">忽略该标签</option></select></label>`}<p class="px-error" role="alert"></p><button class="px-button px-primary" data-map-save>${icon('plus')}添加关联</button></section></div>`;
+            dialog.innerHTML=`<div class="px-detail-body"><button class="px-icon-button px-dialog-close" aria-label="关闭">${icon('close')}</button><span class="px-eyebrow">TAG CONNECTIONS</span><h3>${kind?esc(name)+' · Pixiv 标签':'关联 Pixiv 标签'}</h3><p class="px-help">同一个 Pixiv 标签可关联多个角色或特征。添加关联会保留已有标签，推荐和优选夹共同复用。</p><section class="px-mapping-saved"><h4>已关联标签</h4><div class="px-mapping-list pm-tag-box" aria-live="polite"></div></section><section class="px-mapping-add"><h4>添加关联</h4><label>Pixiv 原始标签${tags.length?`<select data-map-tag>${tags.map(tag=>`<option value="${esc(tag.name)}">${esc(tag.name)}</option>`).join('')}</select>`:'<input data-map-tag type="text" maxlength="255" placeholder="输入原始名称，如 白髪">'}</label>${kind?`<p class="px-help">对应本地${kind==='group'?'分组':kind==='character'?'角色':'特征'}：${esc(name)}</p>`:`<label>筛选本地标签<input data-map-search type="search" placeholder="分组、角色或特征名称"></label><label>对应本地标签<select data-map-target>${choices}<option value="ignore:0">忽略该标签</option></select></label>`}<p class="px-error" role="alert"></p><button class="px-button px-primary" data-map-save>${icon('plus')}添加关联</button></section></div>`;
             document.body.append(dialog);dialog.showModal();
             const close=()=>{dialog.close();dialog.remove();};dialog.querySelector('.px-dialog-close').onclick=close;dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
-            const reload=async()=>{const rows=await request(`/tag-mappings${kind?`?target_type=${kind}&target_id=${id}`:''}`);if(!dialog.isConnected)return;const list=dialog.querySelector('.px-mapping-list');list.innerHTML=rows.map(row=>`<span class="pm-tag pm-tag-pixiv" title="${esc(row.tag)} · ${row.source==='exact'?'精确同名':'手动关联'}"><span>${esc(row.tag)}</span><small>${row.source==='exact'?'同名':'关联'}${kind?'':` · ${esc((row.target_type==='group'?this.groups:row.target_type==='character'?this.characters:this.features).find(item=>item.id===row.target_id)?.name||(row.target_type==='ignore'?'忽略':''))}`}</small><button type="button" data-map-delete="${row.id}" aria-label="移除 ${esc(row.tag)}">×</button></span>`).join('')||'<p class="px-help">暂无关联，添加一个 Pixiv 原始标签即可。</p>';list.querySelectorAll('[data-map-delete]').forEach(button=>button.onclick=async()=>{button.disabled=true;try{await request(`/tag-mappings/${button.dataset.mapDelete}`,{method:'DELETE'});this.readingStates.clear();await reload();if(onSaved)await onSaved();}catch(error){dialog.querySelector('.px-error').textContent=error.message;button.disabled=false;}});};
+            const reload=async()=>{const rows=await request(`/tag-mappings${kind?`?target_type=${kind}&target_id=${id}`:''}`);if(!dialog.isConnected)return;const list=dialog.querySelector('.px-mapping-list');list.innerHTML=rows.map(row=>`<span class="pm-tag pm-tag-pixiv" title="${esc(row.tag)} · ${row.source==='exact'?'精确同名':'手动关联'}"><span>${esc(row.tag)}</span><small>${row.source==='exact'?'同名':'关联'}${kind?'':` · ${esc((row.target_type==='group'?this.groups:row.target_type==='character'?this.characters:this.features).find(item=>item.id===row.target_id)?.name||(row.target_type==='ignore'?'忽略':''))}`}</small><button type="button" data-map-delete="${row.id}" aria-label="移除 ${esc(row.tag)}">×</button></span>`).join('')||'<p class="px-help">暂无关联，添加一个 Pixiv 原始标签即可。</p>';list.querySelectorAll('[data-map-delete]').forEach(button=>button.onclick=async()=>{const row=rows.find(row=>String(row.id)===button.dataset.mapDelete);if(!confirm(`确认移除 Pixiv 标签“${row?.tag||'此标签'}”的这条关联？\n该标签的其他关联和已入库图片不会被修改。`))return;button.disabled=true;try{await request(`/tag-mappings/${button.dataset.mapDelete}`,{method:'DELETE'});this.readingStates.clear();await reload();if(onSaved)await onSaved();}catch(error){dialog.querySelector('.px-error').textContent=error.message;button.disabled=false;}});};
             const target=dialog.querySelector('[data-map-target]');if(target){const all=Array.from(target.options).map(option=>({value:option.value,text:option.textContent}));dialog.querySelector('[data-map-search]').oninput=event=>{const q=event.target.value.toLocaleLowerCase();target.replaceChildren(...all.filter(option=>option.text.toLocaleLowerCase().includes(q)).map(option=>new Option(option.text,option.value)));};}
-            dialog.querySelector('[data-map-save]').onclick=async event=>{const button=event.currentTarget;button.disabled=true;dialog.querySelector('.px-error').textContent='';try{const tag=dialog.querySelector('[data-map-tag]').value.trim();if(!tag)throw new Error('请输入 Pixiv 原始标签');if(!kind&&!target.value)throw new Error('请先选择对应的本地标签');const [type,value]=kind?[kind,id]:target.value.split(':');await request('/tag-mappings',{method:'POST',body:JSON.stringify({tag,target_type:type,target_id:Number(value)||null})});this.readingStates.clear();await reload();if(onSaved)await onSaved();ui.showToast('Pixiv 标签关联已保存','success');if(!tags.length)dialog.querySelector('[data-map-tag]').value='';}catch(error){dialog.querySelector('.px-error').textContent=error.message;}finally{button.disabled=false;}};
+            dialog.querySelector('[data-map-save]').onclick=async event=>{const button=event.currentTarget;button.disabled=true;dialog.querySelector('.px-error').textContent='';try{const tag=dialog.querySelector('[data-map-tag]').value.trim();if(!tag)throw new Error('请输入 Pixiv 原始标签');if(!kind&&!target.value)throw new Error('请先选择对应的本地标签');const [type,value]=kind?[kind,id]:target.value.split(':');if(type==='ignore'&&!confirm(`确认忽略 Pixiv 标签“${tag}”？\n该标签在当前范围内的已有本地关联将被移除。`))return;await request('/tag-mappings',{method:'POST',body:JSON.stringify({tag,target_type:type,target_id:Number(value)||null})});this.readingStates.clear();await reload();if(onSaved)await onSaved();ui.showToast('Pixiv 标签关联已保存','success');if(!tags.length)dialog.querySelector('[data-map-tag]').value='';}catch(error){dialog.querySelector('.px-error').textContent=error.message;}finally{button.disabled=false;}};
             dialog.querySelector('[data-map-tag]').addEventListener('keydown',event=>{if(event.key==='Enter'&&event.target.tagName==='INPUT'){event.preventDefault();dialog.querySelector('[data-map-save]').click();}});
             await reload();
         }

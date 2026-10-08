@@ -435,15 +435,49 @@ test('library detail restores colored tag bubbles and compact edit download dele
   await expect(actions.getByRole('link', { name: '下载原图' })).toHaveText('');
   await expect(actions.getByRole('link', { name: '下载原图' })).toHaveAttribute('href', '/api/images/AAAAAAAAA1/download');
   await expect(actions.getByRole('button', { name: '删除图片' })).toHaveText('');
+  const deletions: string[] = [];
+  page.on('request', request => { if (request.method() === 'DELETE') deletions.push(request.url()); });
+  page.once('dialog', async confirmation => {
+    expect(confirmation.type()).toBe('confirm');
+    expect(confirmation.message()).toContain('10000_p0');
+    await confirmation.dismiss();
+  });
   await actions.getByRole('button', { name: '删除图片' }).click();
-  await expect(dialog.getByText('确认删除这张图片及其标签关联？')).toBeVisible();
-  await dialog.locator('.modern-delete-confirm').getByRole('button', { name: '取消', exact: true }).click();
-  await expect(dialog.locator('.modern-delete-confirm')).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+  expect(deletions).toEqual([]);
   await dialog.locator('.pm-tag-feature_tag').click();
   await expect(dialog).toHaveCount(0);
   await expect(page).toHaveURL(/feature_tag_id=1/);
   expect(errors).toEqual([]);
 });
+
+for (const role of ['root', 'user']) {
+  test(`library deletion popup confirms before submitting for ${role}`, async ({ page }) => {
+    await mockWorkspace(page, role);
+    let deletions = 0;
+    await page.route('**/api/images/AAAAAAAAA1', async route => {
+      if (route.request().method() !== 'DELETE') { await route.fallback(); return; }
+      deletions++;
+      await route.fulfill({ json: { status: role === 'root' ? 'success' : 'pending', message: '完成' } });
+    });
+    await page.goto('/#/gallery');
+    await page.getByRole('button', { name: '查看图片 10000_p0', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '图片详情' });
+    const button = dialog.getByRole('button', { name: role === 'root' ? '删除图片' : '请求删除图片', exact: true });
+    page.once('dialog', async confirmation => { await confirmation.dismiss(); });
+    await button.click();
+    await expect(dialog).toBeVisible();
+    expect(deletions).toBe(0);
+    page.once('dialog', async confirmation => {
+      expect(confirmation.type()).toBe('confirm');
+      expect(confirmation.message()).toContain(role === 'root' ? '无法恢复' : '删除申请');
+      await confirmation.accept();
+    });
+    await button.click();
+    await expect(dialog).toHaveCount(0);
+    expect(deletions).toBe(1);
+  });
+}
 
 test('bottom original-image island switches quality once and resets on the next image', async ({ page }) => {
   const { errors, requested } = await mockWorkspace(page);

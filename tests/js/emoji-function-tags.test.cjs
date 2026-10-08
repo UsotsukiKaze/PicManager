@@ -36,7 +36,7 @@ function harness() {
         async getEmotionTags() { return tags; }, async getEmojiCharacters() { return []; },
     };
     const context = {
-        window: {}, ui, api, console,
+        window: {}, ui, api, console, confirm: () => true,
         document: { getElementById: id => nodes[id] || null, querySelector: () => search },
     };
     vm.runInNewContext(source, context);

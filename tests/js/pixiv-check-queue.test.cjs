@@ -7,7 +7,7 @@ const { test } = require('node:test');
 function harness() {
     const timers = new Map();let nextTimer = 0;
     const context = vm.createContext({
-        console, URL, window: { addEventListener() {} },
+        console, URL, confirm: () => true, window: { addEventListener() {} },
         document: { hidden: false, addEventListener() {}, querySelectorAll() { return []; }, getElementById() { return null; } },
         setTimeout(fn) { timers.set(++nextTimer, fn);return nextTimer; }, clearTimeout(id) { timers.delete(id); },
     });
@@ -34,6 +34,15 @@ function harness() {
     };
     return {context,nodes,calls,timers,setData(value) {data=value;},data};
 }
+
+test('cancelling a Pixiv check sends no request or starts any background timer', async () => {
+    const {context,nodes,calls,timers} = harness();
+    context.confirm = () => false;
+    await context.scanPixivUpgrades();
+    assert.deepEqual(calls, []);
+    assert.equal(timers.size, 0);
+    assert.notEqual(nodes['scan-pixiv-upgrades-button'].disabled, true);
+});
 
 test('background progress keeps polling while a review is open; defer never cancels scanning', async () => {
     const {context,nodes,calls,data} = harness();

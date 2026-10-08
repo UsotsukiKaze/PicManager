@@ -6,7 +6,7 @@ import pytest
 from test_pixiv_ol import environment, artwork, FakeProvider
 from test_pixiv_recommendation_preferences import mapping, image, like, cached
 from app import models
-from app.integrations.pixiv_ol import service, strategies, jobs
+from app.integrations.pixiv_ol import service, strategies, jobs, provider
 from app.integrations.pixiv_ol.recommendations import TagIndex, rank_candidates
 
 
@@ -155,7 +155,7 @@ def test_search_plans_use_rare_role_mappings_and_unanchored_features(environment
         assert strategies.search_plan(db, index, {}, {}, 'discovery', 0) == []
 
 
-def test_first_stock_visit_warms_one_rare_role_query_and_defers_remaining_searches(environment):
+def test_first_stock_visit_warms_bounded_shortage_queries_and_defers_remaining_searches(environment):
     context, _, _ = environment
     with context() as db:
         roles(db)
@@ -169,13 +169,361 @@ def test_first_stock_visit_warms_one_rare_role_query_and_defers_remaining_search
     remote = Remote()
     # Entering a mode starts through /browse, before any manual refresh.
     result = service.refresh_candidates(remote, 'rev', 1, 'stock', continuation=True, progressive=True)
-    assert [method for method, _ in remote.calls] == ['illust_recommended','search_illust']
+    assert [method for method, _ in remote.calls] == ['illust_recommended'] + ['search_illust'] * 3
     assert remote.calls[1][1]['word'] == 'RareNative'
     assert result['more'] is True
     with context() as db:
         state = db.get(models.PixivAccount, 1).sync_state['recommendation_stream_stock_1']
         assert state['deferred_queries']
         assert 'RareNative' not in [row['word'] for row in state['deferred_queries']]
+
+
+def test_missing_98_percent_weight_is_normalized_for_actual_supply():
+    credits = Counter()
+    result = [strategies._weighted_pick([1, 2], {0:.98, 1:.018, 2:.002}, credits) for _ in range(20)]
+    assert Counter(result) == {1:18, 2:2}
+
+
+def test_stock_group_and_role_shortages_preserve_weighted_order():
+    items, profile, index = stock_fixture(known=900, unknown_role=0, unknown_group=0)
+    profile['quotas'] = {0:.2, 1:.72, 2:.08}
+    profile['character_quotas'][1] = {99:.2, 10:.08, 11:.72}
+    result = strategies.stock_schedule(items, profile, index)
+    assert Counter(item['primary_group'] for item in result[:20]) == {1:18, 2:2}
+    roles_ = [item['primary_character'] for item in result if item['primary_group'] == 1]
+    assert Counter(roles_[:20]) == {10:2, 11:18}
+
+
+def test_stock_missing_cold_groups_cannot_donate_all_budget_to_native_hot_groups():
+    items, profile, index = stock_fixture(known=900, unknown_role=100, unknown_group=100)
+    profile['quotas'] = {0:.98, 1:.018, 2:.002}
+    result = strategies.stock_schedule(items, profile, index)
+    counts = Counter(item.get('primary_group') for item in result if item['stock_pool'] == 'known')
+    assert counts[1] <= 4 and counts[2] <= 2
+    assert profile['group_shortfalls'][0] > 100
+    assert len(result) < 20
+
+
+def test_recall_prioritizes_missing_groups_and_roles_over_generic_features():
+    _, profile, index = stock_fixture()
+    profile['quotas'] = {1:.5, 2:.4, 3:.1}
+    profile['character_quotas'][3] = {30:1}
+    candidates = [({'match':{'group_ids':[1], 'character_ids':[11], 'conflicts':[]}}, 0)] * 100
+    queries = [
+        {'group':None, 'source':'feature_exploration'},
+        {'group':1, 'source':'character_mapping', 'character':11},
+        {'group':2, 'source':'group_name'},
+        {'group':2, 'source':'character_mapping', 'character':20},
+        {'group':3, 'source':'character_mapping', 'character':30},
+    ]
+    selected = strategies.stock_recall_queries(queries, candidates, profile, index, limit=2)
+    assert [(q['group'], q.get('character')) for q in selected] == [(2, 20), (3, 30)]
+
+
+def test_recall_still_searches_rare_roles_when_their_group_has_abundant_popular_supply():
+    _, profile, index = stock_fixture()
+    candidates = [({'match':{'group_ids':[1], 'character_ids':[10], 'conflicts':[]}}, 0)] * 200
+    queries = [{'group':None, 'source':'feature_exploration'},
+               {'group':1, 'character':10, 'source':'character_mapping'},
+               {'group':1, 'character':11, 'source':'character_mapping'}]
+    assert strategies.stock_recall_queries(queries, candidates, profile, index, limit=1)[0]['character'] == 11
+
+
+def test_stock_plans_cover_all_enabled_groups_and_prefer_native_aliases(environment):
+    context, _, _ = environment
+    with context() as db:
+        roles(db)
+        for n in range(2, 22):
+            db.add(models.Group(id=n, name=f'分组{n}'))
+        db.flush()
+        mapping(db, 'VOCALOID500users入り', 'group', 2)
+        mapping(db, 'VOCALOID', 'group', 2)
+        db.get(models.PixivAccount, 1).preferences = {'groups':{str(n):{'enabled':True} for n in range(1, 22)}}
+        db.flush()
+        account, index = db.get(models.PixivAccount, 1), TagIndex(db)
+        profile = strategies.build_profile(db, index, account, 'stock')
+        plan = strategies.search_plan(db, index, profile, account.preferences, 'stock', 0)
+        assert {q['group'] for q in plan if q['group'] is not None} == set(range(1, 22))
+        assert next(q['word'] for q in plan if q['group'] == 2) == 'VOCALOID'
+        assert not any('500users入り' in q['word'] for q in plan)
+
+
+def test_stock_queries_cover_more_than_two_rare_roles_and_rotate_the_tail(environment):
+    context, _, _ = environment
+    with context() as db:
+        roles(db)
+        for n in range(12, 18):
+            db.add(models.Character(id=n, name=f'稀缺角色{n}', group_id=1))
+            db.flush()
+            mapping(db, f'RareMapped{n}', 'character', n, 1)
+        db.flush()
+        account, index = db.get(models.PixivAccount, 1), TagIndex(db)
+        profile = strategies.build_profile(db, index, account, 'stock')
+        first = strategies.search_plan(db, index, profile, account.preferences, 'stock', 0)
+        next_ = strategies.search_plan(db, index, profile, account.preferences, 'stock', 1)
+        selected = [q['character'] for q in first if q['source'] == 'character_mapping']
+        rotated = [q['character'] for q in next_ if q['source'] == 'character_mapping']
+        assert len(selected) == len(rotated) == 4
+        assert selected[0] == rotated[0] == 12
+        assert set(selected) != set(rotated)
+
+
+def test_preferences_display_actual_stock_inverse_weights(environment):
+    context, client, _ = environment
+    with context() as db:
+        roles(db)
+        db.add(models.Group(id=2, name='空库存'))
+        db.get(models.PixivAccount, 1).preferences = {'groups':{'1':{'enabled':True}, '2':{'enabled':True}}}
+    quotas = client.get('/api/pixiv-ol/preferences').json()['quotas']
+    assert sum(quotas.values()) == pytest.approx(1)
+    assert quotas['2'] / quotas['1'] == pytest.approx(55)
+
+
+def test_stock_default_view_ignores_old_policy_but_explicit_reading_batch_remains_available(environment):
+    context, client, _ = environment
+    with context() as db:
+        db.add(models.PixivRecommendationBatch(id='old-policy', account_revision='rev', mode='stock',
+            items=[service.normalize_artwork(artwork('800'))], profile={'actor_id':1, 'policy_version':'three-modes-v1'}))
+    assert client.get('/api/pixiv-ol/recommendations?mode=stock').json()['batch_id'] is None
+    assert client.get('/api/pixiv-ol/recommendations?mode=stock&batch_id=old-policy').json()['items'][0]['pid'] == '800'
+
+
+def test_background_waves_do_not_hide_pending_imports_from_the_job_list(environment):
+    context, client, _ = environment
+    with context() as db:
+        importing = jobs.enqueue(db, 1, 'import', {'pid':'800', 'pages':[0]})
+        importing.status = 'awaiting_duplicate'
+        import_id = importing.id
+        db.add_all([models.PixivJob(actor_id=1, account_revision='rev', kind='stock_refill', status='completed', payload={})
+                    for _ in range(60)])
+    visible = client.get('/api/pixiv-ol/jobs').json()
+    assert [job['id'] for job in visible] == [import_id]
+    assert visible[0]['status'] == 'awaiting_duplicate'
+
+
+def install_stock_queue(environment, monkeypatch, size=36, failed=False):
+    context, _, _ = environment
+    with context() as db:
+        roles(db)
+        job = jobs.enqueue(db, 1, 'recommendations', {'mode':'stock', 'first_page':True})
+        job_id = job.id
+    plan = [{'group':1, 'character':11, 'word':f'RareNative{n}', 'search_target':'exact_match_for_tags',
+             'source':'character_mapping', 'terms':['RareNative']} for n in range(size)]
+    monkeypatch.setattr(strategies, 'search_plan', lambda *args:list(plan))
+    class Remote(FakeProvider):
+        def __init__(self):
+            self.calls = []
+        def call(self, method, **params):
+            self.calls.append((method, params))
+            if failed and method == 'search_illust':
+                raise provider.PixivError('external_error')
+            return {'illusts':[artwork(str(800 + len(self.calls)), [{'name':'GameNative'}, {'name':'RareNative'}])],
+                    'next_url':None}
+    remote = Remote()
+    clients = []
+    def client(*args):
+        clients.append(args)
+        return remote
+    monkeypatch.setattr(service, 'client_for_job', client)
+    return remote, clients, job_id
+
+
+def test_stock_background_refill_drains_without_scrolling_and_preserves_reading_batch(environment, monkeypatch):
+    from contextlib import contextmanager
+    context, client, _ = environment
+    remote, _, job_id = install_stock_queue(environment, monkeypatch)
+    @contextmanager
+    def production_context():
+        with context() as db:
+            db.autoflush = False
+            yield db
+    monkeypatch.setattr(service, 'get_db_context', production_context)
+    monkeypatch.setattr(jobs, 'get_db_context', production_context)
+    worker = jobs.Worker()
+    assert worker.run_once()
+    with context() as db:
+        first = db.get(models.PixivJob, job_id).result['batch_id']
+    original = client.get(f'/api/pixiv-ol/recommendations?mode=stock&batch_id={first}').json()
+    for _ in range(20):
+        if not worker.run_once():
+            break
+    else:
+        pytest.fail('Background refill did not finish within its bounded plan')
+    assert Counter(method for method, _ in remote.calls) == {'illust_recommended':1, 'search_illust':36}
+    with context() as db:
+        assert db.query(models.PixivRecommendationBatch).count() == 2
+        assert not db.query(models.PixivJob).filter(models.PixivJob.status.in_(jobs.ACTIVE)).count()
+        assert db.get(models.PixivAccount, 1).sync_state['recommendation_stream_stock_1']['deferred_queries'] == []
+    assert client.get(f'/api/pixiv-ol/recommendations?mode=stock&batch_id={first}').json() == original
+
+
+@pytest.mark.parametrize('invalidate', ['source_batch', 'started_at', 'policy_version'])
+def test_foreground_jobs_overtake_refill_and_obsolete_refill_never_authenticates(environment, monkeypatch, invalidate):
+    from datetime import datetime, timedelta
+    context, _, _ = environment
+    _, clients, _ = install_stock_queue(environment, monkeypatch)
+    worker = jobs.Worker()
+    assert worker.run_once()
+    with context() as db:
+        background_id = db.query(models.PixivJob).filter_by(kind='stock_refill').one().id
+        foreground = jobs.enqueue(db, 1, 'browse_feed', {})
+        foreground_id = foreground.id
+    assert worker.run_once()
+    with context() as db:
+        assert db.get(models.PixivJob, foreground_id).status == 'completed'
+        assert db.get(models.PixivJob, background_id).status == 'queued'
+        account = db.get(models.PixivAccount, 1)
+        stream = dict(account.sync_state['recommendation_stream_stock_1'])
+        value = {'source_batch':'new-refresh', 'started_at':(datetime.utcnow() - timedelta(minutes=16)).isoformat(),
+                 'policy_version':'three-modes-v1'}[invalidate]
+        account.sync_state = {**account.sync_state, 'recommendation_stream_stock_1':{**stream, invalidate:value}}
+    calls = len(clients)
+    assert worker.run_once()
+    assert len(clients) == calls
+    with context() as db:
+        assert db.get(models.PixivJob, background_id).status == 'completed'
+        assert db.get(models.PixivJob, background_id).result['replenish'] is False
+
+
+def test_stock_full_refresh_also_uses_bounded_foreground_and_background(environment, monkeypatch):
+    context, _, _ = environment
+    remote, _, job_id = install_stock_queue(environment, monkeypatch)
+    with context() as db:
+        db.get(models.PixivJob, job_id).payload = {'mode':'stock'}
+    assert jobs.Worker().run_once()
+    assert Counter(method for method, _ in remote.calls) == {'illust_recommended':1, 'search_illust':3}
+    with context() as db:
+        assert db.query(models.PixivJob).filter_by(kind='stock_refill', status='queued').count() == 1
+
+
+def test_background_successor_keeps_seen_updates_received_during_fetch(environment, monkeypatch):
+    context, _, _ = environment
+    remote, _, _ = install_stock_queue(environment, monkeypatch, size=9)
+    worker = jobs.Worker()
+    assert worker.run_once()
+    original, updated = remote.call, False
+    def call(method, **params):
+        nonlocal updated
+        if not updated:
+            with context() as db:
+                running = db.query(models.PixivJob).filter_by(kind='stock_refill', status='running').one()
+                jobs.enqueue(db, 1, 'stock_refill', {'mode':'stock', 'source_batch':running.payload['source_batch'],
+                                                  'seen_pids':['802']})
+            updated = True
+        return original(method, **params)
+    monkeypatch.setattr(remote, 'call', call)
+    assert worker.run_once()
+    with context() as db:
+        successor = db.query(models.PixivJob).filter_by(kind='stock_refill', status='queued').one()
+        assert successor.payload['seen_pids'] == ['802']
+
+
+def test_unseen_warmed_supply_is_available_after_native_and_search_cursors_end(environment, monkeypatch):
+    context, _, _ = environment
+    _, _, job_id = install_stock_queue(environment, monkeypatch, size=6)
+    original_profile = strategies.build_profile
+    def profile(*args):
+        return {**original_profile(*args), 'related_seeds':{}}
+    monkeypatch.setattr(strategies, 'build_profile', profile)
+    worker = jobs.Worker()
+    assert worker.run_once()
+    with context() as db:
+        first = db.get(models.PixivJob, job_id).result['batch_id']
+        seen = [item['pid'] for item in db.get(models.PixivRecommendationBatch, first).items]
+    assert worker.run_once()
+    result = service.refresh_candidates(None, 'rev', 1, 'stock', continuation=True, progressive=True, seen_pids=seen)
+    assert result['count'] == 3
+    with context() as db:
+        fresh = [item['pid'] for item in db.get(models.PixivRecommendationBatch, result['batch_id']).items]
+    assert not set(seen) & set(fresh)
+    final = service.refresh_candidates(None, 'rev', 1, 'stock', continuation=True, progressive=True, seen_pids=seen + fresh)
+    assert final['count'] == 0 and final['more'] is False
+
+
+def test_warming_keeps_early_cold_supply_when_other_modes_fill_the_cache(environment):
+    from datetime import datetime
+    context, _, _ = environment
+    with context() as db:
+        roles(db)
+    service.save_artworks('rev', [artwork('900', [{'name':'GameNative'}, {'name':'RareNative'}])],
+                          'search_stock_1', 1, source_batch='current')
+    with context() as db:
+        account = db.get(models.PixivAccount, 1)
+        account.sync_state = {'recommended_stock_1':{'batch':'current'}}
+        metadata = service.normalize_artwork(artwork('901'))
+        db.bulk_insert_mappings(models.PixivArtwork, [
+            {'account_revision':'rev', 'pid':str(10000 + n), 'author_id':'9', 'title':'other mode',
+             'published_at':datetime.utcnow(), 'metadata_json':{**metadata, 'pid':str(10000 + n)},
+             'origins':[{'source':'recommended_personal_1', 'batch':'unrelated'}]}
+            for n in range(1100)])
+    with context() as db:
+        items, _ = strategies.rank(db, TagIndex(db), db.get(models.PixivAccount, 1), 'stock', 1)
+        assert [item['pid'] for item in items] == ['900']
+
+
+def test_failed_stock_queries_are_bounded_and_do_not_stall_other_queries(environment, monkeypatch):
+    context, _, _ = environment
+    remote, _, _ = install_stock_queue(environment, monkeypatch, size=4, failed=True)
+    worker = jobs.Worker()
+    for _ in range(10):
+        if not worker.run_once():
+            break
+    else:
+        pytest.fail('Failed searches kept the refill queue alive indefinitely')
+    assert sum(method == 'search_illust' for method, _ in remote.calls) == 12
+    with context() as db:
+        assert db.get(models.PixivAccount, 1).sync_state['recommendation_stream_stock_1']['deferred_queries'] == []
+
+
+def test_stock_search_can_advance_when_first_page_contains_only_imported_work(environment, monkeypatch):
+    context, _, _ = environment
+    with context() as db:
+        roles(db)
+    query = {'group':1, 'character':11, 'word':'RareNative', 'search_target':'exact_match_for_tags',
+             'source':'character_mapping', 'terms':['RareNative']}
+    monkeypatch.setattr(strategies, 'search_plan', lambda *args:[dict(query)])
+    class Remote(FakeProvider):
+        def call(self, method, **params):
+            if method == 'illust_recommended':
+                return {'illusts':[], 'next_url':None}
+            offset = int(params.get('offset', 0))
+            return {'illusts':[artwork('1050' if not offset else '900', [{'name':'GameNative'}, {'name':'RareNative'}])],
+                    'next_url':'https://app-api.pixiv.net/v1/search/illust?offset=30' if not offset else None}
+    remote = Remote('test')
+    first = service.refresh_candidates(remote, 'rev', 1, 'stock', progressive=True)
+    assert first['count'] == 0
+    second = service.refresh_candidates(remote, 'rev', 1, 'stock', continuation=True, progressive=True,
+                                        replenish_batch=first['source_batch'])
+    assert second['count'] == 1
+    with context() as db:
+        assert [item['pid'] for item in db.get(models.PixivRecommendationBatch, second['batch_id']).items] == ['900']
+
+
+def test_parallel_api_calls_use_separate_sessions_and_isolate_errors(monkeypatch):
+    import threading
+    gate, lock = threading.Barrier(3), threading.Lock()
+    instances, closed = [], []
+    class API:
+        def __init__(self, **kwargs):
+            self.additional_headers = {}
+            self.requests = SimpleNamespace(close=lambda:closed.append(self))
+            with lock:
+                instances.append(self)
+        def set_auth(self, access, refresh):
+            self.access, self.refresh = access, refresh
+        def search_illust(self, word):
+            gate.wait(timeout=5)
+            return {'error':{'message':'rejected'}} if word == 'bad' else {'illusts':[word]}
+    monkeypatch.setattr(provider, 'BoundedAPI', API)
+    monkeypatch.setattr(provider, 'throttle', lambda:None)
+    client = object.__new__(provider.Provider)
+    client.api = SimpleNamespace(requests_kwargs={}, access_token='fake', refresh_token='fake', user_id=7, additional_headers={})
+    results = client.call_many([('search_illust', {'word':word}) for word in ('first', 'bad', 'last')])
+    assert results[0] == {'illusts':['first']}
+    assert isinstance(results[1], provider.PixivError)
+    assert results[2] == {'illusts':['last']}
+    assert len(instances) == len(closed) == 3
+    assert all(instance.access == 'fake' for instance in instances)
 
 
 def test_discovery_preserves_native_order_and_modes_keep_their_own_cursor_and_batches(environment):
@@ -211,7 +559,8 @@ def test_new_modes_accepted_private_batches_and_seen_validation(environment, mod
         admin = jobs.enqueue(db, 2, 'browse_recommendations', job.payload)
         assert admin.id != job.id
         db.add(models.PixivRecommendationBatch(id='new', account_revision='rev', mode=mode,
-                                               items=[service.normalize_artwork(artwork('950'))], profile={'actor_id':1,'vectors':{'secret':'weights'}}))
+                                               items=[service.normalize_artwork(artwork('950'))],
+                                               profile={'actor_id':1, 'policy_version':strategies.POLICY_VERSION, 'vectors':{'secret':'weights'}}))
     data = client.get(f'/api/pixiv-ol/recommendations?mode={mode}').json()
     assert [row['pid'] for row in data['items']] == ['950']
     if mode == 'personal':

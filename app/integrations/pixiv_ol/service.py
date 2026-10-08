@@ -15,6 +15,14 @@ from .search_plan import build_search_plan, restored_query
 CLIENT_LOCK = threading.Lock()  # Serialize refresh-token rotation, not artwork requests.
 
 
+def current_stock_replenishment(account, actor_id, source_batch):
+    from .strategies import stream_key, POLICY_VERSION
+    stream = account.sync_state.get(stream_key('stock', actor_id), {})
+    return (stream.get('source_batch') == source_batch and stream.get('policy_version') == POLICY_VERSION
+            and bool(stream.get('deferred_queries'))
+            and (datetime.utcnow() - iso_date(stream.get('started_at', '1970-01-01'))).total_seconds() <= 900)
+
+
 def iso_date(value):
     try:
         date = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
@@ -311,8 +319,10 @@ def continue_feed(provider, revision, actor_id, restrict="public", *, progressiv
     return {"count": count, "more": not exhausted}
 
 
-def refresh_candidates(provider, revision, actor_id, mode="combined", *, continuation=False, progressive=False, seen_pids=()):
+def refresh_candidates(provider, revision, actor_id, mode="combined", *, continuation=False, progressive=False,
+                       seen_pids=(), replenish_batch=None):
     from . import strategies
+    progressive = progressive or mode == 'stock'
     independent = mode in strategies.MODES
     stream_name = strategies.stream_key(mode, actor_id)
     recommended_source = strategies.source_key('recommended', mode, actor_id)
@@ -322,10 +332,15 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
         profile = strategies.build_profile(db, index, account, mode) if independent else build_profile(db, index, account.preferences)
         preferences = account.preferences
         stream = dict(account.sync_state.get(stream_name, {}))
+        if replenish_batch is not None and (mode != 'stock' or not current_stock_replenishment(account, actor_id, replenish_batch)):
+            return {'count':0, 'more':False, 'replenish':False}
+        if mode == 'stock' and stream.get('policy_version') != strategies.POLICY_VERSION:
+            continuation = False
         if independent and continuation and not stream:
             continuation = False
         deferred = bool(stream.get("deferred_queries") or stream.get("deferred_seeds"))
-        if continuation and stream.get("exhausted") and not deferred:
+        cached_only = bool(continuation and stream.get('exhausted') and not deferred)
+        if cached_only and mode != 'stock':
             return {"count": 0, "more": False}
         query_round = int(stream.get("query_round", -1)) + (0 if continuation else 1)
         queries = (strategies.search_plan(db, index, profile, preferences, mode, max(0, query_round)) if independent
@@ -358,7 +373,7 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
     try:
         cursor = (stream.get("cursor") or {}) if continuation else {}
         pages = 1 if progressive else (4 if mode in ("native", "discovery") else 3)
-        for _ in range(0 if exhausted else pages):
+        for _ in range(0 if exhausted or replenish_batch is not None else pages):
             response = provider.call("illust_recommended", include_ranking_illusts="false", **cursor)
             raws = response.get("illusts", [])
             save_artworks(
@@ -380,23 +395,56 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
         warnings.append(exc.code)
     if mode not in ("native", "discovery") and (not continuation or progressive):
         query_slice = pending_queries[:1] if progressive and continuation else ([] if progressive else list(pending_queries))
-        if mode == 'stock' and progressive and not continuation and pending_queries:
-            # One rare-role request gives the first screen actual balancing supply;
-            # remaining searches stay deferred instead of slowing every refresh.
-            query_slice = [next((query for query in pending_queries if query.get('source') == 'character_mapping'), pending_queries[0])]
+        if mode == 'stock' and progressive and pending_queries:
+            with get_db_context() as db:
+                account = require_account(db, revision)
+                recall_index = TagIndex(db)
+                candidates = strategies._candidates(db, recall_index, account, mode, actor_id,
+                                                    seen_pids if continuation else (), source_batch=source_batch)
+                query_slice = strategies.stock_recall_queries(pending_queries, candidates, profile, recall_index)
         seed_slice = pending_seeds[:1] if progressive and continuation and not query_slice else ([] if progressive else list(pending_seeds))
-        for query in query_slice:
+        responses = None
+        if mode == 'stock' and query_slice and callable(getattr(provider, 'call_many', None)):
+            responses = provider.call_many([('search_illust', {**query.get('cursor', {}), 'word':query['word'], 'search_target':query['search_target']})
+                                            for query in query_slice], workers=3)
+        for position, query in enumerate(query_slice):
             try:
-                response = provider.call("search_illust", word=query["word"], search_target=query["search_target"])
+                response = responses[position] if responses is not None else provider.call(
+                    "search_illust", **query.get('cursor', {}), word=query["word"], search_target=query["search_target"])
+                if isinstance(response, PixivError):
+                    raise response
                 group = query["group"]
-                budget = 20 if group is None else max(3, int(70 * profile["quotas"][group]))
+                budget = 30 if mode == 'stock' else (20 if group is None else max(3, int(70 * profile["quotas"][group])))
                 save_artworks(
                     revision, response.get("illusts", [])[:budget], strategies.source_key('search', mode, actor_id), actor_id, source_batch=source_batch
                 )
                 local_count += len(response.get("illusts", [])[:budget])
                 pending_queries.remove(query)
+                if mode == 'stock':
+                    next_cursor = provider.cursor(response.get('next_url'))
+                    query['pages'] = int(query.get('pages', 0)) + 1
+                    if next_cursor and next_cursor != query.get('cursor') and query['pages'] < 3:
+                        with get_db_context() as db:
+                            account = require_account(db, revision)
+                            recall_index = TagIndex(db)
+                            candidates = strategies._candidates(db, recall_index, account, mode, actor_id,
+                                seen_pids if continuation else (), source_batch=source_batch)
+                            groups, roles = strategies.stock_supply(candidates, profile, recall_index)
+                        group_gap, role_gap = strategies.stock_query_gap(query, profile, groups, roles)
+                        gap = role_gap if query.get('character') is not None else group_gap
+                        if gap > 0:
+                            pending_queries.append({**query, 'cursor':next_cursor, 'attempts':0})
             except PixivError as exc:
                 warnings.append(exc.code)
+                if mode == 'stock':
+                    # A broken query cannot monopolize the background queue.
+                    query['attempts'] = int(query.get('attempts', 0)) + 1
+                    if query in pending_queries:
+                        pending_queries.remove(query)
+                    if query['attempts'] < 3:
+                        pending_queries.append(query)
+                    if exc.code == 'reauth_required':
+                        raise
         for pid in seed_slice:
             try:
                 response = provider.call("illust_related", illust_id=pid)
@@ -407,27 +455,36 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
                 pending_seeds.remove(pid)
             except PixivError as exc:
                 warnings.append(exc.code)
-    if (continuation or independent) and not platform_count and not local_count and warnings:
+    if mode != 'stock' and (continuation or independent) and not platform_count and not local_count and warnings:
         raise PixivError(warnings[0])
     with get_db_context() as db:
         account = require_account(db, revision)
         require_actor(db, actor_id)
-        if platform_count or independent:
+        if platform_count or (independent and not cached_only):
             account.sync_state = {
                 **account.sync_state,
                 recommended_source: {"batch": source_batch, "last_success": datetime.utcnow().isoformat()},
             }
         if not independent:
             account.sync_state = {**account.sync_state, "candidate_batch": source_batch}
-        if not warnings or platform_count or local_count:
+        if not warnings or platform_count or local_count or mode == 'stock':
             account.sync_state = {
                 **account.sync_state,
                 stream_name: {"cursor": cursor, "exhausted": exhausted, "query_round": query_round,
+                    "policy_version": strategies.POLICY_VERSION,
                     "source_batch": source_batch, "native_offset": native_offset + platform_count,
+                    "started_at": stream.get('started_at') if continuation and stream.get('started_at') else datetime.utcnow().isoformat(),
                     "deferred_queries": pending_queries if progressive else [],
                     "deferred_seeds": pending_seeds if progressive else []},
             }
+        if replenish_batch is not None and pending_queries:
+            # Warm supply without creating/pruning immutable reading batches
+            # for every small background wave. Publish once when warming ends.
+            return {'count':local_count, 'warnings':sorted(set(warnings)), 'more':True,
+                    'replenish':True, 'source_batch':source_batch}
         items, profile = rank_candidates(db, account, mode, actor_id=actor_id, seen_pids=seen_pids if continuation else ())
+        if cached_only and not items:
+            return {'count':0, 'more':False, 'replenish':False}
         batch_id = secrets.token_hex(16)
         db.add(
             models.PixivRecommendationBatch(
@@ -451,5 +508,7 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
         "batch_id": batch_id,
         "count": len(items),
         "warnings": sorted(set(warnings)),
-        "more": (not exhausted or bool(pending_queries or pending_seeds)) if progressive else (not exhausted if platform_count else bool(warnings)),
+        "more": (cached_only and bool(items) or not exhausted or bool(pending_queries or pending_seeds)) if progressive else (not exhausted if platform_count else bool(warnings)),
+        "replenish": mode == 'stock' and progressive and bool(pending_queries),
+        "source_batch": source_batch,
     }

@@ -11,7 +11,7 @@ from ...pixiv_metadata import library_pixiv_pages, split_pid
 from .recommendations import allowed, normalize, recommendation_match
 
 MODES = ('personal', 'stock', 'discovery')
-POLICY_VERSION = 'three-modes-v1'
+POLICY_VERSION = 'three-modes-v2'
 
 
 def stream_key(mode, actor_id):
@@ -192,7 +192,7 @@ def stock_profile(db, index, account, images):
         for image in pages:
             for role in image.characters:
                 seeds[role.group_id][pid] = max(seeds[role.group_id][pid], 1 / max(1, roles[role.id]))
-    return {'algorithm':'stock-inverse-inventory-v1', 'inventory':dict(counts),
+    return {'algorithm':'stock-inverse-inventory-v2', 'inventory':dict(counts),
             'character_inventory':dict(roles), 'quotas':inverse_weights({g:counts[g] for g in selected}),
             'character_quotas':role_quotas, 'characters':role_quotas,
             'tags':{g:vector for g in selected}, 'feature_vector':vector,
@@ -213,7 +213,7 @@ def search_plan(db, index, profile, preferences, mode, rotation):
     from .search_plan import build_search_plan
     if mode == 'discovery':
         return []
-    targeted = build_search_plan(db, index, profile, preferences, rotation=rotation)
+    targeted = build_search_plan(db, index, profile, preferences, rotation=rotation, stock=mode == 'stock')
     broad = []
     if mode == 'personal':
         words = [profile['raw_tag_names'].get(key, key) for key, _ in sorted(
@@ -232,14 +232,14 @@ def search_plan(db, index, profile, preferences, mode, rotation):
     if broad:
         start = rotation % len(broad)
         broad = (broad[start:] + broad[:start])[:4]
-    # Early broad requests supply both exploration pools without replacing rare-role searches.
+    # Personal mixes broad queries early; stock keeps them behind shortage recall.
     result, seen = [], set()
-    for query in targeted[:2] + broad + targeted[2:]:
+    for query in (targeted + broad if mode == 'stock' else targeted[:2] + broad + targeted[2:]):
         key = (normalize(query['word']), query['search_target'])
         if key not in seen:
             seen.add(key)
             result.append(query)
-    return result[:20]
+    return result if mode == 'stock' else result[:20]
 
 
 def cosine(vector, ids):
@@ -247,17 +247,17 @@ def cosine(vector, ids):
     return sum(vector.get(id_, 0) for id_ in ids) / math.sqrt(len(ids)) if ids else 0
 
 
-def _candidates(db, index, account, mode, actor_id, seen_pids):
+def _candidates(db, index, account, mode, actor_id, seen_pids, *, source_batch=None):
     excluded = set(library_pixiv_pages(db)) | set(seen_pids)
     excluded.update(row[0] for row in db.query(models.PixivCartItem.pid).filter_by(
         account_revision=account.revision, actor_id=actor_id).all())
     excluded.update(row[0] for row in db.query(models.PixivFeedback.pid).filter_by(
         account_revision=account.revision, actor_id=account.owner_id, value='dislike').all())
     source = source_key('recommended', mode, actor_id)
-    batch = account.sync_state.get(source, {}).get('batch')
+    batch = source_batch or account.sync_state.get(source, {}).get('batch')
     prepared = []
     for row in db.query(models.PixivArtwork).filter_by(account_revision=account.revision).order_by(
-        models.PixivArtwork.fetched_at.desc(), models.PixivArtwork.id.desc()).limit(1000).all():
+        models.PixivArtwork.fetched_at.desc(), models.PixivArtwork.id.desc()).limit(5000 if mode == 'stock' else 1000).all():
         art = row.metadata_json
         if row.pid in excluded or not allowed(art, account.preferences):
             continue
@@ -307,40 +307,106 @@ def rank(db, index, account, mode, actor_id, seen_pids=()):
     return stock_schedule([item for item, _ in candidates], profile, index), profile
 
 
+def stock_identity(item, profile, index):
+    match = item['match']
+    groups = [g for g in match['group_ids'] if g in profile['quotas']]
+    if not match['group_ids'] and not match['conflicts']:
+        return 'new_group', None, None
+    if groups:
+        roles = [r for r in match['character_ids'] if index.characters[r].group_id in groups]
+        if roles:
+            role = min(roles, key=lambda r:(profile['character_inventory'].get(r, 0), r))
+            return 'known', index.characters[role].group_id, role
+        if not match['character_ids'] and not match['conflicts']:
+            return 'new_character', min(groups, key=lambda g:(profile['inventory'][g], g)), None
+    return None, None, None
+
+
+def stock_supply(candidates, profile, index):
+    groups, roles = Counter(), Counter()
+    for item, _ in candidates:
+        kind, group, role = stock_identity(item, profile, index)
+        if kind == 'known':
+            groups[group] += 1
+            roles[role] += 1
+    return groups, roles
+
+
+def stock_query_gap(query, profile, groups, roles):
+    group, role = query['group'], query.get('character')
+    target = 144 * profile['quotas'].get(group, 0)
+    return max(0, target - groups[group]), max(0, target * profile.get('character_quotas', {}).get(group, {}).get(role, 0) - roles[role])
+
+
+def stock_recall_queries(queries, candidates, profile, index, limit=3):
+    """Recall by missing known-role supply; features get only exploration slots."""
+    groups, roles = stock_supply(candidates, profile, index)
+    picked, remaining = [], list(queries)
+    used_groups = set()
+    while remaining and len(picked) < limit:
+        def priority(query):
+            group, role = query['group'], query.get('character')
+            gap, role_gap = stock_query_gap(query, profile, groups, roles)
+            anchored = group is not None
+            # An exact role mapping can supply the known-role pool directly;
+            # a missing series mapping must not demote its bound characters.
+            return (anchored and (gap > 0 or role_gap > 0), group not in used_groups,
+                    max(gap, role_gap), query.get('source') == 'character_mapping' and role_gap > 0,
+                    role_gap, anchored, -remaining.index(query))
+        query = max(remaining, key=priority)
+        picked.append(query)
+        remaining.remove(query)
+        used_groups.add(query['group'])
+    return picked
+
+
+def _weighted_pick(active, weights, credits):
+    """Accumulate normalized credit only while a bucket has actual supply."""
+    total = sum(weights.get(key, 0) for key in active)
+    for key in active:
+        credits[key] += weights.get(key, 0) / total if total else 1 / len(active)
+    key = max(active, key=lambda key:(credits[key], -key))
+    credits[key] -= 1
+    return key
+
+
 def stock_schedule(items, profile, index):
     known, new_roles, new_groups = defaultdict(lambda:defaultdict(list)), defaultdict(list), []
     for item in items:
-        match = item['match']
-        groups = [g for g in match['group_ids'] if g in profile['quotas']]
-        if not match['group_ids'] and not match['conflicts']:
-            item['stock_pool'] = 'new_group'
+        kind, group, role = stock_identity(item, profile, index)
+        if kind:
+            item['stock_pool'] = kind
+        if kind == 'new_group':
             new_groups.append(item)
-        elif groups:
-            roles = [r for r in match['character_ids'] if index.characters[r].group_id in groups]
-            if roles:
-                item['stock_pool'] = 'known'
-                role = min(roles, key=lambda r:(profile['character_inventory'][r], r))
-                group = index.characters[role].group_id
-                item['primary_group'], item['primary_character'] = group, role
-                known[group][role].append(item)
-            elif not match['character_ids'] and not match['conflicts']:
-                # Exploration candidate, not a claim that Pixiv identified a new character.
-                item['stock_pool'] = 'new_character'
-                group = min(groups, key=lambda g:(profile['inventory'][g], g))
-                item['primary_group'] = group
-                new_roles[group].append(item)
+        elif kind == 'known':
+            item['primary_group'], item['primary_character'] = group, role
+            known[group][role].append(item)
+        elif kind == 'new_character':
+            item['primary_group'] = group
+            new_roles[group].append(item)
     all_pools = [pool for roles in known.values() for pool in roles.values()] + list(new_roles.values()) + [new_groups]
     for pool in all_pools:
         pool.sort(key=lambda item:(-item['_score'], item['pid']))
     known_n = sum(len(pool) for roles in known.values() for pool in roles.values())
     role_n, group_n = sum(map(len, new_roles.values())), len(new_groups)
     target = min(180, known_n + role_n + group_n)
+    desired_known = target - min(role_n, int(target * .15)) - min(group_n, int(target * .05))
+    group_caps = {g:max(2, math.ceil(desired_known * weight * 1.25)) for g, weight in profile['quotas'].items()}
+    role_caps = {g:{r:max(2, math.ceil(group_caps[g] * weight * 1.25))
+                   for r, weight in weights.items()} for g, weights in profile['character_quotas'].items()}
+    # Bounded rounding/25% overflow is allowed. A missing cold group must not
+    # donate its entire budget to a large group with abundant native candidates.
+    for g, roles in known.items():
+        for r in roles:
+            roles[r] = roles[r][:role_caps[g][r]]
+    known_n = sum(min(group_caps[g], sum(map(len, roles.values()))) for g, roles in known.items())
     # Never silently turn a short supply of known roles into mostly exploration.
     while target > known_n + min(role_n, int(target * .15)) + min(group_n, int(target * .05)):
         target = known_n + min(role_n, int(target * .15)) + min(group_n, int(target * .05))
     limits = {'new_character':min(role_n, int(target * .15)), 'new_group':min(group_n, int(target * .05))}
     limits['known'] = min(known_n, target - sum(limits.values()))
     assigned, group_assigned, role_assigned, new_assigned, authors = Counter(), Counter(), Counter(), Counter(), Counter()
+    group_credit, role_credit, new_credit = Counter(), defaultdict(Counter), Counter()
     chosen = []
 
     def take(pool):
@@ -353,15 +419,15 @@ def stock_schedule(items, profile, index):
         category = max((kind for kind in limits if assigned[kind] < limits[kind]),
                        key=lambda kind:({'known':.8, 'new_character':.15, 'new_group':.05}[kind] * (len(chosen) + 1) - assigned[kind], kind))
         if category == 'known':
-            groups = [g for g, roles in known.items() if any(roles.values())]
-            g = max(groups, key=lambda g:profile['quotas'][g] * (assigned['known'] + 1) - group_assigned[g])
+            groups = [g for g, roles in known.items() if any(roles.values()) and group_assigned[g] < group_caps[g]]
+            g = _weighted_pick(groups, profile['quotas'], group_credit)
             roles = [r for r, pool in known[g].items() if pool]
-            r = max(roles, key=lambda r:profile['character_quotas'][g][r] * (group_assigned[g] + 1) - role_assigned[r])
+            r = _weighted_pick(roles, profile['character_quotas'][g], role_credit[g])
             item = take(known[g][r])
             group_assigned[g] += 1
             role_assigned[r] += 1
         elif category == 'new_character':
-            g = max((g for g, pool in new_roles.items() if pool), key=lambda g:profile['quotas'][g] * (assigned[category] + 1) - new_assigned[g])
+            g = _weighted_pick([g for g, pool in new_roles.items() if pool], profile['quotas'], new_credit)
             item = take(new_roles[g])
             new_assigned[g] += 1
         else:
@@ -370,7 +436,11 @@ def stock_schedule(items, profile, index):
         chosen.append(item)
         assigned[category] += 1
         authors[item['author_id']] += 1
-    profile.update({'assigned_pools':dict(assigned), 'assigned_groups':dict(group_assigned),
+    profile.update({'known_target':desired_known, 'group_caps':group_caps,
+                    'group_shortfalls':{g:max(0, math.ceil(desired_known * weight) - group_assigned[g])
+                                        for g, weight in profile['quotas'].items()},
+                    'assigned_pools':dict(assigned), 'assigned_groups':dict(group_assigned),
+                    'assigned_new_character_groups':dict(new_assigned),
                     'assigned_characters':dict(role_assigned), 'supply_gaps':[kind for kind in ('new_character', 'new_group') if assigned[kind] < int(len(chosen) * {'new_character':.15, 'new_group':.05}[kind])]})
     return chosen
 

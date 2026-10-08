@@ -1,11 +1,12 @@
 """Bounded, group-anchored search plans built from cached preferences."""
 from collections import defaultdict
+import re
 
 from ... import models
 from .recommendations import normalize
 
 
-def build_search_plan(db, index, profile, preferences, *, rotation=0):
+def build_search_plan(db, index, profile, preferences, *, rotation=0, stock=False):
     mapped = defaultdict(list)
     blocked = {normalize(tag) for tag in preferences.get('blocked_tags', [])}
     for row in db.query(models.PixivTagMapping).order_by(models.PixivTagMapping.id).all():
@@ -21,13 +22,19 @@ def build_search_plan(db, index, profile, preferences, *, rotation=0):
                   and index.mappings.get((normalize(word), group),
                                          index.mappings.get((normalize(word), 0))) == (kind, id_)]
         unique = list(dict.fromkeys(values))
+        if stock:
+            # Popularity qualifiers are narrower than the actual series/role tag.
+            unique.sort(key=lambda word: (bool(re.search(r'\d+users入り', word)),
+                                         not bool(re.search(r'[ぁ-ヿa-zA-Z]', word))))
         if unique:
-            offset = rotation % len(unique)
-            return unique[offset:] + unique[:offset]
+            preferred = [word for word in unique if not re.search(r'\d+users入り', word)] if stock else unique
+            preferred = preferred or unique
+            offset = rotation % len(preferred)
+            return preferred[offset:] + preferred[:offset]
         return []
 
     ordered = sorted(profile['quotas'], key=lambda g: (-profile['quotas'][g], g))
-    if len(ordered) > 10:
+    if len(ordered) > 10 and not stock:
         # Keep the largest inventory gaps active; rotate the remaining groups
         # so enabled large groups are not excluded from search forever.
         tail = ordered[5:]
@@ -39,7 +46,7 @@ def build_search_plan(db, index, profile, preferences, *, rotation=0):
         anchor = anchors[0] if anchors else index.groups[group].name
         queue, seen = [], set()
 
-        def add(word, source, exact=True, terms=None):
+        def add(word, source, exact=True, terms=None, character=None):
             key = normalize(word)
             terms = terms or [word]
             if any(normalize(term) in blocked or
@@ -52,18 +59,24 @@ def build_search_plan(db, index, profile, preferences, *, rotation=0):
                 queue.append({'group':group, 'word':word,
                               'search_target':'exact_match_for_tags' if exact else 'partial_match_for_tags',
                               'source':source, 'terms':terms})
+                if character is not None:
+                    queue[-1]['character'] = character
                 return True
             return False
 
         add(anchor, 'group_mapping' if anchors else 'group_name', bool(anchors))
         roles = sorted((role for role in index.characters.values() if role.group_id == group),
                        key=lambda role: (-profile['characters'].get(group, {}).get(role.id, 0), role.id))
-        role_words = [bound[0] for role in roles if (bound := words('character', role.id, group))]
-        if len(role_words) > 2:
+        role_words = [(role.id, bound[0]) for role in roles if (bound := words('character', role.id, group))]
+        if stock and len(role_words) > 4:
+            tail = role_words[1:]
+            start = (rotation * 3) % len(tail)
+            role_words = role_words[:1] + (tail[start:] + tail[:start])[:3]
+        elif not stock and len(role_words) > 2:
             tail = role_words[1:]
             role_words = [role_words[0], tail[rotation % len(tail)]]
-        for word in role_words:
-            add(word, 'character_mapping')
+        for role_id, word in role_words:
+            add(word, 'character_mapping', character=role_id)
         features = sorted(profile['tags'].get(group, {}).items(), key=lambda entry: (-entry[1], entry[0]))
         added_features = 0
         for feature, weight in features:
@@ -94,7 +107,13 @@ def build_search_plan(db, index, profile, preferences, *, rotation=0):
         families = families[offset:] + families[:offset]
         buckets = {family:[entry for entry in extras if entry['source'] == family] for family in families}
         interleaved = [entries[round_] for round_ in range(2) for entries in buckets.values() if round_ < len(entries)]
-        queues[group] = anchor_queries + interleaved
+        queues[group] = queue if stock else anchor_queries + interleaved
+
+    if stock:
+        # Keep an anchor and rare-role queries for every selected group. The
+        # consumer chooses by live shortage, rather than this static FIFO order.
+        return [queues[group][round_] for round_ in range(max((len(q) for q in queues.values()), default=0))
+                for group in ordered if round_ < len(queues[group])][:160]
 
     # Every enabled group gets an anchor before additional queries are allotted
     # according to the same inventory quotas as the final recommendation list.

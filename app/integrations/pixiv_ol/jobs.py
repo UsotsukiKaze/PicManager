@@ -6,7 +6,7 @@ import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import select, update
+from sqlalchemy import case, select, update
 
 from ... import models
 from ...config import settings
@@ -48,10 +48,15 @@ def enqueue(db, actor_id, kind, payload=None, key=None):
         for existing in active:
             if (payload or {}).get('mode') in MODES and existing.actor_id != actor_id:
                 continue
+            if kind == 'stock_refill' and existing.payload.get('source_batch') != (payload or {}).get('source_batch'):
+                continue
             if all(
                 existing.payload.get(k, default) == (payload or {}).get(k, default)
                 for k, default in (("restrict", "public"), ("mode", "combined"))
             ):
+                if kind == 'stock_refill':
+                    existing.payload = {**existing.payload, 'seen_pids':list(dict.fromkeys(
+                        [*existing.payload.get('seen_pids', ()), *(payload or {}).get('seen_pids', ())]))[-2000:]}
                 return existing
     job = models.PixivJob(
         actor_id=actor_id, account_revision=account.revision, kind=kind, payload=payload or {}, dedupe_key=key
@@ -336,7 +341,8 @@ class Worker:
                 candidate = (
                     select(models.PixivJob.id)
                     .where(models.PixivJob.status.in_(("queued", "retry")), models.PixivJob.available_at <= now)
-                    .order_by(models.PixivJob.available_at, models.PixivJob.id)
+                    .order_by(case((models.PixivJob.kind == 'stock_refill', 1), else_=0),
+                              models.PixivJob.available_at, models.PixivJob.id)
                     .limit(1)
                     .scalar_subquery()
                 )
@@ -359,7 +365,12 @@ class Worker:
                         published = db.get(models.Image, Path(publishing).stem)
                     if not published:
                         backend.delete(publishing)
-                if not (kind == "import" and payload.get("cart_id")):
+                stale_refill = False
+                if kind == 'stock_refill':
+                    with get_db_context() as db:
+                        account = service.require_account(db, revision)
+                        stale_refill = not service.current_stock_replenishment(account, actor_id, payload.get('source_batch'))
+                if not stale_refill and not (kind == "import" and payload.get("cart_id")):
                     provider = service.client_for_job(actor_id, revision)
                 if kind == "sync":
                     result = service.sync_feed(provider, revision, actor_id, payload.get("restrict", "public"),
@@ -374,6 +385,10 @@ class Worker:
                         provider, revision, actor_id, payload.get("mode", "combined"), continuation=True, progressive=True,
                         seen_pids=payload.get('seen_pids', ())
                     )
+                elif kind == 'stock_refill':
+                    result = service.refresh_candidates(provider, revision, actor_id, 'stock',
+                        continuation=True, progressive=True, seen_pids=payload.get('seen_pids', ()),
+                        replenish_batch=payload.get('source_batch', ''))
                 elif kind == "browse_feed":
                     with get_db_context() as db:
                         account = service.require_account(db, revision)
@@ -403,6 +418,13 @@ class Worker:
                         job.result, job.error, job.locked_at = result, None, None
                         if kind != "import":
                             job.dedupe_key = None
+                        if result.get('replenish'):
+                            # Production sessions disable autoflush. Commit this
+                            # wave's status before deduplicating its successor.
+                            db.flush()
+                            enqueue(db, actor_id, 'stock_refill', {
+                                'mode':'stock', 'source_batch':result['source_batch'],
+                                'seen_pids':job.payload.get('seen_pids', ())})
                         if kind == "import" and payload.get("cart_id"):
                             item = db.get(models.PixivCartItem, payload["cart_id"])
                             if item:

@@ -3,6 +3,7 @@
 import os
 import sys
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import threading
 import time
@@ -285,6 +286,24 @@ class Provider:
         if not isinstance(response, dict) or response.get("error"):
             raise PixivError("external_error")
         return response
+
+    def call_many(self, requests, *, workers=3):
+        """Independent HTTP sessions share current auth, never rotate it in parallel."""
+        def fetch(request):
+            client = object.__new__(Provider)
+            client.api = BoundedAPI(**self.api.requests_kwargs)
+            client.api.set_auth(self.api.access_token, self.api.refresh_token)
+            client.api.user_id = self.api.user_id
+            client.api.additional_headers.update(self.api.additional_headers)
+            try:
+                method, params = request
+                return client.call(method, **params)
+            except PixivError as exc:
+                return exc
+            finally:
+                client.close()
+        with ThreadPoolExecutor(max_workers=min(3, max(1, workers))) as executor:
+            return list(executor.map(fetch, requests))
 
     @staticmethod
     def cursor(next_url):

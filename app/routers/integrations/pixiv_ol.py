@@ -662,6 +662,7 @@ def jobs():
             job_json(x)
             for x in db.query(models.PixivJob)
             .filter_by(account_revision=account.revision)
+            .filter(models.PixivJob.kind != 'stock_refill')
             .order_by(models.PixivJob.id.desc())
             .limit(50)
             .all()
@@ -1025,6 +1026,9 @@ def recommendations(
         query = db.query(models.PixivRecommendationBatch).filter_by(account_revision=account.revision, mode=mode)
         if mode in ('personal', 'stock', 'discovery'):
             query = query.filter(models.PixivRecommendationBatch.profile['actor_id'].as_integer() == actor_id)
+        if mode == 'stock' and not batch_id:
+            from ...integrations.pixiv_ol.strategies import POLICY_VERSION
+            query = query.filter(models.PixivRecommendationBatch.profile['policy_version'].as_string() == POLICY_VERSION)
         batch = (
             query.filter_by(id=batch_id).first()
             if batch_id
@@ -1223,11 +1227,12 @@ def preferences():
             .group_by(association.c.group_id)
             .all()
         )
-        from ...integrations.pixiv_ol.recommendations import inventory_quotas
+        from ...integrations.pixiv_ol.strategies import inverse_weights
 
         counts = {x[0]: counts.get(x[0], 0) for x in db.query(models.Group.id).all()}
         prefs = account.preferences if account else {}
-        return {**prefs, "inventory": counts, "quotas": inventory_quotas(counts, prefs)}
+        selected = {g:n for g, n in counts.items() if prefs.get('groups', {}).get(str(g), {}).get('enabled', n > 0)}
+        return {**prefs, "inventory": counts, "quotas": inverse_weights(selected)}
 
 
 @router.put("/preferences", dependencies=[Depends(write_guard), Depends(require_root_user_id)])

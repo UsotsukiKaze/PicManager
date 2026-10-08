@@ -1032,8 +1032,8 @@ def recommendations(
         if mode in ('personal', 'stock', 'discovery'):
             query = query.filter(models.PixivRecommendationBatch.profile['actor_id'].as_integer() == actor_id)
         if mode in ('personal', 'stock') and not batch_id:
-            from ...integrations.pixiv_ol.strategies import POLICY_VERSION
-            query = query.filter(models.PixivRecommendationBatch.profile['policy_version'].as_string() == POLICY_VERSION)
+            from ...integrations.pixiv_ol.strategies import policy_version
+            query = query.filter(models.PixivRecommendationBatch.profile['policy_version'].as_string() == policy_version(mode))
         batch = (
             query.filter_by(id=batch_id).first()
             if batch_id

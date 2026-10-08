@@ -12,10 +12,17 @@ from .recommendations import allowed, normalize, recommendation_match
 
 MODES = ('personal', 'stock', 'discovery')
 POLICY_VERSION = 'three-modes-v3'
+STOCK_POLICY_VERSION = 'stock-sparse-v1'
+SPARSE_CHARACTER_LIMIT = 20
+STOCK_POPULARITY_FLOOR = .35
 
 
 def stream_key(mode, actor_id):
     return f'recommendation_stream_{mode}_{actor_id}' if mode in MODES else f'recommendation_stream_{mode}'
+
+
+def policy_version(mode):
+    return STOCK_POLICY_VERSION if mode == 'stock' else POLICY_VERSION
 
 
 def source_key(source, mode, actor_id):
@@ -26,6 +33,17 @@ def inverse_weights(counts):
     values = {id_:1 / max(1, count) for id_, count in counts.items()}
     total = sum(values.values())
     return {id_:value / total for id_, value in values.items()} if total else {}
+
+
+def new_character_weights(group_weights, character_counts):
+    """Reserve exploration within thinly catalogued series without changing known-role quotas."""
+    sparse = {group:1 + (SPARSE_CHARACTER_LIMIT - character_counts[group]) / SPARSE_CHARACTER_LIMIT
+              for group in group_weights if character_counts[group] <= SPARSE_CHARACTER_LIMIT}
+    if not sparse:
+        return dict(group_weights)
+    sparse_total = sum(sparse.values())
+    return {group:0.6 * weight + 0.4 * sparse.get(group, 0) / sparse_total
+            for group, weight in group_weights.items()}
 
 
 def library(db):
@@ -192,8 +210,13 @@ def stock_profile(db, index, account, images):
         for image in pages:
             for role in image.characters:
                 seeds[role.group_id][pid] = max(seeds[role.group_id][pid], 1 / max(1, roles[role.id]))
-    return {'algorithm':'stock-inverse-inventory-v2', 'inventory':dict(counts),
-            'character_inventory':dict(roles), 'quotas':inverse_weights({g:counts[g] for g in selected}),
+    group_quotas = inverse_weights({g:counts[g] for g in selected})
+    character_counts = Counter(role.group_id for role in index.characters.values())
+    return {'algorithm':'stock-inverse-inventory-v3', 'inventory':dict(counts),
+            'character_inventory':dict(roles), 'character_counts':{g:character_counts[g] for g in selected},
+            'sparse_character_groups':[g for g in selected if character_counts[g] <= SPARSE_CHARACTER_LIMIT],
+            'new_character_quotas':new_character_weights(group_quotas, character_counts),
+            'quotas':group_quotas,
             'character_quotas':role_quotas, 'characters':role_quotas,
             'tags':{g:vector for g in selected}, 'feature_vector':vector,
             'liked_raw_global':{}, 'liked_raw_tags':{}, 'raw_tag_names':{},
@@ -295,7 +318,7 @@ def _candidates(db, index, account, mode, actor_id, seen_pids, *, source_batch=N
 
 def rank(db, index, account, mode, actor_id, seen_pids=()):
     profile = build_profile(db, index, account, mode)
-    profile.update({'policy_version':POLICY_VERSION, 'actor_id':actor_id, 'mode':mode})
+    profile.update({'policy_version':policy_version(mode), 'actor_id':actor_id, 'mode':mode})
     candidates = _candidates(db, index, account, mode, actor_id, seen_pids)
     if mode == 'discovery':
         return [item for item, _ in sorted(candidates, key=lambda row:(row[1], row[0]['pid']))][:180], profile
@@ -312,6 +335,7 @@ def rank(db, index, account, mode, actor_id, seen_pids=()):
                         + 0.10 * cosine(v.get('group', {}), match['group_ids']))
             item['_score'] = 0.70 * affinity + 0.20 * quality + 0.10 * native
         else:
+            item['_quality'] = quality
             item['_score'] = 0.30 * cosine(profile['feature_vector'], match['feature_tag_ids']) + 0.55 * quality + 0.15 * native
     if mode == 'personal':
         pool, chosen, authors = sorted([item for item, _ in candidates], key=lambda item:(-item['_score'], item['pid'])), [], Counter()
@@ -338,7 +362,11 @@ def stock_identity(item, profile, index):
             role = min(roles, key=lambda r:(profile['character_inventory'].get(r, 0), r))
             return 'known', index.characters[role].group_id, role
         if not match['character_ids'] and not match['conflicts']:
-            return 'new_character', min(groups, key=lambda g:(profile['inventory'][g], g)), None
+            sparse = profile.get('sparse_character_groups', ())
+            weights = profile.get('new_character_quotas', profile['quotas'])
+            group = max(groups, key=lambda g:(g in sparse, weights.get(g, 0),
+                                               -profile['inventory'][g], -g))
+            return 'new_character', group, None
     return None, None, None
 
 
@@ -352,6 +380,21 @@ def stock_supply(candidates, profile, index):
     return groups, roles
 
 
+def stock_new_character_supply(candidates, profile, index, *, min_quality=0):
+    supply = Counter()
+    now = datetime.utcnow()
+    for item, _ in candidates:
+        kind, group, _ = stock_identity(item, profile, index)
+        if kind == 'new_character' and (not min_quality or recent_popularity(item, now) >= min_quality):
+            supply[group] += 1
+    return supply
+
+
+def stock_new_character_gap(group, supply, profile):
+    target = max(3, math.ceil(27 * profile.get('new_character_quotas', profile['quotas']).get(group, 0)))
+    return max(0, target - supply[group])
+
+
 def stock_query_gap(query, profile, groups, roles):
     group, role = query['group'], query.get('character')
     target = 144 * profile['quotas'].get(group, 0)
@@ -359,10 +402,24 @@ def stock_query_gap(query, profile, groups, roles):
 
 
 def stock_recall_queries(queries, candidates, profile, index, limit=3):
-    """Recall by missing known-role supply; features get only exploration slots."""
+    """Recall thin-series exploration once, then fill missing known-role supply."""
     groups, roles = stock_supply(candidates, profile, index)
+    new_roles = stock_new_character_supply(candidates, profile, index, min_quality=STOCK_POPULARITY_FLOOR)
     picked, remaining = [], list(queries)
     used_groups = set()
+    sparse = set(profile.get('sparse_character_groups', ()))
+    anchors = [query for query in remaining if query['group'] in sparse
+               and query.get('source') in ('group_mapping', 'group_name')
+               and stock_new_character_gap(query['group'], new_roles, profile) > 0]
+    if anchors and limit:
+        query = max(anchors, key=lambda entry:(
+            stock_new_character_gap(entry['group'], new_roles, profile),
+            entry.get('source') == 'group_mapping',
+            profile.get('new_character_quotas', profile['quotas']).get(entry['group'], 0),
+            -remaining.index(entry)))
+        picked.append(query)
+        remaining.remove(query)
+        used_groups.add(query['group'])
     while remaining and len(picked) < limit:
         def priority(query):
             group, role = query['group'], query.get('character')
@@ -407,6 +464,10 @@ def stock_schedule(items, profile, index):
     all_pools = [pool for roles in known.values() for pool in roles.values()] + list(new_roles.values()) + [new_groups]
     for pool in all_pools:
         pool.sort(key=lambda item:(-item['_score'], item['pid']))
+    sparse = set(profile.get('sparse_character_groups', ()))
+    for group in sparse:
+        if group in new_roles:
+            new_roles[group].sort(key=lambda item:(-item.get('_quality', 0), -item['_score'], item['pid']))
     known_n = sum(len(pool) for roles in known.values() for pool in roles.values())
     role_n, group_n = sum(map(len, new_roles.values())), len(new_groups)
     target = min(180, known_n + role_n + group_n)
@@ -429,8 +490,10 @@ def stock_schedule(items, profile, index):
     group_credit, role_credit, new_credit = Counter(), defaultdict(Counter), Counter()
     chosen = []
 
-    def take(pool):
-        best = max(range(min(30, len(pool))), key=lambda n:pool[n]['_score'] - .03 * authors[pool[n]['author_id']])
+    def take(pool, *, popularity_first=False):
+        best = max(range(min(30, len(pool))), key=lambda n:(
+            (0.7 * pool[n].get('_quality', 0) + 0.3 * pool[n]['_score'] if popularity_first else pool[n]['_score'])
+            - .03 * authors[pool[n]['author_id']]))
         return pool.pop(best)
 
     while len(chosen) < sum(limits.values()):
@@ -447,12 +510,19 @@ def stock_schedule(items, profile, index):
             group_assigned[g] += 1
             role_assigned[r] += 1
         elif category == 'new_character':
-            g = _weighted_pick([g for g, pool in new_roles.items() if pool], profile['quotas'], new_credit)
-            item = take(new_roles[g])
+            active = [g for g, pool in new_roles.items() if pool]
+            hot_sparse = {g for g in active if g in sparse and
+                          max(item.get('_quality', 0) for item in new_roles[g][:30]) >= STOCK_POPULARITY_FLOOR}
+            boosted = profile.get('new_character_quotas', profile['quotas'])
+            weights = ({g:(profile['quotas'][g] if g in sparse and g not in hot_sparse else boosted[g])
+                        for g in active} if hot_sparse else profile['quotas'])
+            g = _weighted_pick(active, weights, new_credit)
+            item = take(new_roles[g], popularity_first=g in sparse)
             new_assigned[g] += 1
         else:
             item = take(new_groups)
         item.pop('_score')
+        item.pop('_quality', None)
         chosen.append(item)
         assigned[category] += 1
         authors[item['author_id']] += 1

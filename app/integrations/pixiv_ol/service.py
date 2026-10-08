@@ -16,9 +16,9 @@ CLIENT_LOCK = threading.Lock()  # Serialize refresh-token rotation, not artwork 
 
 
 def current_stock_replenishment(account, actor_id, source_batch):
-    from .strategies import stream_key, POLICY_VERSION
+    from .strategies import stream_key, policy_version
     stream = account.sync_state.get(stream_key('stock', actor_id), {})
-    return (stream.get('source_batch') == source_batch and stream.get('policy_version') == POLICY_VERSION
+    return (stream.get('source_batch') == source_batch and stream.get('policy_version') == policy_version('stock')
             and bool(stream.get('deferred_queries'))
             and (datetime.utcnow() - iso_date(stream.get('started_at', '1970-01-01'))).total_seconds() <= 900)
 
@@ -336,7 +336,7 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
         stream = dict(account.sync_state.get(stream_name, {}))
         if replenish_batch is not None and (mode != 'stock' or not current_stock_replenishment(account, actor_id, replenish_batch)):
             return {'count':0, 'more':False, 'replenish':False}
-        if mode in ('personal', 'stock') and stream.get('policy_version') != strategies.POLICY_VERSION:
+        if mode in ('personal', 'stock') and stream.get('policy_version') != strategies.policy_version(mode):
             continuation = False
         if independent and continuation and not stream:
             continuation = False
@@ -431,8 +431,16 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
                             candidates = strategies._candidates(db, recall_index, account, mode, actor_id,
                                 seen_pids if continuation else (), source_batch=source_batch)
                             groups, roles = strategies.stock_supply(candidates, profile, recall_index)
+                            sparse_anchor = (group in profile.get('sparse_character_groups', ())
+                                             and query.get('source') in ('group_mapping', 'group_name'))
+                            new_supply = (strategies.stock_new_character_supply(
+                                candidates, profile, recall_index,
+                                min_quality=strategies.STOCK_POPULARITY_FLOOR)
+                                if sparse_anchor else None)
                         group_gap, role_gap = strategies.stock_query_gap(query, profile, groups, roles)
                         gap = role_gap if query.get('character') is not None else group_gap
+                        if new_supply is not None:
+                            gap = max(gap, strategies.stock_new_character_gap(group, new_supply, profile))
                         if gap > 0:
                             pending_queries.append({**query, 'cursor':next_cursor, 'attempts':0})
             except PixivError as exc:
@@ -472,7 +480,7 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
             account.sync_state = {
                 **account.sync_state,
                 stream_name: {"cursor": cursor, "exhausted": exhausted, "query_round": query_round,
-                    "policy_version": strategies.POLICY_VERSION,
+                    "policy_version": strategies.policy_version(mode),
                     "source_batch": source_batch, "native_offset": native_offset + platform_count,
                     "started_at": stream.get('started_at') if continuation and stream.get('started_at') else datetime.utcnow().isoformat(),
                     "deferred_queries": pending_queries if progressive else [],

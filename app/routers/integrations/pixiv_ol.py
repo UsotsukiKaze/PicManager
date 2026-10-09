@@ -1055,7 +1055,7 @@ def recommendations(
         remaining = [(position, item) for position, item in items if position >= offset]
         if mode == 'stock':
             from ...integrations.pixiv_ol.strategies import stock_page
-            page = stock_page(remaining, limit)
+            page = stock_page(remaining, limit, batch.profile)
         else:
             page = remaining[:limit]
         next_offset = page[-1][0] + 1 if page else len(batch.items)

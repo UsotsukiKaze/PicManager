@@ -12,9 +12,12 @@ from .recommendations import allowed, normalize, recommendation_match
 
 MODES = ('personal', 'stock', 'discovery')
 POLICY_VERSION = 'three-modes-v3'
-STOCK_POLICY_VERSION = 'stock-sparse-v1'
+STOCK_POLICY_VERSION = 'stock-sparse-v2'
 SPARSE_CHARACTER_LIMIT = 20
 STOCK_POPULARITY_FLOOR = .35
+BASE_NEW_CHARACTER_SHARE = .15
+MAX_NEW_CHARACTER_SHARE = .80
+NEW_GROUP_SHARE = .05
 
 
 def stream_key(mode, actor_id):
@@ -44,6 +47,31 @@ def new_character_weights(group_weights, character_counts):
     sparse_total = sum(sparse.values())
     return {group:0.6 * weight + 0.4 * sparse.get(group, 0) / sparse_total
             for group, weight in group_weights.items()}
+
+
+def new_character_fraction(character_count):
+    """A sparse group's exploration target rises smoothly to 80% at zero roles."""
+    if character_count > SPARSE_CHARACTER_LIMIT:
+        return BASE_NEW_CHARACTER_SHARE
+    return min(MAX_NEW_CHARACTER_SHARE, BASE_NEW_CHARACTER_SHARE +
+               (MAX_NEW_CHARACTER_SHARE - BASE_NEW_CHARACTER_SHARE) *
+               (SPARSE_CHARACTER_LIMIT + 1 - character_count) / (SPARSE_CHARACTER_LIMIT + 1))
+
+
+def stock_exploration_plan(profile, hot_groups=None):
+    """Per-group targets; cold sparse groups fall back to the original 15%."""
+    fractions = profile.get('new_character_fractions', {})
+    effective = {g:(fractions.get(g, BASE_NEW_CHARACTER_SHARE)
+                    if hot_groups is None or g in hot_groups else BASE_NEW_CHARACTER_SHARE)
+                 for g in profile['quotas']}
+    share = min(MAX_NEW_CHARACTER_SHARE, sum(profile['quotas'][g] * fraction
+                                            for g, fraction in effective.items()))
+    known_weights = {g:weight * (1 - effective[g]) for g, weight in profile['quotas'].items()}
+    new_weights = {g:weight * effective[g] for g, weight in profile['quotas'].items()}
+    def normalized(weights):
+        total = sum(weights.values())
+        return {g:value / total for g, value in weights.items()} if total else dict(profile['quotas'])
+    return share, normalized(known_weights), normalized(new_weights), effective
 
 
 def library(db):
@@ -212,9 +240,10 @@ def stock_profile(db, index, account, images):
                 seeds[role.group_id][pid] = max(seeds[role.group_id][pid], 1 / max(1, roles[role.id]))
     group_quotas = inverse_weights({g:counts[g] for g in selected})
     character_counts = Counter(role.group_id for role in index.characters.values())
-    return {'algorithm':'stock-inverse-inventory-v3', 'inventory':dict(counts),
+    return {'algorithm':'stock-inverse-inventory-v4', 'inventory':dict(counts),
             'character_inventory':dict(roles), 'character_counts':{g:character_counts[g] for g in selected},
             'sparse_character_groups':[g for g in selected if character_counts[g] <= SPARSE_CHARACTER_LIMIT],
+            'new_character_fractions':{g:new_character_fraction(character_counts[g]) for g in selected},
             'new_character_quotas':new_character_weights(group_quotas, character_counts),
             'quotas':group_quotas,
             'character_quotas':role_quotas, 'characters':role_quotas,
@@ -391,13 +420,19 @@ def stock_new_character_supply(candidates, profile, index, *, min_quality=0):
 
 
 def stock_new_character_gap(group, supply, profile):
-    target = max(3, math.ceil(27 * profile.get('new_character_quotas', profile['quotas']).get(group, 0)))
+    fractions = profile.get('new_character_fractions')
+    if fractions:
+        target = max(3, math.ceil(180 * profile['quotas'].get(group, 0) *
+                                  fractions.get(group, BASE_NEW_CHARACTER_SHARE)))
+    else:
+        target = max(3, math.ceil(27 * profile.get('new_character_quotas', profile['quotas']).get(group, 0)))
     return max(0, target - supply[group])
 
 
 def stock_query_gap(query, profile, groups, roles):
     group, role = query['group'], query.get('character')
-    target = 144 * profile['quotas'].get(group, 0)
+    share, known_weights, _, _ = stock_exploration_plan(profile)
+    target = 180 * (1 - share - NEW_GROUP_SHARE) * known_weights.get(group, 0)
     return max(0, target - groups[group]), max(0, target * profile.get('character_quotas', {}).get(group, {}).get(role, 0) - roles[role])
 
 
@@ -468,11 +503,18 @@ def stock_schedule(items, profile, index):
     for group in sparse:
         if group in new_roles:
             new_roles[group].sort(key=lambda item:(-item.get('_quality', 0), -item['_score'], item['pid']))
+    hot_sparse = {g for g in sparse if any(item.get('_quality', 0) >= STOCK_POPULARITY_FLOOR
+                                          for item in new_roles.get(g, ()))}
+    share, known_weights, new_weights, fractions = stock_exploration_plan(profile, hot_sparse)
+    adaptive = bool(profile.get('new_character_fractions'))
     known_n = sum(len(pool) for roles in known.values() for pool in roles.values())
     role_n, group_n = sum(map(len, new_roles.values())), len(new_groups)
     target = min(180, known_n + role_n + group_n)
-    desired_known = target - min(role_n, int(target * .15)) - min(group_n, int(target * .05))
-    group_caps = {g:max(2, math.ceil(desired_known * weight * 1.25)) for g, weight in profile['quotas'].items()}
+    new_caps = ({g:math.ceil(target * profile['quotas'][g] * fractions[g]) for g in new_roles}
+                if adaptive else {g:len(pool) for g, pool in new_roles.items()})
+    role_n = sum(min(len(pool), new_caps[g]) for g, pool in new_roles.items())
+    desired_known = target - min(role_n, int(target * share)) - min(group_n, int(target * NEW_GROUP_SHARE))
+    group_caps = {g:max(2, math.ceil(desired_known * weight * 1.25)) for g, weight in known_weights.items()}
     role_caps = {g:{r:max(2, math.ceil(group_caps[g] * weight * 1.25))
                    for r, weight in weights.items()} for g, weights in profile['character_quotas'].items()}
     # Bounded rounding/25% overflow is allowed. A missing cold group must not
@@ -482,9 +524,16 @@ def stock_schedule(items, profile, index):
             roles[r] = roles[r][:role_caps[g][r]]
     known_n = sum(min(group_caps[g], sum(map(len, roles.values()))) for g, roles in known.items())
     # Never silently turn a short supply of known roles into mostly exploration.
-    while target > known_n + min(role_n, int(target * .15)) + min(group_n, int(target * .05)):
-        target = known_n + min(role_n, int(target * .15)) + min(group_n, int(target * .05))
-    limits = {'new_character':min(role_n, int(target * .15)), 'new_group':min(group_n, int(target * .05))}
+    while True:
+        if adaptive:
+            new_caps = {g:math.ceil(target * profile['quotas'][g] * fractions[g]) for g in new_roles}
+            role_n = sum(min(len(pool), new_caps[g]) for g, pool in new_roles.items())
+        next_target = min(target, known_n + min(role_n, int(target * share)) +
+                          min(group_n, int(target * NEW_GROUP_SHARE)))
+        if next_target == target:
+            break
+        target = next_target
+    limits = {'new_character':min(role_n, int(target * share)), 'new_group':min(group_n, int(target * NEW_GROUP_SHARE))}
     limits['known'] = min(known_n, target - sum(limits.values()))
     assigned, group_assigned, role_assigned, new_assigned, authors = Counter(), Counter(), Counter(), Counter(), Counter()
     group_credit, role_credit, new_credit = Counter(), defaultdict(Counter), Counter()
@@ -500,22 +549,21 @@ def stock_schedule(items, profile, index):
         if len(chosen) % 20 == 0:
             authors.clear()
         category = max((kind for kind in limits if assigned[kind] < limits[kind]),
-                       key=lambda kind:({'known':.8, 'new_character':.15, 'new_group':.05}[kind] * (len(chosen) + 1) - assigned[kind], kind))
+                       key=lambda kind:({'known':1 - share - NEW_GROUP_SHARE,
+                                         'new_character':share, 'new_group':NEW_GROUP_SHARE}[kind] * (len(chosen) + 1) - assigned[kind], kind))
         if category == 'known':
             groups = [g for g, roles in known.items() if any(roles.values()) and group_assigned[g] < group_caps[g]]
-            g = _weighted_pick(groups, profile['quotas'], group_credit)
+            g = _weighted_pick(groups, known_weights, group_credit)
             roles = [r for r, pool in known[g].items() if pool]
             r = _weighted_pick(roles, profile['character_quotas'][g], role_credit[g])
             item = take(known[g][r])
             group_assigned[g] += 1
             role_assigned[r] += 1
         elif category == 'new_character':
-            active = [g for g, pool in new_roles.items() if pool]
-            hot_sparse = {g for g in active if g in sparse and
-                          max(item.get('_quality', 0) for item in new_roles[g][:30]) >= STOCK_POPULARITY_FLOOR}
+            active = [g for g, pool in new_roles.items() if pool and new_assigned[g] < new_caps[g]]
             boosted = profile.get('new_character_quotas', profile['quotas'])
-            weights = ({g:(profile['quotas'][g] if g in sparse and g not in hot_sparse else boosted[g])
-                        for g in active} if hot_sparse else profile['quotas'])
+            weights = new_weights if adaptive else ({g:(profile['quotas'][g] if g in sparse and g not in hot_sparse else boosted[g])
+                                                      for g in active} if hot_sparse else profile['quotas'])
             g = _weighted_pick(active, weights, new_credit)
             item = take(new_roles[g], popularity_first=g in sparse)
             new_assigned[g] += 1
@@ -526,26 +574,29 @@ def stock_schedule(items, profile, index):
         chosen.append(item)
         assigned[category] += 1
         authors[item['author_id']] += 1
-    profile.update({'known_target':desired_known, 'group_caps':group_caps,
+    profile.update({'new_character_share':share, 'known_target':desired_known,
+                    'new_character_caps':new_caps, 'group_caps':group_caps,
                     'group_shortfalls':{g:max(0, math.ceil(desired_known * weight) - group_assigned[g])
-                                        for g, weight in profile['quotas'].items()},
+                                        for g, weight in known_weights.items()},
                     'assigned_pools':dict(assigned), 'assigned_groups':dict(group_assigned),
                     'assigned_new_character_groups':dict(new_assigned),
-                    'assigned_characters':dict(role_assigned), 'supply_gaps':[kind for kind in ('new_character', 'new_group') if assigned[kind] < int(len(chosen) * {'new_character':.15, 'new_group':.05}[kind])]})
+                    'assigned_characters':dict(role_assigned), 'supply_gaps':[kind for kind in ('new_character', 'new_group') if assigned[kind] < int(len(chosen) * {'new_character':share, 'new_group':NEW_GROUP_SHARE}[kind])]})
     return chosen
 
 
-def stock_page(rows, limit):
+def stock_page(rows, limit, profile=None):
     """Reapply independent exploration caps after live library/cart exclusions.
 
     Positions remain the immutable batch offsets. Skipped exploration can be
     reconsidered by the next ranked batch; seen PIDs only include returned cards.
     """
     supply = Counter(item.get('stock_pool', 'known') for _, item in rows)
+    share = min(MAX_NEW_CHARACTER_SHARE, max(BASE_NEW_CHARACTER_SHARE,
+                (profile or {}).get('new_character_share', BASE_NEW_CHARACTER_SHARE)))
     target = min(limit, len(rows))
-    while target > supply['known'] + min(supply['new_character'], int(target * .15)) + min(supply['new_group'], int(target * .05)):
-        target = supply['known'] + min(supply['new_character'], int(target * .15)) + min(supply['new_group'], int(target * .05))
-    caps = {'new_character':min(supply['new_character'], int(target * .15)), 'new_group':min(supply['new_group'], int(target * .05))}
+    while target > supply['known'] + min(supply['new_character'], int(target * share)) + min(supply['new_group'], int(target * NEW_GROUP_SHARE)):
+        target = supply['known'] + min(supply['new_character'], int(target * share)) + min(supply['new_group'], int(target * NEW_GROUP_SHARE))
+    caps = {'new_character':min(supply['new_character'], int(target * share)), 'new_group':min(supply['new_group'], int(target * NEW_GROUP_SHARE))}
     caps['known'] = target - sum(caps.values())
     chosen, counts = [], Counter()
     for row in rows:

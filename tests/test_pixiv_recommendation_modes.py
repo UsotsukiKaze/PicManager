@@ -87,8 +87,17 @@ def test_stock_sparse_role_threshold_boosts_only_new_role_exploration(environmen
         assert profile['sparse_character_groups'] == [1]
         assert profile['new_character_quotas'][1] > profile['quotas'][1]
         assert sum(profile['new_character_quotas'].values()) == pytest.approx(1)
+        assert profile['new_character_fractions'][1] > profile['new_character_fractions'][2] == .15
         assert strategies.new_character_weights({1:.01, 2:.99}, {1:20, 2:21})[1] > .4
         assert strategies.new_character_weights({1:.01, 2:.99}, {1:21, 2:21}) == {1:.01, 2:.99}
+
+
+def test_sparse_new_character_fraction_increases_to_eighty_percent():
+    fractions = [strategies.new_character_fraction(count) for count in (21, 20, 10, 1, 0)]
+    assert fractions == sorted(fractions)
+    assert fractions[0] == .15
+    assert fractions[-1] == .8
+    assert fractions[1] > .15
 
 
 def test_personal_deduplicates_multi_page_work_and_has_no_inverse_inventory_weights(environment):
@@ -199,6 +208,72 @@ def test_sparse_groups_receive_more_new_character_slots_without_changing_known_q
     assert sum(exploration.values()) == 27
     known = Counter(row['primary_group'] for row in result if row['stock_pool'] == 'known')
     assert known[1] < known[2] / 4
+
+
+def test_sparse_group_gets_dynamic_slots_and_page_preserves_them():
+    items, profile, index = stock_fixture(known=500, unknown_role=0, unknown_group=50)
+    profile['quotas'] = {1:.5, 2:.5}
+    profile['sparse_character_groups'] = [1]
+    profile['new_character_fractions'] = {1:.8, 2:.15}
+    for group in (1, 2):
+        for n in range(120):
+            pid = f'new-{group}-{n}'
+            items.append({'pid':pid, 'author_id':pid, '_score':1, '_quality':1,
+                          'match':{'group_ids':[group], 'character_ids':[], 'conflicts':[]}})
+    result = strategies.stock_schedule(items, profile, index)
+    counts = Counter(row['stock_pool'] for row in result)
+    assert len(result) == 180
+    assert 27 < counts['new_character'] <= 144
+    assert counts['new_group'] == 9
+    by_group = Counter(row['primary_group'] for row in result if row['stock_pool'] == 'new_character')
+    assert by_group[1] > by_group[2]
+    assert by_group[1] <= 72  # 180 * 50% group quota * 80% exploration
+    assert profile['new_character_share'] == pytest.approx(.475)
+    first_page = strategies.stock_page(list(enumerate(result)), 20, profile)
+    assert Counter(row['stock_pool'] for _, row in first_page)['new_character'] > 3
+    assert Counter(row['stock_pool'] for _, row in first_page)['new_character'] <= 16
+
+
+def test_sparse_boost_requires_popular_supply_and_gap_uses_group_fraction():
+    _, profile, _ = stock_fixture()
+    profile['quotas'] = {1:.5, 2:.5}
+    profile['new_character_fractions'] = {1:.8, 2:.15}
+    assert strategies.stock_new_character_gap(1, Counter(), profile) == 72
+    boosted, _, _, _ = strategies.stock_exploration_plan(profile, {1})
+    cold, _, _, _ = strategies.stock_exploration_plan(profile, set())
+    assert boosted == pytest.approx(.475)
+    assert cold == pytest.approx(.15)
+
+
+def test_all_sparse_groups_never_allocate_over_eighty_percent_new_roles():
+    items, profile, index = stock_fixture(known=500, unknown_role=0, unknown_group=50)
+    profile['quotas'] = {1:.5, 2:.5}
+    profile['sparse_character_groups'] = [1, 2]
+    profile['new_character_fractions'] = {1:.8, 2:.8}
+    for group in (1, 2):
+        for n in range(150):
+            pid = f'new-{group}-{n}'
+            items.append({'pid':pid, 'author_id':pid, '_score':1, '_quality':1,
+                          'match':{'group_ids':[group], 'character_ids':[], 'conflicts':[]}})
+    result = strategies.stock_schedule(items, profile, index)
+    assert profile['new_character_share'] == pytest.approx(.8)
+    assert len(result) == 180
+    assert Counter(row['stock_pool'] for row in result)['new_character'] == 144
+    assert Counter(row['stock_pool'] for _, row in strategies.stock_page(list(enumerate(result)), 20, profile))['new_character'] <= 16
+
+
+def test_cold_sparse_candidates_do_not_receive_extra_exploration_slots():
+    items, profile, index = stock_fixture(known=500, unknown_role=0, unknown_group=50)
+    profile['quotas'] = {1:.5, 2:.5}
+    profile['sparse_character_groups'] = [1]
+    profile['new_character_fractions'] = {1:.8, 2:.15}
+    for n in range(100):
+        pid = f'cold-{n}'
+        items.append({'pid':pid, 'author_id':pid, '_score':1, '_quality':.1,
+                      'match':{'group_ids':[1], 'character_ids':[], 'conflicts':[]}})
+    result = strategies.stock_schedule(items, profile, index)
+    assert profile['new_character_share'] == pytest.approx(.15)
+    assert Counter(row['stock_pool'] for row in result)['new_character'] <= 27
 
 
 def test_sparse_bonus_does_not_promote_unpopular_new_character_supply():

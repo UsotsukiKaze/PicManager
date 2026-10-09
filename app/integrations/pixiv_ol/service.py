@@ -424,15 +424,16 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
                 if mode == 'stock':
                     next_cursor = provider.cursor(response.get('next_url'))
                     query['pages'] = int(query.get('pages', 0)) + 1
-                    if next_cursor and next_cursor != query.get('cursor') and query['pages'] < 3:
+                    page_limit = 5 if query.get('source') == 'group_popular' else 3
+                    if next_cursor and next_cursor != query.get('cursor') and query['pages'] < page_limit:
                         with get_db_context() as db:
                             account = require_account(db, revision)
                             recall_index = TagIndex(db)
                             candidates = strategies._candidates(db, recall_index, account, mode, actor_id,
                                 seen_pids if continuation else (), source_batch=source_batch)
                             groups, roles = strategies.stock_supply(candidates, profile, recall_index)
-                            sparse_anchor = (group in profile.get('sparse_character_groups', ())
-                                             and query.get('source') in ('group_mapping', 'group_name'))
+                            sparse_anchor = (group in profile.get('quotas', {})
+                                             and query.get('source') in ('group_popular', 'group_mapping', 'group_name'))
                             new_supply = (strategies.stock_new_character_supply(
                                 candidates, profile, recall_index,
                                 min_quality=strategies.STOCK_POPULARITY_FLOOR)

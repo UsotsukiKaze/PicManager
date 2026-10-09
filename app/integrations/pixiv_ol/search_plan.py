@@ -63,6 +63,18 @@ def build_search_plan(db, index, profile, preferences, *, rotation=0, stock=Fals
             return False
 
         add(anchor, 'group_mapping' if anchors else 'group_name', bool(anchors))
+        if stock and anchors:
+            # Pixiv accepts AND queries. Use the confirmed series tag, then
+            # narrow the search to community popularity tags; the bare mapped
+            # tag above remains a fallback when no such works exist.
+            popular = [word for context, word in mapped[('group', group)]
+                       if context in (0, group) and re.search(r'\d+users入り', word)
+                       and index.has_binding(word, 'group', group, group)]
+            if popular:
+                add(popular[rotation % len(popular)], 'group_popular')
+            else:
+                add(f'{anchor} 1000users入り', 'group_popular', False,
+                    [anchor, '1000users入り'])
         roles = sorted((role for role in index.characters.values() if role.group_id == group),
                        key=lambda role: (-profile['characters'].get(group, {}).get(role.id, 0), role.id))
         role_words = [(role.id, bound[0]) for role in roles if (bound := words('character', role.id, group))]
@@ -82,6 +94,8 @@ def build_search_plan(db, index, profile, preferences, *, rotation=0, stock=Fals
                 continue
             bound = words('feature', feature, group)
             observed = profile['feature_query_tags'].get(feature, [])
+            if stock and not (bound or observed):
+                continue
             token = next(iter(bound or observed), index.features[feature].name)
             if normalize(token) == normalize(anchor):
                 continue

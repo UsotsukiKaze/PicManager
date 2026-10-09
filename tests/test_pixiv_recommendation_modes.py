@@ -8,7 +8,7 @@ from test_pixiv_ol import environment, artwork, FakeProvider
 from test_pixiv_recommendation_preferences import mapping, image, like, cached
 from app import models
 from app.integrations.pixiv_ol import service, strategies, jobs, provider
-from app.integrations.pixiv_ol.recommendations import TagIndex, rank_candidates
+from app.integrations.pixiv_ol.recommendations import TagIndex, rank_candidates, recommendation_match
 from app.routers.integrations import pixiv_ol as pixiv_api
 
 
@@ -87,7 +87,7 @@ def test_stock_sparse_role_threshold_boosts_only_new_role_exploration(environmen
         assert profile['sparse_character_groups'] == [1]
         assert profile['new_character_quotas'][1] > profile['quotas'][1]
         assert sum(profile['new_character_quotas'].values()) == pytest.approx(1)
-        assert profile['new_character_fractions'][1] > profile['new_character_fractions'][2] == .15
+        assert profile['new_character_fractions'][1] > profile['new_character_fractions'][2] == .30
         assert strategies.new_character_weights({1:.01, 2:.99}, {1:20, 2:21})[1] > .4
         assert strategies.new_character_weights({1:.01, 2:.99}, {1:21, 2:21}) == {1:.01, 2:.99}
 
@@ -95,9 +95,9 @@ def test_stock_sparse_role_threshold_boosts_only_new_role_exploration(environmen
 def test_sparse_new_character_fraction_increases_to_eighty_percent():
     fractions = [strategies.new_character_fraction(count) for count in (21, 20, 10, 1, 0)]
     assert fractions == sorted(fractions)
-    assert fractions[0] == .15
+    assert fractions[0] == .30
     assert fractions[-1] == .8
-    assert fractions[1] > .15
+    assert fractions[1] > .30
 
 
 def test_personal_deduplicates_multi_page_work_and_has_no_inverse_inventory_weights(environment):
@@ -133,6 +133,28 @@ def test_rank_prefers_recent_popular_work_within_same_interest_or_role(environme
         account.sync_state = {source:{'batch':'quality'}}
         items, _ = strategies.rank(db, TagIndex(db), account, mode, 1)
         assert [item['pid'] for item in items] == ['801', '800', '802']
+
+
+def test_stock_popularity_outweighs_one_extra_feature_match(environment):
+    context, _, _ = environment
+    with context() as db:
+        roles(db)
+    raws = []
+    for pid, bookmarks, tags in [
+        ('850', 600, ['GameNative', 'RareNative']),
+        ('851', 20, ['GameNative', 'RareNative', 'WhiteNative']),
+    ]:
+        raw = artwork(pid, [{'name':tag} for tag in tags])
+        raw['total_bookmarks'] = bookmarks
+        raw['create_date'] = (datetime.utcnow() - timedelta(days=7)).isoformat() + 'Z'
+        raws.append(raw)
+    source = strategies.source_key('recommended', 'stock', 1)
+    service.save_artworks('rev', raws, source, 1, ranks=True, source_batch='quality')
+    with context() as db:
+        account = db.get(models.PixivAccount, 1)
+        account.sync_state = {source:{'batch':'quality'}}
+        items, _ = strategies.rank(db, TagIndex(db), account, 'stock', 1)
+        assert [item['pid'] for item in items] == ['850', '851']
 
 
 def test_personal_relevance_still_beats_unrelated_popularity(environment):
@@ -180,7 +202,7 @@ def stock_fixture(known=400, unknown_role=50, unknown_group=50):
     return items, profile, index
 
 
-def test_stock_reserves_independent_15_and_5_percent_and_balances_both_levels():
+def test_stock_reserves_independent_exploration_and_new_group_shares():
     items, profile, index = stock_fixture()
     result = strategies.stock_schedule(items, profile, index)
     assert Counter(row['stock_pool'] for row in result) == {'known':144, 'new_character':27, 'new_group':9}
@@ -212,9 +234,12 @@ def test_sparse_groups_receive_more_new_character_slots_without_changing_known_q
 
 def test_sparse_group_gets_dynamic_slots_and_page_preserves_them():
     items, profile, index = stock_fixture(known=500, unknown_role=0, unknown_group=50)
+    for item in items:
+        if not item['match']['group_ids']:
+            item['_quality'] = 1
     profile['quotas'] = {1:.5, 2:.5}
     profile['sparse_character_groups'] = [1]
-    profile['new_character_fractions'] = {1:.8, 2:.15}
+    profile['new_character_fractions'] = {1:.8, 2:.30}
     for group in (1, 2):
         for n in range(120):
             pid = f'new-{group}-{n}'
@@ -228,7 +253,7 @@ def test_sparse_group_gets_dynamic_slots_and_page_preserves_them():
     by_group = Counter(row['primary_group'] for row in result if row['stock_pool'] == 'new_character')
     assert by_group[1] > by_group[2]
     assert by_group[1] <= 72  # 180 * 50% group quota * 80% exploration
-    assert profile['new_character_share'] == pytest.approx(.475)
+    assert profile['new_character_share'] == pytest.approx(.55)
     first_page = strategies.stock_page(list(enumerate(result)), 20, profile)
     assert Counter(row['stock_pool'] for _, row in first_page)['new_character'] > 3
     assert Counter(row['stock_pool'] for _, row in first_page)['new_character'] <= 16
@@ -237,16 +262,19 @@ def test_sparse_group_gets_dynamic_slots_and_page_preserves_them():
 def test_sparse_boost_requires_popular_supply_and_gap_uses_group_fraction():
     _, profile, _ = stock_fixture()
     profile['quotas'] = {1:.5, 2:.5}
-    profile['new_character_fractions'] = {1:.8, 2:.15}
+    profile['new_character_fractions'] = {1:.8, 2:.30}
     assert strategies.stock_new_character_gap(1, Counter(), profile) == 72
     boosted, _, _, _ = strategies.stock_exploration_plan(profile, {1})
     cold, _, _, _ = strategies.stock_exploration_plan(profile, set())
-    assert boosted == pytest.approx(.475)
-    assert cold == pytest.approx(.15)
+    assert boosted == pytest.approx(.55)
+    assert cold == pytest.approx(.30)
 
 
 def test_all_sparse_groups_never_allocate_over_eighty_percent_new_roles():
     items, profile, index = stock_fixture(known=500, unknown_role=0, unknown_group=50)
+    for item in items:
+        if not item['match']['group_ids']:
+            item['_quality'] = 1
     profile['quotas'] = {1:.5, 2:.5}
     profile['sparse_character_groups'] = [1, 2]
     profile['new_character_fractions'] = {1:.8, 2:.8}
@@ -266,14 +294,91 @@ def test_cold_sparse_candidates_do_not_receive_extra_exploration_slots():
     items, profile, index = stock_fixture(known=500, unknown_role=0, unknown_group=50)
     profile['quotas'] = {1:.5, 2:.5}
     profile['sparse_character_groups'] = [1]
-    profile['new_character_fractions'] = {1:.8, 2:.15}
+    profile['new_character_fractions'] = {1:.8, 2:.30}
     for n in range(100):
         pid = f'cold-{n}'
         items.append({'pid':pid, 'author_id':pid, '_score':1, '_quality':.1,
                       'match':{'group_ids':[1], 'character_ids':[], 'conflicts':[]}})
     result = strategies.stock_schedule(items, profile, index)
-    assert profile['new_character_share'] == pytest.approx(.15)
-    assert Counter(row['stock_pool'] for row in result)['new_character'] <= 27
+    assert profile['new_character_share'] == pytest.approx(.30)
+    assert Counter(row['stock_pool'] for row in result)['new_character'] <= 54
+
+
+def test_sparse_extra_slots_require_multiple_popular_candidates():
+    items, profile, index = stock_fixture(known=500, unknown_role=0, unknown_group=0)
+    profile['quotas'] = {1:.5, 2:.5}
+    profile['sparse_character_groups'] = [1]
+    profile['new_character_fractions'] = {1:.8, 2:.30}
+    for n in range(100):
+        pid = f'candidate-{n}'
+        items.append({'pid':pid, 'author_id':pid, '_score':1,
+                      '_quality':.8 if n == 0 else .35,
+                      'match':{'group_ids':[1], 'character_ids':[], 'conflicts':[]}})
+    result = strategies.stock_schedule(items, profile, index)
+    assert profile['assigned_new_character_groups'][1] <= 28  # 30% baseline plus one genuinely popular work
+    assert len([row for row in result if row['stock_pool'] == 'new_character']) <= 28
+
+
+def test_stock_discards_weak_discovery_candidates_before_scheduling():
+    items, profile, index = stock_fixture(known=500, unknown_role=0, unknown_group=0)
+    profile['quotas'] = {1:.5, 2:.5}
+    profile['sparse_character_groups'] = [1]
+    profile['new_character_fractions'] = {1:.8, 2:.30}
+    for pid, quality, groups in [('weak-role', .1, [1]), ('strong-role', .8, [1]),
+                                 ('weak-group', .1, []), ('strong-group', .8, [])]:
+        items.append({'pid':pid, 'author_id':pid, '_score':quality, '_quality':quality,
+                      'match':{'group_ids':groups, 'character_ids':[], 'conflicts':[]}})
+    result = strategies.stock_schedule(items, profile, index)
+    pids = {item['pid'] for item in result}
+    assert {'strong-role', 'strong-group'} <= pids
+    assert not {'weak-role', 'weak-group'} & pids
+
+
+def test_stock_uses_confirmed_pixiv_bindings_before_local_names(environment):
+    context, _, _ = environment
+    with context() as db:
+        roles(db)
+        index = TagIndex(db)
+        profile = strategies.build_profile(db, index, db.get(models.PixivAccount, 1), 'stock')
+        def identity(*tags):
+            match = recommendation_match(index, [{'name':tag} for tag in tags], index.groups)
+            return strategies.stock_identity({'match':match}, profile, index)[0]
+        assert identity('游戏', '热门') is None
+        assert identity('GameNative', '热门') == 'new_character'
+        assert identity('GameNative', 'PopularNative') == 'known'
+
+
+def test_stock_group_popularity_query_uses_mapped_pixiv_tag(environment):
+    context, _, _ = environment
+    with context() as db:
+        roles(db)
+        index = TagIndex(db)
+        profile = strategies.build_profile(db, index, db.get(models.PixivAccount, 1), 'stock')
+        plan = strategies.search_plan(db, index, profile, {}, 'stock', 0)
+        assert plan[0]['word'] == 'GameNative'
+        assert plan[1]['source'] == 'group_popular'
+        assert plan[1]['word'] == 'GameNative 1000users入り'
+        assert plan[1]['search_target'] == 'partial_match_for_tags'
+        assert not any(query['word'] == '游戏' for query in plan)
+
+
+def test_stock_feature_search_prefers_pixiv_binding_and_skips_local_fallback(environment):
+    context, _, _ = environment
+    with context() as db:
+        roles(db)
+        index = TagIndex(db)
+        profile = strategies.build_profile(db, index, db.get(models.PixivAccount, 1), 'stock')
+        profile['feature_query_tags'][1] = ['ObservedNative']
+        plan = strategies.search_plan(db, index, profile, {}, 'stock', 0)
+        assert any(query['word'] == 'WhiteNative' and query['source'] == 'feature_exploration'
+                   for query in plan)
+        assert not any('ObservedNative' in query['word'] for query in plan)
+        db.query(models.PixivTagMapping).filter_by(target_type='feature', target_id=1).delete()
+        db.flush()
+        index = TagIndex(db)
+        profile['feature_query_tags'] = {}
+        plan = strategies.search_plan(db, index, profile, {}, 'stock', 0)
+        assert not any('白发' in query['word'] for query in plan)
 
 
 def test_sparse_bonus_does_not_promote_unpopular_new_character_supply():
@@ -365,7 +470,8 @@ def test_first_stock_visit_warms_bounded_shortage_queries_and_defers_remaining_s
     # Entering a mode starts through /browse, before any manual refresh.
     result = service.refresh_candidates(remote, 'rev', 1, 'stock', continuation=True, progressive=True)
     assert [method for method, _ in remote.calls] == ['illust_recommended'] + ['search_illust'] * 3
-    assert remote.calls[1][1]['word'] == 'GameNative'
+    assert remote.calls[1][1]['word'] == 'GameNative 1000users入り'
+    assert remote.calls[1][1]['search_target'] == 'partial_match_for_tags'
     assert 'RareNative' in [params['word'] for _, params in remote.calls[1:]]
     assert result['more'] is True
     with context() as db:
@@ -413,7 +519,7 @@ def test_recall_prioritizes_missing_groups_and_roles_over_generic_features():
         {'group':3, 'source':'character_mapping', 'character':30},
     ]
     selected = strategies.stock_recall_queries(queries, candidates, profile, index, limit=2)
-    assert [(q['group'], q.get('character')) for q in selected] == [(2, 20), (3, 30)]
+    assert [(q['group'], q.get('character')) for q in selected] == [(2, None), (3, 30)]
 
 
 def test_recall_reserves_one_group_anchor_for_sparse_new_character_supply():
@@ -481,7 +587,8 @@ def test_stock_plans_cover_all_enabled_groups_and_prefer_native_aliases(environm
         plan = strategies.search_plan(db, index, profile, account.preferences, 'stock', 0)
         assert {q['group'] for q in plan if q['group'] is not None} == set(range(1, 22))
         assert next(q['word'] for q in plan if q['group'] == 2) == 'VOCALOID'
-        assert not any('500users入り' in q['word'] for q in plan)
+        assert any(q['word'] == 'VOCALOID500users入り' and q['source'] == 'group_popular'
+                   for q in plan)
 
 
 def test_stock_queries_cover_more_than_two_rare_roles_and_rotate_the_tail(environment):

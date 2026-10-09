@@ -51,6 +51,10 @@ class TagIndex:
         for row in db.query(models.PixivTagMapping).order_by(models.PixivTagMapping.id).all():
             key = (row.normalized_tag, row.group_context)
             self.mappings[key] = self.mappings.get(key, frozenset()) | {(row.target_type, row.target_id)}
+        self.bound_groups = {id_ for targets in self.mappings.values()
+                             for kind, id_ in targets if kind == 'group'}
+        self.bound_characters = {id_ for targets in self.mappings.values()
+                                 for kind, id_ in targets if kind == 'character'}
         self.scoped_characters = defaultdict(set)
         for (tag, group), targets in self.mappings.items():
             for kind, role in targets:

@@ -402,6 +402,9 @@ class Worker:
                         "count": sum(part["count"] for part in continuations),
                         "more": any(part["more"] for part in continuations),
                     }
+                elif kind == "home_covers":
+                    from ...group_covers import refresh_scores
+                    result = refresh_scores(provider, revision, actor_id, payload.get("pids", []))
                 elif kind == "import":
                     result = import_pages(provider, job_id, revision, actor_id, payload)
                 elif kind == "cache":

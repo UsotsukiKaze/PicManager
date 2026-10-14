@@ -667,7 +667,7 @@ def jobs():
             job_json(x)
             for x in db.query(models.PixivJob)
             .filter_by(account_revision=account.revision)
-            .filter(models.PixivJob.kind != 'stock_refill')
+            .filter(models.PixivJob.kind.notin_(['stock_refill', 'home_covers']))
             .order_by(models.PixivJob.id.desc())
             .limit(50)
             .all()

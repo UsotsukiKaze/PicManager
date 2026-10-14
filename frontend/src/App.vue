@@ -7,6 +7,7 @@ import { useWorkspace } from './state/workspace';
 import { requestJSON, safeAvatar } from './api/http';
 import ManagementTabs from './components/ManagementTabs.vue';
 import AppIcon from './components/AppIcon.vue';
+import AppearanceMenu from './components/AppearanceMenu.vue';
 
 const session = useSession();
 const workspace = useWorkspace();
@@ -41,6 +42,7 @@ const navigation = computed(() => [
 const management = computed(() => route.path.startsWith('/manage/') || route.path === '/gallery');
 const activePath = computed(() => management.value ? '/gallery' : route.path);
 const pageName = computed(() => route.path === '/profile' ? '我的' : navigation.value.find(item => item.to === activePath.value)?.name || '图库');
+const navIndex = computed(() => Math.max(0, navigation.value.findIndex(item => item.to === activePath.value)));
 watch(() => workspace.collapsed, value => document.documentElement.classList.toggle('sidebar-collapsed', value), { immediate: true });
 const expired = () => { void session.logout(); };
 const profileUpdate = (event: MessageEvent) => {
@@ -88,11 +90,12 @@ onUnmounted(() => {
   <div v-else class="app-container modern-app">
     <header class="top-user-bar" id="top-user-bar">
       <div class="modern-header-start"><RouterLink to="/" class="modern-brand"><img src="/static/icon/Pic.png" alt="" width="30" height="30"><span>PicManager</span></RouterLink><span class="modern-header-context">{{ pageName }}</span></div>
-      <nav class="user-actions-compact" aria-label="账户"><RouterLink class="header-link" to="/profile"><AppIcon name="character"/>我的</RouterLink><button class="header-link" @click="session.logout"><AppIcon name="logout"/>退出</button></nav>
+      <nav class="user-actions-compact" aria-label="账户"><AppearanceMenu/><RouterLink class="header-link" to="/profile"><AppIcon name="character"/>我的</RouterLink><button class="header-link" @click="session.logout"><AppIcon name="logout"/>退出</button></nav>
     </header>
     <div class="main-wrapper">
       <nav class="sidebar modern-sidebar" id="workspace-sidebar" data-shell-owner="vue" aria-label="主导航">
-        <div class="sidebar-menu">
+        <div class="sidebar-menu" :style="{ '--nav-index': navIndex }">
+          <span class="modern-nav-indicator" aria-hidden="true" :class="{ 'is-hidden': route.path === '/profile' }"></span>
           <RouterLink v-for="item in navigation" :key="item.to" :to="item.to" class="modern-nav-link" :class="{ active: activePath === item.to }" :title="item.name" :aria-current="activePath === item.to ? 'page' : undefined">
             <img v-if="item.icon === 'pixiv'" class="modern-pixiv-nav-icon" src="/static/icon/pixiv-ol.svg" alt="" aria-hidden="true" width="24" height="24">
             <AppIcon v-else :name="item.icon"/>

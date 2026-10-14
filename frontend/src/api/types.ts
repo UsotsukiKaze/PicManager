@@ -20,3 +20,5 @@ export interface ImageFilters {
 export interface SystemStatus { total_images: number; total_emojis: number; total_groups: number; total_characters: number }
 export interface Ranking { nickname?: string; qq_number?: string; avatar_url?: string; name?: string; group_name?: string; score?: number; count?: number; contribution_count?: number; upload_count?: number }
 export interface Rankings { contribution: Ranking[]; recent_groups: Ranking[]; recent_days: number }
+
+export interface GroupCover { image_id: string; preview_url: string; width: number; height: number; source: "pixiv_bookmarks" | "local"; bookmarks: number | null }

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query, Request
-from sqlalchemy import func
+from sqlalchemy import func, union
 from typing import List, Optional, Union
 
 from ...database import get_db_context
@@ -83,40 +83,34 @@ def get_groups(
         return GroupService.get_groups(db, skip, limit)
 
 @router.get("/groups/popular")
-def get_popular_groups(limit: int = 5):
+def get_popular_groups(limit: int = 5, include_covers: bool = False):
     safe_limit = max(1, min(limit, 8))
     image_count = func.count(func.distinct(models.Image.image_id))
 
     with get_db_context() as db:
+        # Count both explicit group links and groups inferred through characters.
+        membership = union(
+            db.query(models.image_group_association.c.group_id.label("group_id"),
+                     models.image_group_association.c.image_id.label("image_id")).statement,
+            db.query(models.Character.group_id.label("group_id"),
+                     models.image_character_association.c.image_id.label("image_id"))
+                .join(models.image_character_association,
+                      models.image_character_association.c.character_id == models.Character.id).statement,
+        ).subquery()
         rows = (
-            db.query(
-                models.Group.id,
-                models.Group.name,
-                models.Group.avatar_url,
-                image_count.label("image_count"),
-            )
-            .join(models.Character, models.Character.group_id == models.Group.id)
-            .join(
-                models.image_character_association,
-                models.image_character_association.c.character_id == models.Character.id,
-            )
-            .join(models.Image, models.Image.image_id == models.image_character_association.c.image_id)
+            db.query(models.Group.id, models.Group.name, models.Group.avatar_url, image_count.label("image_count"))
+            .join(membership, membership.c.group_id == models.Group.id)
+            .join(models.Image, models.Image.image_id == membership.c.image_id)
             .filter(models.Image.file_status == ImageService.AVAILABLE)
             .group_by(models.Group.id, models.Group.name, models.Group.avatar_url)
-            .order_by(image_count.desc(), models.Group.name.asc())
-            .limit(safe_limit)
-            .all()
+            .order_by(image_count.desc(), models.Group.name.asc()).limit(safe_limit).all()
         )
-
-        return [
-            {
-                "id": group_id,
-                "name": name,
-                "avatar_url": avatar_url or "/favicon.ico",
-                "image_count": count,
-            }
-            for group_id, name, avatar_url, count in rows
-        ]
+        result = [{"id": group_id, "name": name, "avatar_url": avatar_url or "/favicon.ico", "image_count": count}
+                  for group_id, name, avatar_url, count in rows]
+        if include_covers:
+            from ...group_covers import attach_covers
+            return attach_covers(db, result)
+        return result
 
 @router.get("/groups/{group_id}", response_model=schemas.Group)
 def get_group(group_id: int):

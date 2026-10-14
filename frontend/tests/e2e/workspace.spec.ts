@@ -12,6 +12,12 @@ async function mockWorkspace(page: Page, role = 'root', firstRating = 'r12') {
     const url = new URL(route.request().url());
     const path = url.pathname;
     requested.push(path);
+    if (url.href === 'https://usotsuki-kaze.com/favicon.ico') {
+      await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" rx="6" fill="#739bd5"/><circle cx="16" cy="16" r="8" fill="#d89cb6"/></svg>' }); return;
+    }
+    if (path.includes('/resource/previews/COVER')) {
+      await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"><defs><linearGradient id="sky" x2=".7" y2="1"><stop stop-color="#7ca7c5"/><stop offset="1" stop-color="#efd6df"/></linearGradient></defs><rect width="1600" height="900" fill="url(#sky)"/><circle cx="1230" cy="190" r="105" fill="#fff" opacity=".7"/><path d="M0 700L400 230L950 830L1600 460V900H0" fill="#596a93"/><path d="M0 890L850 570L1600 810V900H0" fill="#d0aac2"/></svg>' }); return;
+    }
     if (!url.hostname.startsWith('127.')) { await route.abort(); return; }
     if (path.startsWith('/resource/')) {
       await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000"><defs><linearGradient id="g"><stop stop-color="#8aa9db"/><stop offset="1" stop-color="#d6c2df"/></linearGradient></defs><rect width="800" height="1000" fill="url(#g)"/><circle cx="400" cy="400" r="180" fill="#fff" opacity=".4"/></svg>' }); return;
@@ -21,7 +27,10 @@ async function mockWorkspace(page: Page, role = 'root', firstRating = 'r12') {
     if (path === '/auth/me') body = { is_guest: false, user: { id: 1, role, nickname: '测试用户', avatar_url: '/favicon.ico' } };
     else if (path === '/auth/notifications') body = { approved: 0, rejected: 0 };
     else if (path === '/api/system/status') body = { total_images: 41, total_groups: 2, total_characters: 1, total_emojis: 0, temp_count: 0, store_count: 41 };
-    else if (path === '/api/groups/popular') body = [...groups, { id: 3, name: '明日方舟' }, { id: 4, name: '东方Project' }, { id: 5, name: '蔚蓝档案' }, { id: 6, name: '碧蓝航线' }, { id: 7, name: '鸣潮' }, { id: 8, name: '绝区零' }].map((group, index) => ({ ...group, image_count: 41 - index * 5 }));
+    else if (path === '/api/groups/popular') body = [...groups, { id: 3, name: '明日方舟' }, { id: 4, name: '东方Project' }, { id: 5, name: '蔚蓝档案' }, { id: 6, name: '碧蓝航线' }, { id: 7, name: '鸣潮' }, { id: 8, name: '绝区零' }].map((group, index) => ({ ...group, image_count: 41 - index * 5, cover: index < 2 ? {
+      image_id: `COVER0000${index + 1}`, preview_url: `/resource/previews/COVER0000${index + 1}.webp`,
+      width: 1600, height: 900, source: 'pixiv_bookmarks', bookmarks: 1200 - index * 100,
+    } : null }));
     else if (path === '/api/rankings') body = { contribution: [], recent_groups: [], recent_days: 30 };
     else if (path === '/api/groups/') body = groups;
     else if (path === '/api/characters/') body = characters;
@@ -42,7 +51,7 @@ async function mockWorkspace(page: Page, role = 'root', firstRating = 'r12') {
     else if (path === '/api/pixiv-ol/account') body = { connected: false };
     else if (path === '/api/pixiv-ol/cart') body = { items: [] };
     else if (path === '/api/pixiv-ol/preferences') body = { groups: [], alpha: .5, ai: 'allow', include_r18: false, include_r18g: false };
-    else if (path === '/api/pixiv-ol/account/login/pending') body = null;
+    else if (path === '/api/pixiv-ol/account/login/pending') body = { session: null };
     else if (path === '/api/pixiv-ol/jobs') body = [];
     else if (path === '/api/pixiv-ol/recommendations' || path === '/api/pixiv-ol/feed') body = { items: [], total: 0, has_more: false };
     else body = {};
@@ -72,18 +81,33 @@ test('Pixiv switches three independent recommendation modes and restores each re
     }
   });
   await page.goto('/#/pixiv');
-  const selector = page.getByRole('combobox', { name: '推荐方式' });
-  await expect(selector).toHaveValue('personal');
-  await expect(selector.locator('option')).toHaveText(['猜你喜欢', '进货模式', 'Pixiv 发现']);
+  const selector = page.getByRole('group', { name: '推荐方式' });
+  await expect(selector.getByRole('button', { name: '猜你喜欢' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(selector.getByRole('button')).toHaveText(['猜你喜欢', '进货模式', 'Pixiv 发现']);
   await expect(page.locator('.px-card')).toHaveCount(20);
-  await selector.selectOption('stock');
+  await selector.getByRole('button', { name: '进货模式' }).click();
   await expect(page.locator('.px-card')).toHaveCount(20);
   await expect(page.locator('.px-gallery')).toContainText('stock作品');
-  await selector.selectOption('discovery');
+  await selector.getByRole('button', { name: 'Pixiv 发现' }).click();
   await expect(page.locator('.px-gallery')).toContainText('discovery作品');
-  await selector.selectOption('personal');
+  await selector.getByRole('button', { name: '猜你喜欢' }).click();
   await expect(page.locator('.px-gallery')).toContainText('personal作品');
   expect(modes).toEqual(['personal', 'stock', 'discovery']);
+  const gallery = (await page.locator('.px-gallery').boundingBox())!;
+  const tools = (await page.locator('.px-floating-tools').boundingBox())!;
+  expect(tools.x).toBeGreaterThanOrEqual(gallery.x + gallery.width);
+  expect(tools.x + tools.width).toBeLessThanOrEqual(1920);
+  await page.screenshot({ path: test.info().outputPath('pixiv-archive.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobileMode = page.getByRole('combobox', { name: '推荐方式' });
+  await expect(mobileMode).toBeVisible();
+  await mobileMode.selectOption('stock');
+  await expect(page.locator('.px-gallery')).toContainText('stock作品');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await expect.poll(() => page.locator('#workspace-sidebar').evaluate(node => Math.round(node.getBoundingClientRect().width))).toBe(390);
+  const exit = (await page.getByRole('button', { name: '退出', exact: true }).boundingBox())!;
+  expect(exit.x + exit.width).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: test.info().outputPath('pixiv-mobile.png') });
   expect(errors).toEqual([]);
 });
 
@@ -131,7 +155,7 @@ test('gallery cancels obsolete searches, retains filters and supports browser hi
   await expect(page.getByText('小 · 爱 · 图 · 库')).toBeVisible();
   await page.goBack();
   await expect(page.locator('.modern-pagination span')).toHaveText('2 / 3');
-  await expect(page.getByRole('combobox', { name: '搜索角色' })).toHaveAttribute('placeholder', '芙宁娜');
+  await expect(page.getByRole('combobox', { name: '搜索角色' })).toHaveValue('芙宁娜');
   await page.locator('#workspace-scroll').evaluate(node => { node.scrollTop = 450; });
   const before = await page.locator('#workspace-scroll').evaluate(node => node.scrollTop);
   expect(before).toBeGreaterThan(100);
@@ -254,7 +278,7 @@ for (const rating of ['r16', 'r18']) {
     const card = page.locator('.modern-image-card').first();
     await expect(card.locator('.modern-image-open img')).toHaveAttribute('src', '/resource/thumbs/AAAAAAAAA1.webp');
     await expect.poll(() => card.locator('.modern-image-open img').evaluate(node => getComputedStyle(node).filter)).toBe(expectedFilter);
-    expect(await card.locator('.modern-card-footer').evaluate(node => getComputedStyle(node).backgroundColor)).toContain('0.62');
+    expect(await card.locator('.modern-card-footer').evaluate(node => getComputedStyle(node).backgroundColor)).toBe('rgba(247, 249, 253, 0.84)');
     await expect.poll(() => page.locator('.modern-gallery').evaluate(node => getComputedStyle(node).opacity)).toBe('1');
     await page.screenshot({ path: test.info().outputPath(`acrylic-${rating}-cards.png`) });
     await page.getByRole('button', { name: '查看图片 10000_p0', exact: true }).press('Enter');
@@ -296,7 +320,7 @@ test('sidebar remains owned by Vue after loading legacy tools and toggle stays o
   expect((await button.boundingBox())!.width).toBe(32);
   await button.click();
   await expect(button).toHaveAttribute('aria-expanded', 'true');
-  await expect.poll(() => page.locator('#workspace-sidebar').evaluate(node => Math.round(node.getBoundingClientRect().width))).toBe(220);
+  await expect.poll(() => page.locator('#workspace-sidebar').evaluate(node => Math.round(node.getBoundingClientRect().width))).toBe(204);
   await page.reload();
   await expect(page.locator('#sidebar-toggle')).toHaveAttribute('aria-expanded', 'true');
   expect(errors).toEqual([]);
@@ -308,7 +332,7 @@ test('wide screens keep home and five-column gallery bounded instead of stretchi
   await page.setViewportSize({ width: 2560, height: 1440 });
   await page.goto('/');
   await expect(page.getByText('小 · 爱 · 图 · 库')).toBeVisible();
-  expect((await page.locator('.modern-home').boundingBox())!.width).toBeLessThanOrEqual(1120);
+  expect((await page.locator('.modern-home').boundingBox())!.width).toBeLessThanOrEqual(1320);
   await expect.poll(() => page.locator('.modern-home').evaluate(node => getComputedStyle(node).opacity)).toBe('1');
   await page.screenshot({ path: test.info().outputPath('home-wide.png') });
   await page.getByRole('link', { name: '图片管理', exact: true }).click();
@@ -324,7 +348,7 @@ test('wide screens keep home and five-column gallery bounded instead of stretchi
   await page.getByRole('button', { name: '打开图片查询' }).click();
   await page.getByRole('combobox', { name: '搜索分组' }).fill('原神');
   await page.getByRole('option', { name: '原神', exact: true }).click();
-  await page.getByRole('button', { name: /清除筛选/ }).click();
+  await page.getByRole('button', { name: '清除条件', exact: true }).click();
   await expect(page).not.toHaveURL(/group_id=/);
   expect(errors).toEqual([]);
 });
@@ -337,14 +361,14 @@ test('embedded profile shares workspace surfaces and keeps sidebar user selectio
   await expect(page.locator('.sidebar-user #header-role')).toHaveText('Root');
   expect((await page.locator('.sidebar-user #header-avatar').boundingBox())!.width).toBe(40);
   expect(await page.locator('.sidebar-user').evaluate(node => getComputedStyle(node).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
-  expect(await page.locator('.sidebar-user #header-role').evaluate(node => getComputedStyle(node).backgroundImage)).toContain('linear-gradient');
+  expect(await page.locator('.sidebar-user #header-role').evaluate(node => getComputedStyle(node).backgroundColor)).toBe('rgb(231, 237, 246)');
   await page.locator('.sidebar-user').click();
   await expect(page.locator('.sidebar-user')).toHaveAttribute('aria-current', 'page');
   const account = page.frameLocator('#profile-frame');
   await expect(account.locator('#user-nickname')).toHaveText('测试用户');
   await expect(page.locator('.modern-profile').getByRole('heading', { name: '我的', exact: true })).toBeVisible();
   const surface = await account.locator('.user-card').evaluate(node => ({ radius: getComputedStyle(node).borderRadius, background: getComputedStyle(node).backgroundColor }));
-  expect(surface).toEqual({ radius: '16px', background: 'rgb(255, 255, 255)' });
+  expect(surface).toEqual({ radius: '8px', background: 'rgb(250, 251, 253)' });
   expect((await page.locator('#page-profile').boundingBox())!.width).toBeLessThanOrEqual(1120);
   await account.locator('#edit-nickname-btn').click();
   await expect(account.locator('#new-nickname-input')).toBeVisible();
@@ -372,28 +396,47 @@ test('tablet breakpoint fits viewport and reduced motion keeps detail usable', a
   expect(errors).toEqual([]);
 });
 
-test('restored homepage group orbit opens the gallery filter and keeps the original mobile layout', async ({ page }) => {
+test('archive group selection supports keyboard navigation and mobile browsing', async ({ page }) => {
   const { errors } = await mockWorkspace(page);
   await page.goto('/');
-  const orbit = page.getByRole('complementary', { name: '分组云图' });
-  await expect(orbit.locator('.orbit-chip')).toHaveCount(5);
-  await expect(orbit).toBeVisible();
-  await expect(orbit.locator('.orbit-chip').first()).toHaveAttribute('title', '原神 · 41 张');
-  await expect.poll(() => orbit.locator('.home-orbit-core img').evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(256);
-  expect(await orbit.locator('.orbit-chip-label').evaluateAll(nodes => nodes.every(node => getComputedStyle(node).whiteSpace === 'nowrap'))).toBe(true);
-  await orbit.getByRole('link', { name: /原神/ }).focus();
-  await orbit.getByRole('link', { name: /原神/ }).press('Enter');
-  await expect(page).toHaveURL(/group_id=1/);
+  const deck = page.getByRole('complementary', { name: '分组档案' });
+  await expect(deck.locator('.archive-group-selector button')).toHaveCount(5);
+  await expect(page.getByRole('heading', { name: '小爱图库', exact: true })).toBeVisible();
+  await expect(page.locator('.archive-launch small')).toHaveText('EXPLORE ARCHIVE');
+  await expect(page.locator('.archive-upload small')).toHaveText('UPLOAD RESOURCE');
+  await expect(page.locator('.archive-personal-icon img')).toHaveAttribute('src', /^(https:\/\/usotsuki-kaze\.com\/favicon\.ico|\/static\/icon\/Pic\.png)$/);
+  await expect(deck.locator('.archive-cover')).toHaveAttribute('src', '/resource/previews/COVER00001.webp');
+  await deck.getByRole('button', { name: '预览崩坏星穹铁道' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(deck.getByRole('button', { name: '预览崩坏星穹铁道' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(deck.getByRole('link', { name: '浏览崩坏星穹铁道分组' })).toBeVisible();
+  await deck.getByRole('link', { name: '浏览崩坏星穹铁道分组' }).click();
+  await expect(page).toHaveURL(/group_id=2/);
   await expect(page.locator('.modern-image-card')).toHaveCount(20);
   await expect(page.locator('#gallery-search-panel')).not.toBeVisible();
   await expect(page.locator('#gallery-query-toggle b')).toHaveText('1');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('link', { name: '首页', exact: true }).click();
   await expect(page.getByText('小 · 爱 · 图 · 库')).toBeVisible();
-  await expect(orbit).not.toBeVisible();
+  await expect(deck).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  await expect.poll(() => page.locator('.modern-home').evaluate(node => getComputedStyle(node).opacity)).toBe('1');
-  await page.screenshot({ path: test.info().outputPath('home-restored-mobile.png') });
+  expect(await page.locator('#workspace-scroll').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(deck.locator('.archive-sheet-front')).toHaveCSS('transition-duration', '0s');
+  await page.locator('#workspace-scroll').evaluate(node => { node.scrollTop = 0; });
+  await page.screenshot({ path: test.info().outputPath('home-archive-mobile.png'), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1080 });
+  await page.locator('#workspace-scroll').evaluate(node => { node.scrollTop = 0; });
+  await page.screenshot({ path: test.info().outputPath('home-archive-wide.png') });
+  await page.getByLabel('界面外观', { exact: true }).click();
+  await page.getByRole('button', { name: '深色', exact: true }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.keyboard.press('Escape');
+  await page.locator('#workspace-scroll').evaluate(node => { node.scrollTop = 0; });
+  await page.screenshot({ path: test.info().outputPath('home-archive-dark.png') });
+  await deck.getByRole('button', { name: '预览明日方舟' }).click();
+  await expect(deck.locator('.archive-cover')).toHaveCount(0);
+  await expect(deck.locator('.entity-avatar')).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -429,7 +472,7 @@ test('library detail restores colored tag bubbles and compact edit download dele
   await expect(dialog.locator('.pm-tag-feature_tag')).toHaveText('蓝色');
   const tagColors = await dialog.locator('.modern-detail-tags .pm-tag').evaluateAll(nodes => nodes.map(node => ({ color: getComputedStyle(node).backgroundColor, radius: getComputedStyle(node).borderRadius })));
   expect(new Set(tagColors.map(tag => tag.color)).size).toBe(3);
-  expect(tagColors.every(tag => tag.radius === '999px')).toBe(true);
+  expect(tagColors.every(tag => tag.radius === '5px')).toBe(true);
   const actions = dialog.locator('.modern-detail-actions');
   await expect(actions).toContainText('编辑标签');
   await expect(actions.getByRole('link', { name: '下载原图' })).toHaveText('');
@@ -514,4 +557,217 @@ test('bottom original-image island switches quality once and resets on the next 
     await expect(dialog.getByRole('button', { name: '查看原图', exact: true })).toBeInViewport();
     expect(errors).toEqual([]);
   } finally { releaseOriginal(); }
+});
+
+
+test('appearance persists and synchronizes the account frame while reduced motion skips reader animations', async ({ page }) => {
+  const { errors } = await mockWorkspace(page);
+  await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'no-preference' });
+  await page.goto('/');
+  await page.getByLabel('界面外观', { exact: true }).click();
+  await page.getByRole('button', { name: '深色', exact: true }).click();
+  await page.getByLabel('减少动态效果').check();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(page.locator('html')).toHaveAttribute('data-motion', 'reduced');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.modern-appearance')).not.toHaveAttribute('open');
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(page.locator('html')).toHaveAttribute('data-motion', 'reduced');
+  await page.locator('.sidebar-user').click();
+  await expect(page.frameLocator('#profile-frame').locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(page.frameLocator('#profile-frame').locator('html')).toHaveAttribute('data-motion', 'reduced');
+  const surface = await page.frameLocator('#profile-frame').locator('.user-card').evaluate(node => getComputedStyle(node).backgroundColor);
+  expect(surface).toBe('rgb(32, 36, 44)');
+  await page.getByRole('link', { name: '图片管理', exact: true }).click();
+  const card = page.locator('.modern-image-card').first();
+  await expect(card).toBeVisible();
+  expect(await card.locator('.modern-card-footer').evaluate(node => getComputedStyle(node).backgroundColor)).toBe('rgba(18, 24, 34, 0.78)');
+  await card.hover();
+  await expect(card.locator('.modern-card-actions')).toHaveCSS('opacity', '1');
+  await page.screenshot({ path: test.info().outputPath('gallery-dark.png') });
+  await page.getByRole('button', { name: '查看图片 10000_p0', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '图片详情' });
+  await expect(dialog).toBeVisible();
+  expect(await dialog.evaluate(node => node.getAnimations({ subtree: true }).length)).toBe(0);
+  await page.screenshot({ path: test.info().outputPath('detail-dark.png') });
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await page.getByLabel('界面外观', { exact: true }).click();
+  await page.getByRole('button', { name: '跟随系统', exact: true }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  expect(await card.locator('.modern-card-footer').evaluate(node => getComputedStyle(node).backgroundColor)).toBe('rgba(247, 249, 253, 0.84)');
+  expect(await card.locator('.modern-card-identity strong').evaluate(node => getComputedStyle(node).color)).toBe('rgb(48, 53, 64)');
+  await page.keyboard.press('Escape');
+  await page.mouse.move(0, 0);
+  await card.hover();
+  await expect(card.locator('.modern-card-actions')).toHaveCSS('opacity', '1');
+  await page.screenshot({ path: test.info().outputPath('gallery-light.png') });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  expect(errors).toEqual([]);
+});
+
+
+test('Pixiv reader confirms collection after success and preserves the added state across views', async ({ page }) => {
+  const { errors } = await mockWorkspace(page);
+  const artworks = Array.from({ length: 20 }, (_, index) => ({ pid: String(2000 + index), title: `蓝粉灰作品 ${index}`, author: '测试画师', author_id: '9', page_count: 1, width: 800, height: 1000,
+    preview_url: '/static/icon/Pic.png', imported_pages: [], tags: [{ name: '芙宁娜' }], match: { group_ids: [1], character_ids: [1], feature_tag_ids: [], conflicts: [] } }));
+  let cart: unknown[] = [];
+  await page.route('**/api/pixiv-ol/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/reader-preview') || path.endsWith('/avatar')) {
+      await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000"><rect width="800" height="1000" fill="#739bd5"/><circle cx="400" cy="500" r="240" fill="#d89cb6"/></svg>' });
+    } else if (path.endsWith('/account')) {
+      await route.fulfill({ json: { connected: true, user_id: '7', name: '测试画友', media_revision: 'test' } });
+    } else if (path.endsWith('/recommendations') || path.endsWith('/feed')) {
+      await route.fulfill({ json: { items: artworks, total: 20, has_more: false, next_cursor: null } });
+    } else if (path.endsWith('/cart')) {
+      if (route.request().method() === 'POST') cart = [{ id: 'cart-1', status: 'caching', artwork: artworks[0], pages: [0], draft: { pages: [0], import_mode: 'merged' } }];
+      await route.fulfill({ json: { items: cart } });
+    } else await route.fallback();
+  });
+  await page.goto('/#/pixiv');
+  await expect(page.locator('.px-card')).toHaveCount(20);
+  await page.getByRole('button', { name: '查看 蓝粉灰作品 0', exact: true }).click();
+  const reader = page.locator('.px-artwork-reader');
+  await expect(reader).toBeVisible();
+  await expect(reader.locator('.px-detail-cover')).toHaveClass(/is-ready/);
+  await expect.poll(() => reader.evaluate(node => Math.abs(node.querySelector('.px-detail-cover')!.getBoundingClientRect().top - node.querySelector('.px-detail-body')!.getBoundingClientRect().top))).toBeLessThan(3);
+  await page.screenshot({ path: test.info().outputPath('pixiv-detail.png') });
+  await reader.getByRole('button', { name: '加入优选夹', exact: true }).click();
+  await expect(reader.locator('#pixiv-draft-submit')).toHaveText('已加入');
+  await expect(reader).toHaveCount(0);
+  await expect(page.locator('.px-floating-cart .px-cart-count')).toHaveText('1');
+  await page.getByRole('tab', { name: '关注更新', exact: true }).click();
+  await page.getByRole('button', { name: '查看 蓝粉灰作品 0', exact: true }).click();
+  await expect(reader.locator('#pixiv-draft-submit')).toHaveText('已加入');
+  await expect(reader.locator('#pixiv-draft-submit')).toBeDisabled();
+  await page.keyboard.press('Escape');
+  expect(errors).toEqual([]);
+});
+
+
+test('gallery resumes interrupted filter and reader motion without a jump', async ({ page }) => {
+  const { errors } = await mockWorkspace(page);
+  await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'no-preference' });
+  await page.goto('/#/gallery');
+  await expect(page.locator('.modern-image-card')).toHaveCount(20);
+  await page.getByRole('button', { name: '打开图片查询' }).click();
+  const filterDelta = await page.evaluate(async () => {
+    const panel = document.getElementById('gallery-search-panel')!;
+    const animation = panel.getAnimations()[0];
+    if (!animation) throw new Error('Expected the filter opening animation');
+    animation.pause();
+    animation.currentTime = 90;
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    const before = panel.getBoundingClientRect().height;
+    document.getElementById('gallery-query-toggle')!.click();
+    await Promise.resolve();
+    return Math.abs(panel.getBoundingClientRect().height - before);
+  });
+  expect(filterDelta).toBeLessThan(2);
+  await expect(page.locator('#gallery-search-panel')).not.toBeVisible();
+  await page.getByRole('button', { name: '打开图片查询' }).click();
+  await expect(page.getByRole('textbox', { name: '搜索描述' })).toBeVisible();
+  await page.getByRole('textbox', { name: '搜索描述' }).press('Escape');
+  await expect(page.locator('#gallery-search-panel')).not.toBeVisible();
+  await page.getByRole('button', { name: '查看图片 10000_p0', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '图片详情' });
+  await expect(dialog).toBeVisible();
+  const readerDelta = await page.evaluate(async () => {
+    const reader = document.querySelector<HTMLElement>('.modern-reader-media')!;
+    const animation = reader.getAnimations()[0];
+    if (!animation) throw new Error('Expected the reader opening animation');
+    animation.pause();
+    animation.currentTime = 110;
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    const before = reader.getBoundingClientRect();
+    document.querySelector<HTMLButtonElement>('.modern-reader-close')!.click();
+    const after = reader.getBoundingClientRect();
+    return Math.max(Math.abs(after.left - before.left), Math.abs(after.top - before.top), Math.abs(after.width - before.width));
+  });
+  expect(readerDelta).toBeLessThan(2);
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '查看图片 10000_p0', exact: true })).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
+test('gallery chips remove individual conditions and clearing preserves the selected rating', async ({ page }) => {
+  const { errors } = await mockWorkspace(page);
+  await page.goto('/#/gallery?age_rating=r12&group_id=1&character_id=1&feature_tag_id=1&pid=10000&artist=画师&description=测试');
+  await expect(page.locator('.modern-filter-chip')).toHaveCount(6);
+  await expect(page.locator('#gallery-search-panel')).not.toBeVisible();
+  await expect(page.locator('#gallery-query-toggle b')).toHaveText('6');
+  await page.getByRole('button', { name: '移除分组：原神', exact: true }).click();
+  await expect(page).not.toHaveURL(/group_id=/);
+  await expect(page).toHaveURL(/character_id=1/);
+  await expect(page).toHaveURL(/age_rating=r12/);
+  await expect(page.locator('.modern-filter-chip')).toHaveCount(5);
+  await page.getByRole('button', { name: '打开图片查询' }).click();
+  await expect(page.getByRole('combobox', { name: '搜索角色' })).toHaveValue('芙宁娜');
+  await page.getByRole('button', { name: '清除条件', exact: true }).click();
+  await expect(page.locator('.modern-filter-chip')).toHaveCount(0);
+  await expect(page).toHaveURL(/age_rating=r12$/);
+  await expect(page.getByRole('button', { name: 'R12', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('textbox', { name: '搜索画师' })).toHaveValue('');
+  await page.route('**/api/images/search?*', async route => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get('description') === '无匹配') await route.fulfill({ json: { images: [], total: 0, offset: 0, limit: 20 } });
+    else await route.fallback();
+  });
+  await page.getByRole('textbox', { name: '搜索描述' }).fill('无匹配');
+  await expect(page.locator('.modern-gallery-empty')).toContainText('没有匹配的图片');
+  await expect(page.getByRole('textbox', { name: '搜索描述' })).toHaveValue('无匹配');
+  await page.getByRole('button', { name: '清除搜索条件', exact: true }).click();
+  await expect(page.locator('.modern-image-card')).toHaveCount(20);
+  await expect(page).toHaveURL(/age_rating=r12$/);
+  expect(errors).toEqual([]);
+});
+
+test('gallery dropdown stays inside the viewport and Escape closes it before the search panel', async ({ page }) => {
+  const { errors } = await mockWorkspace(page);
+  const groups = Array.from({ length: 120 }, (_, index) => ({ id: index + 1, name: `测试分组${index + 1}` }));
+  await page.route('**/api/groups/?*', route => {
+    const offset = Number(new URL(route.request().url()).searchParams.get('skip') || 0);
+    return route.fulfill({ json: groups.slice(offset, offset + 100) });
+  });
+  await page.setViewportSize({ width: 1280, height: 400 });
+  await page.goto('/#/gallery');
+  await page.getByRole('button', { name: '打开图片查询' }).click();
+  const picker = page.getByRole('combobox', { name: '搜索分组' });
+  await picker.focus();
+  const list = page.getByRole('listbox', { name: '分组', exact: true });
+  await expect(list).toBeVisible();
+  await expect(list).toHaveClass(/opens-upwards/);
+  const box = await list.boundingBox();
+  expect(box!.y).toBeGreaterThanOrEqual(11);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(389);
+  await picker.press('Escape');
+  await expect(list).not.toBeVisible();
+  await expect(page.locator('#gallery-search-panel')).toBeVisible();
+  await picker.press('Escape');
+  await expect(page.locator('#gallery-search-panel')).not.toBeVisible();
+  await expect(page.locator('#gallery-query-toggle')).toBeFocused();
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.getByRole('button', { name: '打开图片查询' }).click();
+  await page.getByRole('combobox', { name: '搜索角色' }).fill('水神');
+  await page.getByRole('option', { name: '芙宁娜 原神', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: '搜索角色' })).toHaveValue('芙宁娜');
+  await expect.poll(() => page.locator('#gallery-search-panel').evaluate(node => node.getAnimations().length)).toBe(0);
+  const layout = await page.evaluate(() => {
+    const form = document.querySelector('.modern-gallery-filters')!.getBoundingClientRect();
+    const results = document.querySelector('.modern-gallery-results')!.getBoundingClientRect();
+    const grid = document.querySelector('.modern-image-grid')!.getBoundingClientRect();
+    return { height: form.height, panelGap: results.top - form.bottom, resultGap: grid.top - results.bottom };
+  });
+  expect(layout.height).toBeLessThanOrEqual(190);
+  expect(layout.panelGap).toBeCloseTo(16, 1);
+  expect(layout.resultGap).toBeCloseTo(12, 1);
+  await page.screenshot({ path: test.info().outputPath('gallery-search-desktop.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  expect(await page.locator('#workspace-scroll').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await page.screenshot({ path: test.info().outputPath('gallery-search-mobile.png') });
+  expect(errors).toEqual([]);
 });

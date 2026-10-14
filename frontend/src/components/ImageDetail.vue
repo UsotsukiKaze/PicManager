@@ -2,12 +2,15 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useQuery } from '@tanstack/vue-query';
 import { imageDetail } from '../api/catalog';
-import { safeAvatar, requestJSON } from '../api/http';
+import { requestJSON } from '../api/http';
 import type { ImageCardRecord } from '../api/types';
 import { useSession } from '../state/session';
 import { useWorkspace } from '../state/workspace';
 import { invalidateDomain } from '../state/client';
 import AppIcon from './AppIcon.vue';
+import EntityAvatar from './EntityAvatar.vue';
+import { reducedMotion } from '../state/appearance';
+import { motionEasing } from '../ui/motion';
 const props = defineProps<{ image: ImageCardRecord | null; previous?: boolean; next?: boolean; sourceRect?: Pick<DOMRect, 'left' | 'top' | 'width' | 'height'> }>();
 const emit = defineEmits<{ close: []; move: [delta: number]; edit: [id: string]; deleted: [id: string] }>();
 const session = useSession();
@@ -16,6 +19,7 @@ const dialog = ref<HTMLDialogElement>();
 const media = ref<HTMLElement>();
 let closing = false;
 let exiting = false;
+let entryImageId = '';
 const ready = ref(false);
 const broken = ref(false);
 const revealed = ref(false);
@@ -62,14 +66,15 @@ watch(() => props.image?.image_id, async value => {
   ready.value = false; broken.value = false; revealed.value = false; original.value = false; decodedRatio.value = undefined;
   await nextTick();
   if (value && !dialog.value?.open) {
+    entryImageId = value;
     dialog.value?.showModal();
-    if (media.value && props.sourceRect && !matchMedia('(prefers-reduced-motion:reduce)').matches) {
+    if (media.value && props.sourceRect && !reducedMotion()) {
       const source = props.sourceRect;
       const target = media.value.getBoundingClientRect();
       media.value.animate?.([
         { transform: `translate(${source.left - target.left}px,${source.top - target.top}px) scale(${source.width / target.width},${source.height / target.height})`, opacity: .6 },
         { transform: 'none', opacity: 1 },
-      ], { duration: 240, easing: 'cubic-bezier(.2,.7,.2,1)' });
+      ], { duration: 420, easing: motionEasing() });
     }
   }
   if (!value && dialog.value?.open) dialog.value?.close();
@@ -101,10 +106,20 @@ function keyboard(event: KeyboardEvent) {
 async function dismiss() {
   if (exiting) return;
   exiting = true;
-  if (!matchMedia('(prefers-reduced-motion:reduce)').matches) {
-    const animations = [media.value, dialog.value?.querySelector('.modern-reader-info')].map(node => node?.animate?.(
-      [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(8px) scale(.985)' }],
-      { duration: 150, easing: 'ease-in', fill: 'forwards' }));
+  if (!reducedMotion()) {
+    const nodes = [media.value, dialog.value?.querySelector<HTMLElement>('.modern-reader-info')];
+    // Capture the current frame before cancelling an unfinished entry animation.
+    const starts = nodes.map(node => node ? { opacity: getComputedStyle(node).opacity, transform: getComputedStyle(node).transform } : undefined);
+    nodes.forEach(node => node?.getAnimations().forEach(animation => animation.cancel()));
+    const target = media.value?.getBoundingClientRect();
+    const source = props.sourceRect;
+    const returnsToCard = props.image?.image_id === entryImageId && source && target && source.top < innerHeight && source.top + source.height > 0;
+    const end = returnsToCard
+      ? `translate(${source.left - target.left}px,${source.top - target.top}px) scale(${source.width / target.width},${source.height / target.height})`
+      : 'translateY(8px) scale(.985)';
+    const animations = nodes.map((node, index) => node?.animate?.(
+      [starts[index] || { opacity: 1, transform: 'none' }, { opacity: index === 0 && returnsToCard ? .35 : 0, transform: index === 0 ? end : 'translateY(6px)' }],
+      { duration: 260, easing: motionEasing(), fill: 'forwards' }));
     await Promise.allSettled(animations.map(animation => animation?.finished));
   }
   emit('close');
@@ -143,7 +158,7 @@ onBeforeUnmount(() => { closing = true; dialog.value?.close(); });
     <aside class="modern-reader-info">
       <small class="modern-eyebrow">ARTWORK DETAILS</small>
       <h2><a v-if="pidURL" :href="pidURL" target="_blank" rel="noopener noreferrer">{{ current.pid }}</a><span v-else>{{ current.image_id }}</span></h2>
-      <a v-if="current.artist" class="modern-artist" :href="`https://www.pixiv.net/users/${encodeURIComponent(current.artist.id)}`" target="_blank" rel="noopener noreferrer"><img :src="safeAvatar(current.artist.avatar_url)" alt="" width="36" height="36" @error="($event.target as HTMLImageElement).src = '/static/icon/Pic.png'"><span>{{ current.artist.name }}</span></a>
+      <a v-if="current.artist" class="modern-artist" :href="`https://www.pixiv.net/users/${encodeURIComponent(current.artist.id)}`" target="_blank" rel="noopener noreferrer"><EntityAvatar :name="current.artist.name" :src="current.artist.avatar_url"/><span>{{ current.artist.name }}</span></a>
       <p v-if="isPending" role="status">正在加载详情…</p><div v-if="error" role="alert"><p>详情加载失败</p><button class="btn btn-secondary" @click="refetch()">重试</button></div>
       <template v-if="data"><p v-if="data.description" class="modern-description">{{ data.description }}</p>
         <section class="modern-tag-section"><h3>图库标签</h3><div class="modern-detail-tags pm-tag-box"><RouterLink v-for="item in data.groups" :key="`g${item.id}`" class="pm-tag" :to="{ path: '/gallery', query: { group_id: item.id } }" @click="emit('close')">{{ item.name }}<small>分组</small></RouterLink><RouterLink v-for="item in data.characters" :key="`c${item.id}`" class="pm-tag pm-tag-character" :to="{ path: '/gallery', query: { character_id: item.id } }" @click="emit('close')">{{ item.name }}<small v-if="item.group_name">{{ item.group_name }}</small></RouterLink><RouterLink v-for="item in data.feature_tags" :key="`f${item.id}`" class="pm-tag pm-tag-feature_tag" :to="{ path: '/gallery', query: { feature_tag_id: item.id } }" @click="emit('close')">{{ item.name }}</RouterLink></div></section>

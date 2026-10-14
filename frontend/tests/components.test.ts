@@ -5,12 +5,28 @@ import { resolve } from 'node:path';
 import { createContext, runInContext } from 'node:vm';
 import ImageCard from '../src/components/ImageCard.vue';
 import EntityPicker from '../src/components/EntityPicker.vue';
+import EntityAvatar from '../src/components/EntityAvatar.vue';
 import type { ImageCardRecord } from '../src/api/types';
 import type { PinyinEngine } from '../src/api/phonetics';
 
 afterEach(() => { delete window.pinyinPro; document.querySelectorAll('script').forEach(node => node.remove()); });
 
 const image: ImageCardRecord = { image_id: 'ABCD123456', pid: '123_p0', age_rating: 'r12', characters: [{ id: 1, name: '角色' }], groups: [{ id: 2, name: '分组' }] };
+describe('entity avatar', () => {
+  it('uses name initials for missing and failed avatars and recovers after a source change', async () => {
+    const wrapper = mount(EntityAvatar, { props: { name: '芙宁娜', src: '/favicon.ico' } });
+    expect(wrapper.text()).toBe('芙');
+    expect(wrapper.find('img').exists()).toBe(false);
+    await wrapper.setProps({ src: '/static/first.png' });
+    await wrapper.find('img').trigger('error');
+    expect(wrapper.text()).toBe('芙');
+    expect(wrapper.find('img').exists()).toBe(false);
+    await wrapper.setProps({ name: '初音未来', src: '/static/second.png' });
+    expect(wrapper.text()).toBe('初');
+    await wrapper.find('img').trigger('load');
+    expect(wrapper.find('.entity-avatar-initial').exists()).toBe(false);
+  });
+});
 describe('card interaction', () => {
   it('shows an acrylic thumbnail until restricted content is explicitly revealed', async () => {
     const wrapper = mount(ImageCard, { props: { image: { ...image, age_rating: 'r18' } } });
@@ -31,16 +47,17 @@ describe('card interaction', () => {
 describe('entity picker', () => {
   it('matches aliases and bounds rendered options', async () => {
     const items = Array.from({ length: 200 }, (_, id) => ({ id, name: `分组${id}`, aliases: id === 177 ? ['特别别名'] : [] }));
-    const wrapper = mount(EntityPicker, { props: { label: '分组', items } });
+    const wrapper = mount(EntityPicker, { props: { label: '分组', items }, global: { stubs: { teleport: true } } });
     await wrapper.find('input').trigger('focus');
     expect(wrapper.findAll('[role=option]')).toHaveLength(61);
     await wrapper.find('input').setValue('特别别名');
     expect(wrapper.findAll('[role=option]')).toHaveLength(2);
     await wrapper.find('input').trigger('keydown', { key: 'Enter' });
     expect(wrapper.emitted('update:modelValue')?.[0]).toEqual([177]);
+    wrapper.unmount();
   });
   it('loads phonetic search only when Latin text is entered', async () => {
-    const wrapper = mount(EntityPicker, { props: { label: '角色', items: [{ id: 9, name: '初音未来' }] } });
+    const wrapper = mount(EntityPicker, { props: { label: '角色', items: [{ id: 9, name: '初音未来' }] }, global: { stubs: { teleport: true } } });
     await wrapper.find('input').trigger('focus');
     expect(document.scripts).toHaveLength(0);
     await wrapper.find('input').setValue('cywl');

@@ -1,10 +1,6 @@
 {
-  "_EntityAvatar-BAY-R0pc.css": {
-    "file": "assets/EntityAvatar-BAY-R0pc.css",
-    "src": "_EntityAvatar-BAY-R0pc.css"
-  },
-  "_EntityAvatar-DHvK6HPp.js": {
-    "file": "assets/EntityAvatar-DHvK6HPp.js",
+  "_EntityAvatar-B-tsWAa-.js": {
+    "file": "assets/EntityAvatar-B-tsWAa-.js",
     "name": "EntityAvatar",
     "imports": [
       "_pinia-BLiYcBqC.js",
@@ -14,13 +10,17 @@
       "assets/EntityAvatar-BAY-R0pc.css"
     ]
   },
-  "_bridge-BUkrIn79.js": {
-    "file": "assets/bridge-BUkrIn79.js",
+  "_EntityAvatar-BAY-R0pc.css": {
+    "file": "assets/EntityAvatar-BAY-R0pc.css",
+    "src": "_EntityAvatar-BAY-R0pc.css"
+  },
+  "_bridge-Bmw76LCT.js": {
+    "file": "assets/bridge-Bmw76LCT.js",
     "name": "bridge",
     "imports": [
       "_rolldown-runtime-DK3Fl9T5.js",
       "index.html",
-      "_scripts-CcaMVwLP.js"
+      "_scripts-BqSC4gfs.js"
     ]
   },
   "_pinia-BLiYcBqC.js": {
@@ -31,15 +31,15 @@
     "file": "assets/rolldown-runtime-DK3Fl9T5.js",
     "name": "rolldown-runtime"
   },
-  "_scripts-CcaMVwLP.js": {
-    "file": "assets/scripts-CcaMVwLP.js",
+  "_scripts-BqSC4gfs.js": {
+    "file": "assets/scripts-BqSC4gfs.js",
     "name": "scripts",
     "imports": [
       "index.html"
     ]
   },
   "index.html": {
-    "file": "assets/index-CUFieicH.js",
+    "file": "assets/index-uLU0_jSq.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -51,61 +51,61 @@
       "src/views/GalleryView.vue",
       "src/views/ProfileView.vue",
       "src/views/FeatureView.vue",
-      "_bridge-BUkrIn79.js"
+      "_bridge-Bmw76LCT.js"
     ],
     "css": [
       "assets/index-DBytEzJQ.css"
     ]
   },
   "src/components/ImageDetail.vue": {
-    "file": "assets/ImageDetail-EznyTA-V.js",
+    "file": "assets/ImageDetail-DBarH7Wz.js",
     "name": "ImageDetail",
     "src": "src/components/ImageDetail.vue",
     "isDynamicEntry": true,
     "imports": [
       "_pinia-BLiYcBqC.js",
-      "_EntityAvatar-DHvK6HPp.js",
+      "_EntityAvatar-B-tsWAa-.js",
       "index.html",
-      "_scripts-CcaMVwLP.js",
+      "_scripts-BqSC4gfs.js",
       "src/views/GalleryView.vue"
     ]
   },
   "src/views/FeatureView.vue": {
-    "file": "assets/FeatureView-CSApktVW.js",
+    "file": "assets/FeatureView-Bw_bmacY.js",
     "name": "FeatureView",
     "src": "src/views/FeatureView.vue",
     "isDynamicEntry": true,
     "imports": [
       "_pinia-BLiYcBqC.js",
       "index.html",
-      "_bridge-BUkrIn79.js"
+      "_bridge-Bmw76LCT.js"
     ]
   },
   "src/views/GalleryView.vue": {
-    "file": "assets/GalleryView-DmTGX779.js",
+    "file": "assets/GalleryView-krWgU8aE.js",
     "name": "GalleryView",
     "src": "src/views/GalleryView.vue",
     "isDynamicEntry": true,
     "imports": [
       "_rolldown-runtime-DK3Fl9T5.js",
       "_pinia-BLiYcBqC.js",
-      "_EntityAvatar-DHvK6HPp.js",
+      "_EntityAvatar-B-tsWAa-.js",
       "index.html",
-      "_scripts-CcaMVwLP.js"
+      "_scripts-BqSC4gfs.js"
     ],
     "dynamicImports": [
       "src/components/ImageDetail.vue",
-      "_bridge-BUkrIn79.js"
+      "_bridge-Bmw76LCT.js"
     ]
   },
   "src/views/HomeView.vue": {
-    "file": "assets/HomeView-BkOenWJn.js",
+    "file": "assets/HomeView-DAfu9zrx.js",
     "name": "HomeView",
     "src": "src/views/HomeView.vue",
     "isDynamicEntry": true,
     "imports": [
       "_pinia-BLiYcBqC.js",
-      "_EntityAvatar-DHvK6HPp.js",
+      "_EntityAvatar-B-tsWAa-.js",
       "index.html"
     ],
     "css": [
@@ -113,7 +113,7 @@
     ]
   },
   "src/views/ProfileView.vue": {
-    "file": "assets/ProfileView-CXv2_VXf.js",
+    "file": "assets/ProfileView-DroTmK7u.js",
     "name": "ProfileView",
     "src": "src/views/ProfileView.vue",
     "isDynamicEntry": true,

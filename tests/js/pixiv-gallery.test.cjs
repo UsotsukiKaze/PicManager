@@ -90,3 +90,42 @@ test('cart and library exclusions update active and saved recommendation cards w
     assert.equal(current[0].hidden,false);assert.equal(saved[0].hidden,false);assert.equal(current[1].hidden,true);
     assert.equal(h.pol.visibleGalleryCount(h.flow),1);
 });
+
+test('prepares a successor at two remaining pages without rendering extra cards',async()=>{
+    const h=harness();h.flow.mode='personal';
+    const batch='a'.repeat(32);
+    h.context.fetch=async(url,options={})=>{
+        h.calls.push({url,options});
+        return {ok:true,json:async()=>url.endsWith('/browse')?{id:42}:{batch_id:batch,total:40,remaining_count:20,has_more:true,
+            items:Array.from({length:20},(_,i)=>({pid:String(i),title:'Artwork',page_count:1,preview_url:'/preview'}))}};
+    };
+    await h.pol.loadMore(h.flow);await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(h.pol.items.length,20);assert.equal(h.calls.length,2);
+    assert.equal(JSON.parse(h.calls[1].options.body).batch_id,batch);
+    assert.equal(h.flow.continueJob,42);
+    await h.pol.finishContinuation({status:'completed',result:{batch_id:'b'.repeat(32),count:30,more:true}},h.flow);
+    assert.equal(h.flow.batch,batch);assert.equal(h.flow.prepared.batch_id,'b'.repeat(32));
+    assert.equal(h.pol.items.length,20);
+    h.flow.more=false;
+    h.context.fetch=async(url)=>{h.calls.push({url});return {ok:true,json:async()=>({batch_id:'b'.repeat(32),total:1,has_more:false,
+        items:[{pid:'1000',title:'New',page_count:1,preview_url:'/preview'}]})};};
+    await h.pol.loadMore(h.flow);
+    assert.equal(h.pol.items.length,21);assert.match(h.calls.at(-1).url,/batch_id=bbbb/);
+});
+
+test('refresh consumes the prepared batch without another remote refresh job',async()=>{
+    const h=harness();h.flow.prepared={batch_id:'b'.repeat(32),more:true};
+    h.pol.render=async()=>{};
+    const button={dataset:{action:'refresh'},classList:{contains:()=>false}};
+    await h.pol.click({target:{closest:()=>button}});
+    assert.equal(h.calls.length,0);assert.equal(h.pol.nextBatch.batch,'b'.repeat(32));
+});
+
+test('recommendation polling does not wait for bookmark and cart polling',async()=>{
+    const h=harness();h.flow.continueJob=42;
+    h.pol.refreshBookmarkStates=()=>new Promise(()=>{});
+    h.context.fetch=async(url)=>{h.calls.push({url});return {ok:true,json:async()=>({status:'completed',result:{batch_id:'b'.repeat(32),count:20,more:true}})};};
+    h.pol.watchRecommendations();await h.timers[0]();
+    assert.deepEqual(h.calls.map(call=>call.url),['/api/pixiv-ol/jobs/42']);
+    assert.equal(h.flow.prepared.batch_id,'b'.repeat(32));
+});

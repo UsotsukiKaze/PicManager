@@ -198,7 +198,7 @@
                 await new Promise(resolve=>requestAnimationFrame(resolve));
                 if(this.flow!==flow)return;
                 this.root.closest('.main-content')?.scrollTo({top:saved.scrollTop,behavior:'instant'});
-                this.positionTools();this.animateMode();this.observeFlow(flow);this.root.querySelectorAll('.px-image-button img').forEach(image=>{if(image.complete&&image.naturalWidth)this.queueSimilarity(image.closest('[data-pid]').dataset.pid);});return;
+                this.positionTools();this.animateMode();this.observeFlow(flow);this.watchRecommendations();this.root.querySelectorAll('.px-image-button img').forEach(image=>{if(image.complete&&image.naturalWidth)this.queueSimilarity(image.closest('[data-pid]').dataset.pid);});return;
             }
             this.items=[];
             content.innerHTML=`<div class="px-toolbar"><a class="px-account-profile" href="https://www.pixiv.net/users/${esc(this.account.user_id||'')}" target="_blank" rel="noopener noreferrer"><span class="px-artist-avatar"><span aria-hidden="true">${esc((this.account.name||'P').slice(0,1))}</span><img alt="" decoding="async"></span><span>${esc(this.account.name||'Pixiv')}</span></a><div class="px-toolbar-actions">${this.view==='recommendations'?`<div class="px-mode-switch" role="group" aria-label="推荐方式" style="--mode-index:${['personal','stock','discovery'].indexOf(this.mode)}"><span class="px-mode-indicator" aria-hidden="true"></span>${[['personal','猜你喜欢'],['stock','进货模式'],['discovery','Pixiv 发现']].map(([value,label])=>`<button type="button" data-mode="${value}" aria-pressed="${this.mode===value}">${label}</button>`).join('')}</div><select id="pixiv-mode" class="px-mode-select" aria-label="推荐方式"><option value="personal">猜你喜欢</option><option value="stock">进货模式</option><option value="discovery">Pixiv 发现</option></select>`:''}${this.view!=='feed'?`<button class="px-text-button" data-view="${this.view==='bookmarks'?'recommendations':'bookmarks'}" aria-pressed="${this.view==='bookmarks'}">${icon('heart')}${this.view==='bookmarks'?'返回推荐':'收藏'}</button>`:''}</div></div><div class="px-showcase"><div class="px-gallery-flow"><div class="px-gallery"></div><div class="px-load-sentinel" role="status">正在加载画作…</div></div><aside class="px-floating-tools" aria-label="展柜操作"><div class="px-floating-actions"><button class="px-icon-button" data-action="lookup" aria-label="按 PID 查找" title="按 PID 查找">${icon('search')}</button><button class="px-icon-button" data-action="refresh" aria-label="${this.view==='feed'?'更新动态':'换一批'}" title="${this.view==='feed'?'更新动态':'换一批'}">${icon('refresh')}</button><button class="px-icon-button" data-action="top" aria-label="回到顶部" title="回到顶部">${icon('top')}</button></div><button class="px-icon-button px-floating-cart" data-view="cart" aria-label="打开优选夹" title="优选夹">${icon('bag')}<span class="px-cart-count" aria-hidden="true" ${this.cartCount()?'':'hidden'}>${this.cartCount()}</span></button>${this.importButton()}</aside></div>`;
@@ -206,6 +206,7 @@
             const avatar=content.querySelector('.px-account-profile img');
             if(this.account.avatar_url)this.media.load(this.account.avatar_url,'account-avatar').then(url=>{if(avatar.isConnected)avatar.src=url;}).catch(()=>avatar.remove());else avatar.remove();
             const flow=this.flow={generation,view:this.view,mode:this.mode,offset:0,batch:null,cursor:null,seen:new Set(),busy:false,more:true,upstreamMore:true,emptyRounds:0,lazyReady:false};
+            if(this.nextBatch?.view===flow.view&&this.nextBatch.mode===flow.mode){flow.batch=this.nextBatch.batch;flow.upstreamMore=this.nextBatch.more!==false;this.nextBatch=null;}
             const mode=document.getElementById('pixiv-mode');
             if(mode) {mode.value=this.mode; mode.onchange=()=>{this.saveReading();this.previousMode=this.mode;this.mode=mode.value;this.render().catch(e=>ui.showToast(e.message,'error'));};}
             this.updateRefreshButton();
@@ -214,6 +215,7 @@
             if(this.flow!==flow)return;
             this.root.closest('.main-content')?.scrollTo({top:0,behavior:'instant'});
             this.observeFlow(flow);
+            this.watchRecommendations();
         }
         animateMode() {
             const indicator=this.root?.querySelector('.px-mode-indicator');
@@ -324,7 +326,7 @@
             this.syncCartButtons();
         }
         async loadMore(flow=this.flow) {
-            if(!flow||this.flow!==flow||flow.busy||flow.continueJob||flow.paused)return;
+            if(!flow||this.flow!==flow||flow.busy||flow.paused)return;
             if(!flow.more){await this.continueReading(flow);return;}
             flow.busy=true;const sentinel=this.root.querySelector('.px-load-sentinel');sentinel.textContent='正在加载画作…';
             const params=new URLSearchParams({limit:String(galleryPageSize),offset:String(flow.cursor?0:flow.offset)});
@@ -337,6 +339,10 @@
                 const fresh=data.items.filter(item=>{if(flow.seen.has(item.pid))return false;flow.seen.add(item.pid);return flow.view!=='recommendations'||!this.recommendationExcluded(item);});
                 const firstScreen=!this.items.length;this.items.push(...fresh);this.root.querySelector('.px-gallery').insertAdjacentHTML('beforeend',fresh.map((item,index)=>this.card(item,firstScreen&&index<5)).join(''));
                 flow.more=flow.view==='recommendations'&&'has_more' in data?data.has_more:(flow.view==='feed'||flow.view==='bookmarks')&&'next_cursor' in data?!!data.next_cursor:flow.offset<data.total&&data.items.length>0;
+                if(flow.view==='recommendations'&&['personal','stock','discovery'].includes(flow.mode)
+                    &&Number.isInteger(data.remaining_count)&&data.remaining_count<=40&&fresh.length) {
+                    this.continueReading(flow,{prepare:true}).catch(()=>{});
+                }
                 if(fresh.length)flow.emptyRounds=0;
                 sentinel.textContent='继续下滑加载';
             } catch(error) {
@@ -347,23 +353,31 @@
                 if((flow.lazyReady||this.visibleGalleryCount(flow)<galleryPageSize)&&sentinel.getBoundingClientRect().top<(root?.getBoundingClientRect().bottom||innerHeight)+galleryPreloadDistance)setTimeout(()=>this.maybeLoadMore(flow),0);
             }
         }
-        async continueReading(flow) {
+        async continueReading(flow,{prepare=false}={}) {
             if(flow?.view==='bookmarks'){flow.upstreamMore=false;const sentinel=this.root.querySelector('.px-load-sentinel');if(sentinel)sentinel.textContent='收藏已加载完毕';return;}
             const sentinel=this.root.querySelector('.px-load-sentinel');
+            if(flow.prepared) {
+                if(prepare)return;
+                const result=flow.prepared;flow.prepared=null;
+                flow.batch=result.batch_id;flow.offset=0;flow.more=true;
+                flow.upstreamMore=result.more!==false;
+                await this.loadMore(flow);return;
+            }
+            if(flow.continueJob||flow.prefetchStarting)return;
             if(!flow.upstreamMore||flow.emptyRounds>=3){sentinel.textContent='暂时没有更多画作，稍后刷新试试';return;}
-            flow.busy=true;sentinel.textContent='正在获取更多画作…';
+            flow.prefetchStarting=true;if(!prepare){flow.busy=true;sentinel.textContent='正在获取更多画作…';}
             try {
                 const payload={view:flow.view,mode:flow.mode};
                 if(flow.view==='recommendations'&&['personal','stock','discovery'].includes(flow.mode))payload.seen_pids=[...flow.seen].slice(-2000);
+                if(flow.view==='recommendations'&&flow.batch)payload.batch_id=flow.batch;
                 const job=await request('/browse',{method:'POST',body:JSON.stringify(payload)});
                 // Keep the queued continuation in saved reading state when navigating during the request.
                 const target=this.flow===flow?flow:this.readingStates.get(this.readingKey(flow.view,flow.mode))?.flow;
-                if(target){target.continueJob=job.id;target.beforeContinue=target.seen.size;}
-                this.watch();
+                if(target){target.continueJob=job.id;target.beforeContinue=target.seen.size;target.prefetchStarting=false;}
+                this.watchRecommendations();
             } catch(error) {
-                flow.paused=true;
-                if(this.flow===flow)sentinel.innerHTML='<button class="px-text-button" data-action="load-more">暂时无法获取更多，点击重试</button>';
-            } finally {flow.busy=false;}
+                if(!prepare){flow.paused=true;if(this.flow===flow)sentinel.innerHTML='<button class="px-text-button" data-action="load-more">暂时无法获取更多，点击重试</button>';}
+            } finally {flow.prefetchStarting=false;const saved=this.readingStates.get(this.readingKey(flow.view,flow.mode))?.flow;if(saved)saved.prefetchStarting=false;if(!prepare)flow.busy=false;}
         }
         async finishContinuation(job,flow) {
             flow.continueJob=null;
@@ -371,21 +385,21 @@
             const sentinel=content?.querySelector('.px-load-sentinel');
             if(job.status==='completed') {
                 flow.upstreamMore=job.result?.more!==false;
-                flow.emptyRounds=flow.seen.size===flow.beforeContinue?flow.emptyRounds+1:0;
+                flow.emptyRounds=job.result?.count===0?flow.emptyRounds+1:0;
                 if(flow.view==='recommendations') {
                     if(!job.result?.batch_id)flow.upstreamMore=false;
+                    else if(flow.more){flow.prepared=job.result;return;}
                     else {flow.batch=job.result.batch_id;flow.offset=0;flow.more=true;}
                 } else flow.more=true;
                 if(sentinel)sentinel.textContent='继续下滑加载';
                 if(this.flow===flow)await this.loadMore(flow);
             } else {
-                flow.paused=true;
-                if(sentinel)sentinel.innerHTML='<button class="px-text-button" data-action="load-more">加载失败，点击重试</button>';
+                if(!flow.more){flow.paused=true;if(sentinel)sentinel.innerHTML='<button class="px-text-button" data-action="load-more">加载失败，点击重试</button>';}
             }
         }
         scrollTop() {this.root.closest('.main-content')?.scrollTo({top:0,behavior:reducedMotion()?'instant':'smooth'});}
         updateRefreshButton() {const button=this.root?.querySelector('[data-action="refresh"]');if(button){const busy=!!this.pendingRefresh||!!this.refreshStarting;button.disabled=busy;button.classList.toggle('is-refreshing',busy);}}
-        suspend() {this.saveReading();this.generation++;this.flow=null;this.abort?.abort();this.loadObserver?.disconnect();this.flowScrollAbort?.abort();this.toolsObserver?.disconnect();clearTimeout(this.hoverTimer);clearTimeout(this.timer);}
+        suspend() {this.saveReading();this.generation++;this.flow=null;this.abort?.abort();this.loadObserver?.disconnect();this.flowScrollAbort?.abort();this.toolsObserver?.disconnect();clearTimeout(this.hoverTimer);clearTimeout(this.timer);clearTimeout(this.recommendationTimer);}
         empty(title,description,action='') {
             return `<div class="px-empty"><div class="px-empty-art"><img src="/static/icon/pixiv-ol.svg" alt=""></div><h3>${esc(title)}</h3><p>${esc(description)}</p>${action}</div>`;
         }
@@ -479,8 +493,10 @@
                     if(this.pendingRefresh||this.refreshStarting)return;
                     const view=this.view,mode=this.mode;if(view==='bookmarks'){if(window.auth.isRoot())await request('/bookmarks/sync',{method:'POST'});this.readingStates.delete(this.readingKey());await this.render();return;}this.refreshStarting=true;this.updateRefreshButton();
                     try {
+                        if(this.flow?.prepared){const prepared=this.flow.prepared;this.nextBatch={view,mode,batch:prepared.batch_id,more:prepared.more};this.readingStates.delete(this.readingKey());await this.render();return;}
+                        if(this.flow?.continueJob){this.pendingRefresh={id:this.flow.continueJob,view,mode};this.flow.continueJob=null;this.watchRecommendations();return;}
                         const job=await request('/sync',{method:'POST',body:JSON.stringify({kind:view==='feed'?'sync':'recommendations',mode,first_page:true})});
-                        this.pendingRefresh={id:job.id,view,mode};this.watch();
+                        this.pendingRefresh={id:job.id,view,mode};this.watchRecommendations();
                     } finally {this.refreshStarting=false;this.updateRefreshButton();}
                 } else if(action==='top') this.scrollTop();
                 else if(action==='lookup') await this.lookup();
@@ -1142,31 +1158,43 @@
                 if(ui.currentPage!=='pixiv-ol') return;
                 try {
                     await this.refreshBookmarkStates();const jobs=await this.loadImportJobs();const before=JSON.stringify(this.cartItems.map(row=>[row.id,row.status,row.cached_pages,row.job?.status]));
-                    const flows=new Set([this.flow,...Array.from(this.readingStates.values(),state=>state.flow)]);
-                    for(const flow of flows) {
-                        if(!flow?.continueJob)continue;
-                        const job=jobs.find(job=>job.id===flow.continueJob);
-                        if(job&&!['queued','running','retry'].includes(job.status))await this.finishContinuation(job,flow);
-                    }
                     await this.loadCart();const changed=before!==JSON.stringify(this.cartItems.map(row=>[row.id,row.status,row.cached_pages,row.job?.status]));
                     if(this.view==='cart'&&changed) await this.render();
                     this.updateImportTools();this.offerImportReviews();
                     const count=this.root.querySelector('.px-count');if(count) count.textContent=this.cartCount();
                     const active=jobs.some(job=>['queued','running','retry'].includes(job.status));
-                    if(this.pendingRefresh) {
-                        const pending=this.pendingRefresh,job=jobs.find(job=>job.id===pending.id);
-                        if(job&&!['queued','running','retry'].includes(job.status)) {
-                            this.pendingRefresh=null;this.updateRefreshButton();
-                            if(job.status==='completed') {
-                                this.readingStates.delete(this.readingKey(pending.view,pending.mode));
-                                if(this.view===pending.view&&(pending.view==='feed'||this.mode===pending.mode)) {await this.loadAccount();await this.render();}
-                            }
-                            else if(['failed','partial','cancelled'].includes(job.status))ui.showToast(errors[job.error]||'刷新未完成，可重试','error');
-                        }
-                    }
                     this.wasActive=active;this.watch();
                 } catch(error) {ui.showToast(error.message,'error');}
             },this.pendingRefresh?700:2500);
+        }
+
+        watchRecommendations() {
+            clearTimeout(this.recommendationTimer);
+            this.recommendationTimer=setTimeout(async()=>{
+                if(ui.currentPage!=='pixiv-ol')return;
+                if(this.recommendationPolling){this.watchRecommendations();return;}
+                const flows=new Set([this.flow,...Array.from(this.readingStates.values(),state=>state.flow)]);
+                const ids=new Set([...flows].filter(flow=>flow?.continueJob).map(flow=>flow.continueJob));
+                if(this.pendingRefresh)ids.add(this.pendingRefresh.id);
+                if(!ids.size)return;
+                this.recommendationPolling=true;
+                try {
+                    const results=await Promise.allSettled([...ids].map(async id=>[id,await request(`/jobs/${id}`)]));
+                    const jobs=new Map(results.filter(result=>result.status==='fulfilled').map(result=>result.value));
+                    for(const flow of flows){const job=jobs.get(flow?.continueJob);if(job&&!['queued','running','retry'].includes(job.status))await this.finishContinuation(job,flow);}
+                    const pending=this.pendingRefresh,job=pending&&jobs.get(pending.id);
+                    if(job&&!['queued','running','retry'].includes(job.status)){
+                        this.pendingRefresh=null;this.updateRefreshButton();
+                        if(job.status==='completed'){
+                            this.readingStates.delete(this.readingKey(pending.view,pending.mode));
+                            if(this.view===pending.view&&(pending.view==='feed'||this.mode===pending.mode)){
+                                if(job.result?.batch_id)this.nextBatch={view:pending.view,mode:pending.mode,batch:job.result.batch_id,more:job.result.more};
+                                await this.render();
+                            }
+                        }else ui.showToast(errors[job.error]||'刷新未完成，可重试','error');
+                    }
+                } finally {this.recommendationPolling=false;this.watchRecommendations();}
+            },500);
         }
     }
     window.pixivOL=new PixivOL();

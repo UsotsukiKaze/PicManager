@@ -1,5 +1,43 @@
 import { test, expect, type Page } from '@playwright/test';
 
+test('POL prepares its next batch and refresh consumes it without another sync', async ({ page }) => {
+  const { errors } = await mockWorkspace(page);
+  const first = 'a'.repeat(32), next = 'b'.repeat(32);
+  let browseCount = 0, syncCount = 0;
+  await page.route('**/api/pixiv-ol/**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/account')) {
+      await route.fulfill({ json: { connected: true, name: '测试画友', user_id: '7' } });
+    } else if (url.pathname.endsWith('/recommendations')) {
+      const batch = url.searchParams.get('batch_id') || first;
+      const start = batch === first ? 100 : 200;
+      await route.fulfill({ json: { batch_id: batch, total: 40, next_offset: 20, remaining_count: 20, has_more: true,
+        items: Array.from({ length: 20 }, (_, i) => ({ pid: String(start + i), title: `预取作品 ${start + i}`,
+          author: '画师', author_id: '9', page_count: 1, preview_url: '/static/icon/Pic.png', imported_pages: [] })) } });
+    } else if (url.pathname.endsWith('/browse')) {
+      browseCount++;
+      const payload = route.request().postDataJSON();
+      expect(payload.batch_id).toBe(browseCount === 1 ? first : next);
+      await route.fulfill({ json: { id: 41 + browseCount } });
+    } else if (url.pathname.endsWith('/jobs/42')) {
+      await route.fulfill({ json: { id: 42, status: 'completed', result: { batch_id: next, count: 40, more: true } } });
+    } else if (url.pathname.endsWith('/jobs/43')) {
+      await route.fulfill({ json: { id: 43, status: 'queued' } });
+    } else if (url.pathname.endsWith('/sync')) {
+      syncCount++;
+      await route.fulfill({ json: { id: 99 } });
+    } else await route.fallback();
+  });
+  await page.goto('/#/pixiv');
+  await expect(page.locator('.px-card')).toHaveCount(20);
+  await expect.poll(() => page.evaluate(() => Boolean((window as any).pixivOL?.flow?.prepared))).toBe(true);
+  await page.locator('.px-floating-tools [data-action="refresh"]').click();
+  await expect(page.locator('.px-card')).toHaveCount(20);
+  await expect(page.locator('.px-card').first()).toContainText('预取作品 200');
+  expect(syncCount).toBe(0);
+  expect(errors).toEqual([]);
+});
+
 async function mockWorkspace(page: Page, role = 'root', firstRating = 'r12') {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));

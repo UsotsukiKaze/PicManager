@@ -140,9 +140,9 @@ def scan_image(actor_id, image_id, *, remaining=1, revision=None, client=None, g
     PixivUpgradeService.throttle_scan()
     own_client = client is None
     if own_client:
-        # Only credential rotation needs serialization. Each worker owns its HTTP session.
-        with jobs.ACCOUNT_LOCK:
-            client = service.client_for_job(actor_id, revision)
+        # The service serializes token rotation; do not hold the account state
+        # lock while waiting for its credential lock or network exchange.
+        client = service.client_for_job(actor_id, revision)
     try:
         raw = client.call("illust_detail", illust_id=work_id).get("illust")
         art = service.normalize_artwork(raw or {})

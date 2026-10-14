@@ -2,13 +2,14 @@
 
 import secrets
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import update, select
 from sqlalchemy.orm.attributes import flag_modified
 
 from ... import models
-from ...database import get_db_context
+from .state import get_db_context
 from .provider import Provider, PixivError, encrypt, decrypt, plain
 from .recommendations import TagIndex, build_profile, rank_candidates, normalize
 from .search_plan import build_search_plan, restored_query
@@ -169,6 +170,8 @@ def store_connection(token, user, actor_id, previous, session_id=None):
 
 
 def client_for_job(actor_id, revision):
+    # Read the latest refresh token only after acquiring its rotation lock.
+    # Callers must not hold ACCOUNT_LOCK across this network operation.
     with CLIENT_LOCK:
         return _client_for_job(actor_id, revision)
 
@@ -195,7 +198,10 @@ def _client_for_job(actor_id, revision):
                 .values(credential=updated, status="connected")
             ).rowcount
             if not changed:
-                raise PixivError("account_changed")
+                db.expire_all()
+                current = require_account(db, revision)
+                if current.user_id != user_id or decrypt(current.credential) != provider.token:
+                    raise PixivError("account_changed")
         return provider
     except Exception:
         provider.close()
@@ -203,17 +209,27 @@ def _client_for_job(actor_id, revision):
 
 
 def save_artworks(revision, raws, source, actor_id, *, ranks=False, rank_offset=0, source_batch=None):
+    normalized = [(position, normalize_artwork(raw)) for position, raw in enumerate(raws)]
+    normalized = [(position, art) for position, art in normalized if art is not None]
+    pids = [art['pid'] for _, art in normalized]
     with get_db_context() as db:
         require_account(db, revision)
         require_actor(db, actor_id)
-        for position, raw in enumerate(raws):
-            art = normalize_artwork(raw)
-            if art is None:
-                continue
-            row = db.query(models.PixivArtwork).filter_by(account_revision=revision, pid=art["pid"]).first()
+        existing = {row.pid:row for row in db.query(models.PixivArtwork).filter(
+            models.PixivArtwork.account_revision == revision, models.PixivArtwork.pid.in_(pids))} if pids else {}
+        metrics = {}
+        if pids:
+            for sample in db.query(models.PixivArtworkMetric).filter(models.PixivArtworkMetric.pid.in_(pids)).order_by(
+                models.PixivArtworkMetric.sampled_at.desc()):
+                metrics.setdefault(sample.pid, sample)
+            db.query(models.PixivArtworkMetric).filter(models.PixivArtworkMetric.pid.in_(pids),
+                models.PixivArtworkMetric.sampled_at < datetime.utcnow()-timedelta(days=30)).delete(synchronize_session=False)
+        for position, art in normalized:
+            row = existing.get(art['pid'])
             if not row:
                 row = models.PixivArtwork(account_revision=revision, pid=art["pid"], origins=[])
                 db.add(row)
+                existing[art['pid']] = row
             elif art["bookmarks"] is None and row.metadata_json:
                 art["bookmarks"] = row.metadata_json.get("bookmarks")
             previous_metadata = row.metadata_json or {}
@@ -221,8 +237,7 @@ def save_artworks(revision, raws, source, actor_id, *, ranks=False, rank_offset=
             row.published_at, row.metadata_json = iso_date(art["published_at"]), art
             row.fetched_at = datetime.utcnow()
             if art.get('bookmarks') is not None:
-                previous = db.query(models.PixivArtworkMetric).filter_by(pid=art['pid']).order_by(
-                    models.PixivArtworkMetric.sampled_at.desc()).first()
+                previous = metrics.get(art['pid'])
                 if previous:
                     hours = (row.fetched_at-previous.sampled_at).total_seconds()/3600
                     if hours>=6 and previous.bookmarks is not None and art['bookmarks']>=previous.bookmarks:
@@ -230,16 +245,17 @@ def save_artworks(revision, raws, source, actor_id, *, ranks=False, rank_offset=
                     elif hours<6 and previous.bookmarks is not None and art['bookmarks']>=previous.bookmarks and previous_metadata.get('bookmark_velocity') is not None:
                         art['bookmark_velocity'] = previous_metadata['bookmark_velocity']
                 if not previous or (row.fetched_at-previous.sampled_at).total_seconds()>=21600:
-                    db.add(models.PixivArtworkMetric(pid=art['pid'],bookmarks=art['bookmarks'],views=art.get('views')))
-                db.query(models.PixivArtworkMetric).filter(models.PixivArtworkMetric.pid==art['pid'],
-                    models.PixivArtworkMetric.sampled_at<row.fetched_at-timedelta(days=30)).delete()
+                    sample = models.PixivArtworkMetric(pid=art['pid'], bookmarks=art['bookmarks'],
+                        views=art.get('views'), sampled_at=row.fetched_at)
+                    db.add(sample)
+                    metrics[art['pid']] = sample
             flag_modified(row,'metadata_json')
             origins = [o for o in row.origins if o["source"] != source]
             row.origins = [
                 *origins,
                 {"source": source, "rank": rank_offset + position + 1 if ranks else None, "batch": source_batch},
             ]
-            db.flush()
+        db.flush()
 
 
 def sync_feed(provider, revision, actor_id, restrict="public", *, first_page=False):
@@ -351,6 +367,7 @@ def continue_feed(provider, revision, actor_id, restrict="public", *, progressiv
 
 def refresh_candidates(provider, revision, actor_id, mode="combined", *, continuation=False, progressive=False,
                        seen_pids=(), replenish_batch=None):
+    started = time.perf_counter()
     from . import strategies
     progressive = progressive or mode == 'stock'
     independent = mode in strategies.MODES
@@ -415,6 +432,7 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
     if mode in ("native", "discovery"):
         pending_queries, pending_seeds = [], []
     local_count = 0
+    prepared_at = time.perf_counter()
     request_counts=dict(stream.get('source_requests',{})) if continuation else {}
     try:
         cursor = (stream.get("cursor") or {}) if continuation else {}
@@ -567,7 +585,12 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
             # for every small background wave. Publish once when warming ends.
             return {'count':local_count, 'warnings':sorted(set(warnings)), 'more':True,
                     'replenish':True, 'source_batch':source_batch}
-        items, profile = rank_candidates(db, account, mode, actor_id=actor_id, seen_pids=seen_pids if continuation else ())
+        recalled_at = time.perf_counter()
+        ranking_index = TagIndex(db) if independent else None
+        reused_profile = profile if independent and input_revision(ranking_index, account.preferences) == revision_key else None
+        items, profile = rank_candidates(db, account, mode, actor_id=actor_id, seen_pids=seen_pids if continuation else (),
+                                         **({'profile':reused_profile, 'index':ranking_index} if independent else {}))
+        ranked_at = time.perf_counter()
         if cached_only and not items:
             return {'count':0, 'more':False, 'replenish':False}
         batch_id = secrets.token_hex(16)
@@ -591,6 +614,9 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
             ).delete()
     return {
         "batch_id": batch_id,
+        "timings": {'profile_ms':round((prepared_at-started)*1000),
+                    'recall_ms':round((recalled_at-prepared_at)*1000),
+                    'rank_ms':round((ranked_at-recalled_at)*1000)},
         "count": len(items),
         "warnings": sorted(set(warnings)),
         "more": (cached_only and bool(items) or not exhausted or bool(pending_queries or pending_seeds)) if progressive else (not exhausted if platform_count else bool(warnings)),

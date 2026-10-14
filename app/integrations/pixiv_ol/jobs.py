@@ -3,6 +3,7 @@
 import hashlib
 import shutil
 import threading
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from sqlalchemy import case, select, update
 
 from ... import models
 from ...config import settings
-from ...database import get_db_context
+from .state import ACCOUNT_LOCK, get_db_context
 from ...jobs import ImageJobQueue
 from ...services import ImageService
 from ...storage import get_image_storage
@@ -18,8 +19,9 @@ from . import service
 from .provider import PixivError, download
 from .image_limits import open_image
 
-ACCOUNT_LOCK = threading.RLock()
 ACTIVE = ("queued", "running", "retry", "awaiting_duplicate")
+RECOMMENDATION_KINDS = ('recommendations', 'browse_recommendations', 'stock_refill')
+QUEUE_LOCKS = {'recommendations': threading.RLock(), 'background': threading.RLock()}
 
 
 def enqueue(db, actor_id, kind, payload=None, key=None):
@@ -63,6 +65,7 @@ def enqueue(db, actor_id, kind, payload=None, key=None):
     )
     db.add(job)
     db.flush()
+    worker.wakeup.set()
     return job
 
 
@@ -330,9 +333,11 @@ class Worker:
         self.stop_event = threading.Event()
         self.thread = None
         self.last_schedule = 0.0
+        self.recommendation_thread = None
+        self.wakeup = threading.Event()
 
-    def run_once(self):
-        with ACCOUNT_LOCK:
+    def run_once(self, lane=None):
+        with QUEUE_LOCKS['recommendations' if lane == 'recommendations' else 'background']:
             with get_db_context() as db:
                 now = datetime.utcnow()
                 db.query(models.PixivJob).filter(
@@ -341,7 +346,11 @@ class Worker:
                 candidate = (
                     select(models.PixivJob.id)
                     .where(models.PixivJob.status.in_(("queued", "retry")), models.PixivJob.available_at <= now)
-                    .order_by(case((models.PixivJob.kind.in_(('stock_refill','bookmarks')), 1), else_=0),
+                    .where(models.PixivJob.kind.in_(RECOMMENDATION_KINDS) if lane == 'recommendations'
+                           else models.PixivJob.kind.notin_(RECOMMENDATION_KINDS) if lane == 'background'
+                           else True)
+                    .order_by(case((models.PixivJob.kind == 'recommendations', -1),
+                                   (models.PixivJob.kind.in_(('stock_refill','bookmarks')), 1), else_=0),
                               models.PixivJob.available_at, models.PixivJob.id)
                     .limit(1)
                     .scalar_subquery()
@@ -356,8 +365,10 @@ class Worker:
                     return False
                 job = db.get(models.PixivJob, job_id)
                 actor_id, revision, kind, payload = job.actor_id, job.account_revision, job.kind, job.payload
+                queued_ms = max(0, (now-job.available_at).total_seconds()*1000)
                 publishing = job.result.get("publishing_key")
             provider = None
+            started = time.perf_counter()
             try:
                 if publishing:
                     backend = get_image_storage(settings, local_root=settings.STORE_PATH)
@@ -372,6 +383,7 @@ class Worker:
                         stale_refill = not service.current_stock_replenishment(account, actor_id, payload.get('source_batch'))
                 if not stale_refill and not (kind == "import" and payload.get("cart_id")):
                     provider = service.client_for_job(actor_id, revision)
+                authenticated = time.perf_counter()
                 if kind == 'bookmarks':
                     from .bookmarks import scan_step
                     result = scan_step(provider, revision, actor_id, full=payload.get('full', False))
@@ -417,6 +429,9 @@ class Worker:
                 else:
                     raise PixivError("invalid_job")
                 if result is not None:
+                    result['timings'] = {**result.get('timings', {}), 'queue_ms':round(queued_ms),
+                        'auth_ms':round((authenticated-started)*1000),
+                        'work_ms':round((time.perf_counter()-authenticated)*1000)}
                     with get_db_context() as db:
                         service.require_account(db, revision)
                         job = db.get(models.PixivJob, job_id)
@@ -512,24 +527,25 @@ class Worker:
                         continue
                     enqueue(db, account.owner_id, kind, {"restrict": restrict}, f"scheduled:{restrict}")
 
-    def _run(self):
+    def _run(self, lane='background'):
         import time
 
         while not self.stop_event.is_set():
             try:
-                if time.monotonic() - self.last_schedule > 60:
+                if lane == 'background' and time.monotonic() - self.last_schedule > 60:
                     self.schedule()
                     self.last_schedule = time.monotonic()
-                if self.run_once():
+                if self.run_once(lane):
                     continue
-                from .bookmarks import run_outbox_once
-                with ACCOUNT_LOCK:
+                if lane == 'background':
+                    from .bookmarks import run_outbox_once
                     if run_outbox_once():
                         continue
             except Exception:
                 # Never log exception bodies: third-party errors can contain credentials.
                 pass
-            self.stop_event.wait(2)
+            self.wakeup.wait(.5)
+            self.wakeup.clear()
 
     def start(self):
         if self.thread and self.thread.is_alive():
@@ -545,14 +561,20 @@ class Worker:
         self.stop_event.clear()
         self.thread = threading.Thread(target=self._run, name="pixiv_ol_worker", daemon=True)
         self.thread.start()
+        self.recommendation_thread = threading.Thread(target=self._run, args=('recommendations',),
+                                                      name='pixiv_ol_recommendations', daemon=True)
+        self.recommendation_thread.start()
 
     def stop(self):
         from .cli_login import shutdown
 
         shutdown()
         self.stop_event.set()
+        self.wakeup.set()
         if self.thread:
             self.thread.join(timeout=5)
+        if self.recommendation_thread:
+            self.recommendation_thread.join(timeout=5)
 
 
 worker = Worker()

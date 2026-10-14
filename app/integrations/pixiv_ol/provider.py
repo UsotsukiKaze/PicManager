@@ -3,6 +3,7 @@
 import os
 import sys
 import hashlib
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import threading
@@ -244,6 +245,9 @@ class BoundedAPI(AppPixivAPI):
 
 
 class Provider:
+    _auth_lock = threading.Lock()
+    _auth_cache = OrderedDict()
+
     def __init__(self, token):
         options = {"timeout": max(5, settings.PIXIV_REQUEST_TIMEOUT_SECONDS), "allow_redirects": False}
         proxy = proxy_url()
@@ -251,14 +255,38 @@ class Provider:
             options["proxies"] = {"http": proxy, "https": proxy}
         self.api = BoundedAPI(**options)
         try:
-            throttle()
-            response = plain(self.api.auth(refresh_token=token))
-            self.token = str(self.api.refresh_token or token)
-            response = response.get("response", response)
-            user = response.get("user", {})
-            self.user = {"id": str(user.get("id", "")), "name": str(user.get("name", ""))}
-            if not self.user["id"].isdigit():
-                raise ValueError()
+            # Cache credentials in memory only. Each caller still owns its HTTP
+            # session; refresh-token rotation is serialized across both queues.
+            self._auth_scope = (id(BoundedAPI), proxy, options['timeout'])
+            self._auth_key = (*self._auth_scope, hashlib.sha256(token.encode()).digest())
+            with self._auth_lock:
+                cached = self._auth_cache.get(self._auth_key)
+                if cached and cached['expires'] > time.monotonic():
+                    self.api.set_auth(cached['access'], cached['refresh'])
+                    self.api.user_id = cached['user_id']
+                    self.token, self.user = cached['refresh'], dict(cached['user'])
+                    self._auth_cache.move_to_end(self._auth_key)
+                else:
+                    throttle()
+                    response = plain(self.api.auth(refresh_token=token))
+                    self.token = str(self.api.refresh_token or token)
+                    response = response.get("response", response)
+                    user = response.get("user", {})
+                    self.user = {"id": str(user.get("id", "")), "name": str(user.get("name", ""))}
+                    if not self.user["id"].isdigit():
+                        raise ValueError()
+                    try:
+                        lifetime = min(3600, max(0, int(response.get('expires_in') or 0)))
+                    except (ValueError, TypeError):
+                        lifetime = 0
+                    if lifetime > 60:
+                        entry = {'expires': time.monotonic() + lifetime - 60,
+                                 'access': self.api.access_token, 'refresh': self.token,
+                                 'user_id': self.api.user_id, 'user': dict(self.user)}
+                        for key in (self._auth_key, (*self._auth_scope, hashlib.sha256(self.token.encode()).digest())):
+                            self._auth_cache[key] = entry
+                        while len(self._auth_cache) > 32:
+                            self._auth_cache.popitem(last=False)
         except PixivError:
             self.close()
             raise
@@ -275,7 +303,12 @@ class Provider:
         try:
             throttle()
             response = plain(getattr(self.api, method)(**kwargs))
-        except PixivError:
+        except PixivError as exc:
+            if exc.code == 'reauth_required':
+                with self._auth_lock:
+                    for key, value in list(self._auth_cache.items()):
+                        if value['refresh'] == self.token:
+                            del self._auth_cache[key]
             raise
         except Exception:
             raise PixivError("external_error") from None
@@ -292,6 +325,7 @@ class Provider:
         def fetch(request):
             client = object.__new__(Provider)
             client.api = BoundedAPI(**self.api.requests_kwargs)
+            client.token = getattr(self, 'token', self.api.refresh_token)
             client.api.set_auth(self.api.access_token, self.api.refresh_token)
             client.api.user_id = self.api.user_id
             client.api.additional_headers.update(self.api.additional_headers)

@@ -4,8 +4,11 @@ import math
 import hashlib
 import json
 import unicodedata
-from collections import Counter, defaultdict
+import threading
+from collections import Counter, defaultdict, OrderedDict
+from copy import deepcopy
 from datetime import datetime
+from functools import lru_cache
 
 from sqlalchemy.orm import selectinload
 
@@ -14,8 +17,17 @@ from ...config import settings
 from ...pixiv_metadata import library_pixiv_pages, split_pid
 
 
+_MATCHES = OrderedDict()
+_MATCH_LOCK = threading.Lock()
+
+
+@lru_cache(maxsize=32768)
+def _normalized(text):
+    return " ".join(unicodedata.normalize("NFKC", text).casefold().split())
+
+
 def normalize(text):
-    return " ".join(unicodedata.normalize("NFKC", str(text)).casefold().split())
+    return _normalized(str(text))
 
 
 def input_revision(index, preferences):
@@ -70,6 +82,7 @@ class TagIndex:
             for kind, role in targets:
                 if group and kind == 'character' and role in self.characters and self.characters[role].group_id == group:
                     self.scoped_characters[tag].add(group)
+        self.signature = input_revision(self, {})
 
     def mapping_targets(self, name, context=()):
         """Explicit targets are cumulative within a scope, ambiguous across scopes."""
@@ -97,6 +110,23 @@ class TagIndex:
         return not conflict and (kind, id_) in targets
 
     def match(self, tags, *, group_context=()):
+        tags = list(tags)
+        group_context = tuple(sorted(set(group_context)))
+        key = (self.signature, group_context,
+               tuple((tag.get('name', ''), tag.get('translated_name')) for tag in tags))
+        with _MATCH_LOCK:
+            cached = _MATCHES.get(key)
+            if cached is not None:
+                _MATCHES.move_to_end(key)
+                return deepcopy(cached)
+        result = self._match(tags, group_context=group_context)
+        with _MATCH_LOCK:
+            _MATCHES[key] = deepcopy(result)
+            while len(_MATCHES) > 8192:
+                _MATCHES.popitem(last=False)
+        return result
+
+    def _match(self, tags, *, group_context=()):
         context = set(group_context) & self.groups.keys()
         matched = {"group": set(context), "character": set(), "feature": set()}
         evidence, unmatched, conflicts = [], [], []
@@ -394,10 +424,10 @@ def allowed(art, preferences):
     return not any(normalize(x["name"]) in blocked for x in art.get("tags", []))
 
 
-def rank_candidates(db, account, mode="combined", *, actor_id=None, seen_pids=()):
+def rank_candidates(db, account, mode="combined", *, actor_id=None, seen_pids=(), profile=None, index=None):
     from .strategies import MODES, rank
     if mode in MODES:
-        return rank(db, TagIndex(db), account, mode, actor_id or account.owner_id, seen_pids)
+        return rank(db, index or TagIndex(db), account, mode, actor_id or account.owner_id, seen_pids, profile=profile)
     index = TagIndex(db)
     profile = build_profile(db, index, account.preferences)
     source_pages = library_pixiv_pages(db)

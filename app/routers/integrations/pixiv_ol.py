@@ -3,6 +3,7 @@
 import secrets
 import hashlib
 import json
+import threading
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
@@ -25,6 +26,7 @@ from ...integrations.pixiv_ol.provider import PixivError, download
 from ...integrations.pixiv_ol.recommendations import TagIndex, allowed, normalize
 
 router = APIRouter(dependencies=[Depends(require_admin_user_id)])
+METADATA_LOCK = threading.RLock()
 
 
 def write_guard(request: Request):
@@ -79,6 +81,7 @@ class BrowseBody(BaseModel):
     view: Literal["recommendations", "feed"]
     mode: Literal["personal", "stock", "discovery", "combined", "native"] = "combined"
     seen_pids: list[str] = Field(default_factory=list, max_length=2000)
+    batch_id: str | None = Field(default=None, pattern=r'^[a-f0-9]{32}$')
 
     @field_validator('seen_pids')
     @classmethod
@@ -572,7 +575,7 @@ def account_avatar(request: Request, actor_id=Depends(require_admin_user_id)):
             revision, user_id = account.revision, account.user_id
             profile = dict(account.sync_state.get("account_profile") or {})
         if not profile.get("avatar"):
-            with ACCOUNT_LOCK:
+            with METADATA_LOCK:
                 with get_db_context() as db:
                     account = service.require_account(db, revision)
                     profile = dict(account.sync_state.get("account_profile") or {})
@@ -588,7 +591,7 @@ def account_avatar(request: Request, actor_id=Depends(require_admin_user_id)):
                         "avatar": (user.get("profile_image_urls") or {}).get("medium", ""),
                         "fetched_at": datetime.utcnow().isoformat(),
                     }
-                    with get_db_context() as db:
+                    with ACCOUNT_LOCK, get_db_context() as db:
                         account = service.require_account(db, revision)
                         account.sync_state = {**account.sync_state, "account_profile": profile}
         path, kind = avatar({"author_id": user_id, "author_avatar": profile.get("avatar")}, revision)
@@ -683,12 +686,32 @@ def browse(body: BrowseBody, actor_id=Depends(require_admin_user_id)):
     try:
         with get_db_context() as db:
             payload = body.model_dump()
+            if body.batch_id and body.view == 'recommendations':
+                account = service.require_account(db)
+                batch = db.get(models.PixivRecommendationBatch, body.batch_id)
+                if (not batch or batch.account_revision != account.revision or batch.mode != body.mode
+                        or batch.profile.get('actor_id', actor_id) != actor_id):
+                    raise HTTPException(409, '推荐批次已变化，请刷新')
+                # Reserve the entire current batch while preparing its successor,
+                # including cards the reader has not scrolled to yet.
+                payload['seen_pids'] = list(dict.fromkeys([*body.seen_pids, *[item['pid'] for item in batch.items]]))[-2200:]
+            payload.pop('batch_id', None)
             if body.view == "feed":
                 payload["mode"] = "combined"
             job = enqueue(db, actor_id, f"browse_{body.view}", payload)
             return job_json(job)
     except PixivError as exc:
         handle_error(exc)
+
+
+@router.get('/jobs/{job_id}')
+def recommendation_job(job_id: int, actor_id=Depends(require_admin_user_id)):
+    with get_db_context() as db:
+        account = service.require_account(db)
+        job = db.get(models.PixivJob, job_id)
+        if not job or job.account_revision != account.revision or job.actor_id != actor_id:
+            raise HTTPException(404, '任务不存在')
+        return job_json(job)
 
 
 @router.post("/jobs/{job_id}/retry", status_code=202, dependencies=[Depends(write_guard)])
@@ -824,7 +847,7 @@ def lookup(body: LookupBody, actor_id=Depends(require_admin_user_id)):
             if row:
                 if not allowed(row.metadata_json,account.preferences):raise PixivError('content_filtered')
                 return public_art(db,row,actor_id=actor_id)
-        with ACCOUNT_LOCK:
+        with METADATA_LOCK:
             client=service.client_for_job(actor_id,revision)
             try:raw=client.call('illust_detail',illust_id=body.pid).get('illust')
             finally:client.close()
@@ -948,7 +971,7 @@ def artwork_avatar(pid: str, request: Request, actor_id=Depends(require_admin_us
     try:
         if "author_avatar" not in art:
             # Recheck after waiting and reuse another work by this artist before calling Pixiv.
-            with ACCOUNT_LOCK:
+            with METADATA_LOCK:
                 with get_db_context() as db:
                     account = service.require_account(db, revision)
                     row = db.query(models.PixivArtwork).filter_by(account_revision=revision, pid=pid).first()
@@ -1092,7 +1115,9 @@ def recommendations(
         }
         for item in output:
             item["liked"] = item["pid"] in likes
-        return {"items": output, "total": len(items), "batch_id": batch.id, "profile": {} if mode == 'personal' else batch.profile,
+        return {"items": output, "total": len(items), "batch_id": batch.id,
+                "profile": {} if mode in ('personal', 'stock', 'discovery') else batch.profile,
+                "remaining_count": sum(position >= next_offset for position, _ in items),
                 "next_offset": next_offset, "has_more": any(position >= next_offset for position, _ in items)}
 
 

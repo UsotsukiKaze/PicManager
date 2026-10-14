@@ -4,6 +4,7 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import selectinload
+from sqlalchemy import func, select, exists
 
 from ... import models
 from ...config import settings
@@ -270,8 +271,12 @@ def _candidates(db, index, account, mode, actor_id, seen_pids, *, source_batch=N
     source = source_key('recommended', mode, actor_id)
     batch = source_batch or account.sync_state.get(source, {}).get('batch')
     prepared = []
-    for row in db.query(models.PixivArtwork).filter_by(account_revision=account.revision).order_by(
-        models.PixivArtwork.fetched_at.desc(), models.PixivArtwork.id.desc()).limit(5000 if mode == 'stock' else 1000).all():
+    query = db.query(models.PixivArtwork).filter_by(account_revision=account.revision)
+    if batch and db.get_bind().dialect.name == 'sqlite':
+        origins = func.json_each(models.PixivArtwork.origins).table_valued('key', 'value')
+        query = query.filter(exists(select(1).select_from(origins).where(
+            func.json_extract(origins.c.value, '$.batch') == batch)))
+    for row in query.order_by(models.PixivArtwork.fetched_at.desc(), models.PixivArtwork.id.desc()).yield_per(200):
         art = row.metadata_json
         if row.pid in excluded or not allowed(art, account.preferences):
             continue
@@ -286,12 +291,16 @@ def _candidates(db, index, account, mode, actor_id, seen_pids, *, source_batch=N
         match = recommendation_match(index, art['tags'], index.groups)
         item = {**art, 'match':match, 'origins':origins, 'imported_pages':[], 'reasons':[]}
         prepared.append((item, min(native) if native else None))
+        # Apply the budget to eligible source-batch candidates, not unrelated
+        # bookmark/feed rows whose fetched_at can be much more recent.
+        if len(prepared) >= (5000 if mode == 'stock' else 1000):
+            break
     return prepared
 
 
-def rank(db, index, account, mode, actor_id, seen_pids=()):
+def rank(db, index, account, mode, actor_id, seen_pids=(), *, profile=None):
     from .recommendations import input_revision
-    profile = build_profile(db, index, account, mode)
+    profile = dict(profile) if profile is not None else build_profile(db, index, account, mode)
     profile.update({'policy_version':policy_version(mode), 'actor_id':actor_id, 'mode':mode})
     profile['input_revision']=input_revision(index,account.preferences)
     candidates = _candidates(db, index, account, mode, actor_id, seen_pids)

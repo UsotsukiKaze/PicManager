@@ -462,6 +462,7 @@ def test_provider_rejects_untrusted_redirects_and_cursor():
     assert not provider.trusted_image_url("https://user:pass@i.pximg.net/image.png")
     assert not provider.trusted_image_url("https://i.pximg.net:8443/image.png")
     assert provider.Provider.cursor("https://app-api.pixiv.net/v2/illust/follow?offset=30") == {"offset": "30"}
+    assert provider.Provider.cursor("https://app-api.pixiv.net/v1/user/bookmarks/illust?user_id=7&restrict=public&max_bookmark_id=123") == {"max_bookmark_id": "123"}
     with pytest.raises(provider.PixivError):
         provider.Provider.cursor("https://evil.test/?offset=30")
 

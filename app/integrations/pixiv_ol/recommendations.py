@@ -1,6 +1,8 @@
 """Deterministic tag matching, confidence-weighted profiles and inventory scheduling."""
 
 import math
+import hashlib
+import json
 import unicodedata
 from collections import Counter, defaultdict
 from datetime import datetime
@@ -14,6 +16,14 @@ from ...pixiv_metadata import library_pixiv_pages, split_pid
 
 def normalize(text):
     return " ".join(unicodedata.normalize("NFKC", str(text)).casefold().split())
+
+
+def input_revision(index, preferences):
+    payload={'names':[(name,sorted(values,key=repr)) for name,values in sorted(index.names.items())],
+        'mappings':[(key,sorted(values,key=repr)) for key,values in sorted(index.mappings.items())],
+        'roles':[(id_,r.group_id,sorted(t.id for t in r.feature_tags)) for id_,r in sorted(index.characters.items())],
+        'preferences':preferences}
+    return hashlib.sha256(json.dumps(payload,sort_keys=True,ensure_ascii=False).encode()).hexdigest()[:24]
 
 
 def explicit_role_bundle(match, ids):

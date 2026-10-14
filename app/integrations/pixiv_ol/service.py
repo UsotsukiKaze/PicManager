@@ -4,7 +4,8 @@ import secrets
 import threading
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import update
+from sqlalchemy import update, select
+from sqlalchemy.orm.attributes import flag_modified
 
 from ... import models
 from ...database import get_db_context
@@ -19,7 +20,7 @@ def current_stock_replenishment(account, actor_id, source_batch):
     from .strategies import stream_key, policy_version
     stream = account.sync_state.get(stream_key('stock', actor_id), {})
     return (stream.get('source_batch') == source_batch and stream.get('policy_version') == policy_version('stock')
-            and bool(stream.get('deferred_queries'))
+            and bool(stream.get('deferred_queries') or stream.get('deferred_seeds'))
             and (datetime.utcnow() - iso_date(stream.get('started_at', '1970-01-01'))).total_seconds() <= 900)
 
 
@@ -66,9 +67,14 @@ def normalize_artwork(raw):
             for t in raw.get("tags", [])[:100]
             if t.get("name")
         ],
-        "bookmarks": raw.get("total_bookmarks"),
+        "bookmarks": metric_count(raw.get("total_bookmarks")),
+        "views": metric_count(raw.get("total_view")),
         "type": raw.get("type", "illust"),
     }
+
+
+def metric_count(value):
+    return value if type(value) is int and 0<=value<=10**12 else None
 
 
 def require_account(db, revision=None):
@@ -135,6 +141,9 @@ def store_connection(token, user, actor_id, previous, session_id=None):
                 db.query(models.PixivFollow).delete()
                 db.query(models.PixivRecommendationBatch).delete()
                 db.query(models.PixivFeedback).delete()
+                db.query(models.PixivBookmarkOutbox).delete()
+                db.query(models.PixivBookmarkState).delete()
+                db.query(models.PixivRecommendationExposure).delete()
             elif not account:
                 account = models.PixivAccount(id=1)
                 db.add(account)
@@ -144,6 +153,10 @@ def store_connection(token, user, actor_id, previous, session_id=None):
                 account.revision = secrets.token_hex(16)
                 account.preferences, account.sync_state = {}, {}
             account.status = "connected"
+            db.flush()
+            ids=select(models.PixivBookmarkState.id).where(models.PixivBookmarkState.account_revision==account.revision)
+            db.query(models.PixivBookmarkOutbox).filter(models.PixivBookmarkOutbox.state_id.in_(ids),
+                models.PixivBookmarkOutbox.status=='paused').update({'status':'retry','available_at':datetime.utcnow()})
         return {"connected": True, "name": user["name"]}
     finally:
         if old_cart_ids:
@@ -203,9 +216,24 @@ def save_artworks(revision, raws, source, actor_id, *, ranks=False, rank_offset=
                 db.add(row)
             elif art["bookmarks"] is None and row.metadata_json:
                 art["bookmarks"] = row.metadata_json.get("bookmarks")
+            previous_metadata = row.metadata_json or {}
             row.author_id, row.title = art["author_id"], art["title"]
             row.published_at, row.metadata_json = iso_date(art["published_at"]), art
             row.fetched_at = datetime.utcnow()
+            if art.get('bookmarks') is not None:
+                previous = db.query(models.PixivArtworkMetric).filter_by(pid=art['pid']).order_by(
+                    models.PixivArtworkMetric.sampled_at.desc()).first()
+                if previous:
+                    hours = (row.fetched_at-previous.sampled_at).total_seconds()/3600
+                    if hours>=6 and previous.bookmarks is not None and art['bookmarks']>=previous.bookmarks:
+                        art['bookmark_velocity'] = (art['bookmarks']-previous.bookmarks)/hours
+                    elif hours<6 and previous.bookmarks is not None and art['bookmarks']>=previous.bookmarks and previous_metadata.get('bookmark_velocity') is not None:
+                        art['bookmark_velocity'] = previous_metadata['bookmark_velocity']
+                if not previous or (row.fetched_at-previous.sampled_at).total_seconds()>=21600:
+                    db.add(models.PixivArtworkMetric(pid=art['pid'],bookmarks=art['bookmarks'],views=art.get('views')))
+                db.query(models.PixivArtworkMetric).filter(models.PixivArtworkMetric.pid==art['pid'],
+                    models.PixivArtworkMetric.sampled_at<row.fetched_at-timedelta(days=30)).delete()
+            flag_modified(row,'metadata_json')
             origins = [o for o in row.origins if o["source"] != source]
             row.origins = [
                 *origins,
@@ -334,6 +362,10 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
         profile = strategies.build_profile(db, index, account, mode) if independent else build_profile(db, index, account.preferences)
         preferences = account.preferences
         stream = dict(account.sync_state.get(stream_name, {}))
+        from .recommendations import input_revision
+        revision_key=input_revision(index,preferences)
+        if independent and stream.get('input_revision') not in (None,revision_key):
+            continuation=False
         if replenish_batch is not None and (mode != 'stock' or not current_stock_replenishment(account, actor_id, replenish_batch)):
             return {'count':0, 'more':False, 'replenish':False}
         if mode in ('personal', 'stock') and stream.get('policy_version') != strategies.policy_version(mode):
@@ -356,6 +388,18 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
                 break
         if mode == 'personal':
             seeds = profile['personal_seeds']
+        elif mode == 'stock':
+            ordered=sorted(profile['quotas'],key=lambda g:-profile['quotas'][g])
+            seeds=list(dict.fromkeys(pid for slot in range(12) for group in ordered
+                for pid in profile['related_seeds'].get(group,[])[slot:slot+1]))[:12]
+        if independent and mode != 'discovery':
+            # Ranking requests share the durable deferred queue and source batch.
+            queries = [{'group':None,'word':'','search_target':'exact_match_for_tags',
+                'source':'ranking','terms':[],'ranking_mode':'day' if query_round%2==0 else 'week'}]+queries
+            if seeds:
+                shift=max(0,query_round)%len(seeds)
+                seeds=(seeds[shift:]+seeds[:shift])[:12]
+        popular_supported = account.sync_state.get('popular_search',{}).get('supported',True)
     warnings = []
     source_batch = (stream.get('source_batch') if independent and continuation else None) or secrets.token_hex(16)
     native_offset = int(stream.get('native_offset', 0)) if independent and continuation else 0
@@ -371,11 +415,13 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
     if mode in ("native", "discovery"):
         pending_queries, pending_seeds = [], []
     local_count = 0
+    request_counts=dict(stream.get('source_requests',{})) if continuation else {}
     try:
         cursor = (stream.get("cursor") or {}) if continuation else {}
         pages = 1 if progressive else (4 if mode in ("native", "discovery") else 3)
         for _ in range(0 if exhausted or replenish_batch is not None else pages):
             response = provider.call("illust_recommended", include_ranking_illusts="false", **cursor)
+            request_counts['native']=request_counts.get('native',0)+1
             raws = response.get("illusts", [])
             save_artworks(
                 revision,
@@ -404,20 +450,47 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
                                                     seen_pids if continuation else (), source_batch=source_batch)
                 query_slice = strategies.stock_recall_queries(pending_queries, candidates, profile, recall_index)
         seed_slice = pending_seeds[:1] if progressive and continuation and not query_slice else ([] if progressive else list(pending_seeds))
+        if independent and progressive and (mode=='stock' or continuation):
+            from .recall import wave
+            priority={query['word']:n for n,query in enumerate(query_slice)}
+            selector=(lambda options:sorted(options,key=lambda q:priority.get(q['word'],len(priority)))) if mode=='stock' else None
+            query_slice,seed_slice,request_counts=wave(pending_queries,pending_seeds,request_counts,
+                limit=3 if mode=='stock' else 2,stock_selector=selector)
         responses = None
+        def query_request(query):
+            if query.get('source')=='ranking':
+                return 'illust_ranking', {'mode':query['ranking_mode']}
+            params={**query.get('cursor',{}), 'word':query['word'],'search_target':query['search_target']}
+            if independent:
+                params.update(sort='popular_desc' if popular_supported else 'date_desc',
+                    duration=('within_last_week','within_last_month',None)[max(0,query_round)%3])
+            return 'search_illust',params
         if mode == 'stock' and query_slice and callable(getattr(provider, 'call_many', None)):
-            responses = provider.call_many([('search_illust', {**query.get('cursor', {}), 'word':query['word'], 'search_target':query['search_target']})
+            responses = provider.call_many([query_request(query)
                                             for query in query_slice], workers=3)
         for position, query in enumerate(query_slice):
             try:
-                response = responses[position] if responses is not None else provider.call(
-                    "search_illust", **query.get('cursor', {}), word=query["word"], search_target=query["search_target"])
+                method,params=query_request(query)
+                if responses is not None:
+                    response=responses[position]
+                else:
+                    try:
+                        response=provider.call(method,**params)
+                    except PixivError as exc:
+                        response=exc
+                if isinstance(response,PixivError) and method=='search_illust' and response.code=='access_denied' and params.get('sort')=='popular_desc':
+                    response=provider.call(method,**{**params,'sort':'date_desc'})
+                    popular_supported=False
+                    with get_db_context() as db:
+                        account=require_account(db,revision)
+                        account.sync_state={**account.sync_state,'popular_search':{'supported':False}}
                 if isinstance(response, PixivError):
                     raise response
                 group = query["group"]
                 budget = 30 if mode == 'stock' else (20 if group is None else max(3, int(70 * profile["quotas"][group])))
                 save_artworks(
-                    revision, response.get("illusts", [])[:budget], strategies.source_key('search', mode, actor_id), actor_id, source_batch=source_batch
+                    revision, response.get("illusts", [])[:budget], strategies.source_key('ranking' if method=='illust_ranking' else 'search', mode, actor_id),
+                    actor_id, source_batch=source_batch, ranks=method=='illust_ranking'
                 )
                 local_count += len(response.get("illusts", [])[:budget])
                 pending_queries.remove(query)
@@ -436,7 +509,7 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
                                              and query.get('source') in ('group_popular', 'group_mapping', 'group_name'))
                             new_supply = (strategies.stock_new_character_supply(
                                 candidates, profile, recall_index,
-                                min_quality=strategies.STOCK_POPULARITY_FLOOR)
+                                min_quality=strategies.recall_quality_floor(profile))
                                 if sparse_anchor else None)
                         group_gap, role_gap = strategies.stock_query_gap(query, profile, groups, roles)
                         gap = role_gap if query.get('character') is not None else group_gap
@@ -459,7 +532,7 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
             try:
                 response = provider.call("illust_related", illust_id=pid)
                 save_artworks(
-                    revision, response.get("illusts", [])[:10], strategies.source_key('related', mode, actor_id), actor_id, source_batch=source_batch
+                    revision, response.get("illusts", [])[:10], strategies.source_key('related', mode, actor_id), actor_id, source_batch=source_batch, ranks=True
                 )
                 local_count += len(response.get("illusts", [])[:10])
                 pending_seeds.remove(pid)
@@ -482,12 +555,14 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
                 **account.sync_state,
                 stream_name: {"cursor": cursor, "exhausted": exhausted, "query_round": query_round,
                     "policy_version": strategies.policy_version(mode),
+                    "input_revision":revision_key,
                     "source_batch": source_batch, "native_offset": native_offset + platform_count,
                     "started_at": stream.get('started_at') if continuation and stream.get('started_at') else datetime.utcnow().isoformat(),
                     "deferred_queries": pending_queries if progressive else [],
+                    "source_requests":request_counts,
                     "deferred_seeds": pending_seeds if progressive else []},
             }
-        if replenish_batch is not None and pending_queries:
+        if replenish_batch is not None and (pending_queries or pending_seeds):
             # Warm supply without creating/pruning immutable reading batches
             # for every small background wave. Publish once when warming ends.
             return {'count':local_count, 'warnings':sorted(set(warnings)), 'more':True,
@@ -519,6 +594,6 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
         "count": len(items),
         "warnings": sorted(set(warnings)),
         "more": (cached_only and bool(items) or not exhausted or bool(pending_queries or pending_seeds)) if progressive else (not exhausted if platform_count else bool(warnings)),
-        "replenish": mode == 'stock' and progressive and bool(pending_queries),
+        "replenish": mode == 'stock' and progressive and bool(pending_queries or pending_seeds),
         "source_batch": source_batch,
     }

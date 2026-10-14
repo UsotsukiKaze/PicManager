@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Text, Table, ForeignKey, DateTime, Date, JSON, Float, UniqueConstraint, Index, event, select, delete
+from sqlalchemy import Column, String, Integer, Text, Table, ForeignKey, DateTime, Date, JSON, Float, Boolean, UniqueConstraint, Index, event, select, delete
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, Session
 from datetime import datetime
@@ -707,6 +707,62 @@ class PixivFeedback(Base):
     pid = Column(String(30), nullable=False)
     value = Column(String(20), nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class PixivBookmarkState(Base):
+    __tablename__ = "pixiv_bookmark_states"
+    __table_args__ = (UniqueConstraint("account_revision", "pid"),)
+    id = Column(Integer, primary_key=True)
+    account_revision = Column(String(32), nullable=False, index=True)
+    pid = Column(String(30), nullable=False)
+    desired = Column(Boolean, nullable=True)
+    observed = Column(Boolean, nullable=True)
+    common = Column(Boolean, nullable=True)
+    source = Column(String(30), nullable=False, default="legacy_unknown")
+    visibility = Column(String(10), nullable=False, default="private")
+    version = Column(Integer, nullable=False, default=0)
+    synced_version = Column(Integer, nullable=False, default=0)
+    missing_scans = Column(Integer, nullable=False, default=0)
+    scan_marker = Column(String(32), nullable=True)
+    action_at = Column(DateTime, nullable=True)
+    checked_at = Column(DateTime, nullable=True)
+    first_seen_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class PixivBookmarkOutbox(Base):
+    __tablename__ = "pixiv_bookmark_outbox"
+    __table_args__ = (UniqueConstraint("state_id", "version"),
+                     Index("ix_bookmark_outbox_claim", "status", "available_at"))
+    id = Column(Integer, primary_key=True)
+    state_id = Column(Integer, ForeignKey("pixiv_bookmark_states.id", ondelete="CASCADE"), nullable=False)
+    version = Column(Integer, nullable=False)
+    status = Column(String(20), nullable=False, default="queued")
+    attempts = Column(Integer, nullable=False, default=0)
+    available_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    lease_until = Column(DateTime, nullable=True)
+    error = Column(String(60), nullable=True)
+
+
+class PixivArtworkMetric(Base):
+    __tablename__ = "pixiv_artwork_metrics"
+    __table_args__ = (Index("ix_pixiv_metric_history", "pid", "sampled_at"),)
+    id = Column(Integer, primary_key=True)
+    pid = Column(String(30), nullable=False)
+    sampled_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    bookmarks = Column(Integer, nullable=True)
+    views = Column(Integer, nullable=True)
+
+
+class PixivRecommendationExposure(Base):
+    __tablename__ = "pixiv_recommendation_exposures"
+    __table_args__ = (UniqueConstraint("account_revision", "actor_id", "batch_id", "pid"),)
+    id = Column(Integer, primary_key=True)
+    account_revision = Column(String(32), nullable=False)
+    actor_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    batch_id = Column(String(32), nullable=False)
+    pid = Column(String(30), nullable=False)
+    metadata_json = Column(JSON, nullable=False, default=dict)
+    seen_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class PixivRecommendationBatch(Base):

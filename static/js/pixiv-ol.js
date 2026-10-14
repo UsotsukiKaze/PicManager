@@ -92,6 +92,18 @@
         bind(node) {
             if (node.dataset.pixivBound) return;
             node.dataset.pixivBound='true';
+            if(node.id==='pixiv-ol-root'&&!this.exposureMutation){
+                this.exposureObserver=new IntersectionObserver(entries=>{
+                    for(const entry of entries){
+                        if(!entry.isIntersecting||entry.intersectionRatio<.5||ui.currentPage!=='pixiv-ol'||this.view!=='recommendations'||!this.batch||entry.target.dataset.exposureSent===this.batch)continue;entry.target.dataset.exposureSent=this.batch;
+                        const pid=entry.target.querySelector('[data-pid]')?.dataset.pid,batch=this.batch;
+                        this.exposureObserver.unobserve(entry.target);
+                        if(pid)request('/exposures',{method:'POST',body:JSON.stringify({batch_id:batch,pids:[pid]})}).catch(()=>{});
+                    }
+                },{threshold:.5});
+                this.exposureMutation=new MutationObserver(()=>node.querySelectorAll('.px-card').forEach(card=>this.exposureObserver.observe(card)));
+                this.exposureMutation.observe(node,{childList:true,subtree:true});
+            }
             node.addEventListener('load',event=>{const image=event.target;if(image.matches?.('.px-image-button img'))this.queueSimilarity(image.closest('[data-pid]').dataset.pid);},true);
             node.addEventListener('click', event => this.click(event).catch(error => ui.showToast(error.message,'error')));
             node.addEventListener('change', event => {
@@ -140,16 +152,17 @@
             if (!window.auth.isAdmin()) return;
             this.root=document.getElementById('pixiv-ol-root'); this.bind(this.root);
             await Promise.all([this.loadAccount(),this.loadCart({refreshTags:this.view==='cart'})]);
-            await this.render(); this.watch();
+            await this.render(); this.watch();this.refreshBookmarkStates().catch(()=>{});
             this.loadImportJobs().then(()=>this.updateImportTools()).catch(()=>{});
         }
         async initSettings() {
             if (!window.auth.isAdmin()) return;
             this.settingsRoot=document.getElementById('pixiv-settings-root'); this.bind(this.settingsRoot);
             await this.loadAccount(); await this.settings();
+            this.watchBookmarkSettings();
             if(window.auth.isRoot()&&!this.loginDialog?.isConnected) {
                 const pending=await request('/account/login/pending');
-                if(pending.session&&ui.currentPage==='settings') {
+                if(pending?.session&&ui.currentPage==='settings') {
                     if(pending.session.automatic) this.automaticLogin(pending.session);
                     else this.manualLogin(pending.session);
                 }
@@ -162,7 +175,7 @@
             const count=this.cartCount();
             return `<header class="px-header"><div class="px-heading"><img src="/static/icon/pixiv-ol.svg" alt="" class="px-brand"><div><h2>Pixiv<span>-ol</span></h2></div></div>
                 <button class="px-button px-cart-button ${this.view==='cart'?'is-active':''}" data-view="cart">${icon('bag')}优选夹<span class="px-count">${count}</span></button></header>
-                <div class="px-navigation"><div class="px-tabs" role="tablist" aria-label="Pixiv 内容"><button role="tab" aria-selected="${this.view==='recommendations'}" data-view="recommendations">${icon('spark')}为你推荐</button><button role="tab" aria-selected="${this.view==='feed'}" data-view="feed">关注更新</button></div><button class="px-text-button" data-action="settings">${icon('settings')}设置</button></div>`;
+                <div class="px-navigation"><div class="px-tabs" role="tablist" aria-label="Pixiv 内容"><button role="tab" aria-selected="${this.view==='recommendations'||this.view==='bookmarks'}" data-view="recommendations">${icon('spark')}为你推荐</button><button role="tab" aria-selected="${this.view==='feed'}" data-view="feed">关注更新</button></div><button class="px-text-button" data-action="settings">${icon('settings')}设置</button></div>`;
         }
         async render() {
             const generation=++this.generation;
@@ -188,7 +201,7 @@
                 this.positionTools();this.animateMode();this.observeFlow(flow);this.root.querySelectorAll('.px-image-button img').forEach(image=>{if(image.complete&&image.naturalWidth)this.queueSimilarity(image.closest('[data-pid]').dataset.pid);});return;
             }
             this.items=[];
-            content.innerHTML=`<div class="px-toolbar"><a class="px-account-profile" href="https://www.pixiv.net/users/${esc(this.account.user_id||'')}" target="_blank" rel="noopener noreferrer"><span class="px-artist-avatar"><span aria-hidden="true">${esc((this.account.name||'P').slice(0,1))}</span><img alt="" decoding="async"></span><span>${esc(this.account.name||'Pixiv')}</span></a><div class="px-toolbar-actions">${this.view==='feed'?'':`<div class="px-mode-switch" role="group" aria-label="推荐方式" style="--mode-index:${['personal','stock','discovery'].indexOf(this.mode)}"><span class="px-mode-indicator" aria-hidden="true"></span>${[['personal','猜你喜欢'],['stock','进货模式'],['discovery','Pixiv 发现']].map(([value,label])=>`<button type="button" data-mode="${value}" aria-pressed="${this.mode===value}">${label}</button>`).join('')}</div><select id="pixiv-mode" class="px-mode-select" aria-label="推荐方式"><option value="personal">猜你喜欢</option><option value="stock">进货模式</option><option value="discovery">Pixiv 发现</option></select>`}</div></div><div class="px-showcase"><div class="px-gallery-flow"><div class="px-gallery"></div><div class="px-load-sentinel" role="status">正在加载画作…</div></div><aside class="px-floating-tools" aria-label="展柜操作"><div class="px-floating-actions"><button class="px-icon-button" data-action="lookup" aria-label="按 PID 查找" title="按 PID 查找">${icon('search')}</button><button class="px-icon-button" data-action="refresh" aria-label="${this.view==='feed'?'更新动态':'换一批'}" title="${this.view==='feed'?'更新动态':'换一批'}">${icon('refresh')}</button><button class="px-icon-button" data-action="top" aria-label="回到顶部" title="回到顶部">${icon('top')}</button></div><button class="px-icon-button px-floating-cart" data-view="cart" aria-label="打开优选夹" title="优选夹">${icon('bag')}<span class="px-cart-count" aria-hidden="true" ${this.cartCount()?'':'hidden'}>${this.cartCount()}</span></button>${this.importButton()}</aside></div>`;
+            content.innerHTML=`<div class="px-toolbar"><a class="px-account-profile" href="https://www.pixiv.net/users/${esc(this.account.user_id||'')}" target="_blank" rel="noopener noreferrer"><span class="px-artist-avatar"><span aria-hidden="true">${esc((this.account.name||'P').slice(0,1))}</span><img alt="" decoding="async"></span><span>${esc(this.account.name||'Pixiv')}</span></a><div class="px-toolbar-actions">${this.view==='recommendations'?`<div class="px-mode-switch" role="group" aria-label="推荐方式" style="--mode-index:${['personal','stock','discovery'].indexOf(this.mode)}"><span class="px-mode-indicator" aria-hidden="true"></span>${[['personal','猜你喜欢'],['stock','进货模式'],['discovery','Pixiv 发现']].map(([value,label])=>`<button type="button" data-mode="${value}" aria-pressed="${this.mode===value}">${label}</button>`).join('')}</div><select id="pixiv-mode" class="px-mode-select" aria-label="推荐方式"><option value="personal">猜你喜欢</option><option value="stock">进货模式</option><option value="discovery">Pixiv 发现</option></select>`:''}${this.view!=='feed'?`<button class="px-text-button" data-view="${this.view==='bookmarks'?'recommendations':'bookmarks'}" aria-pressed="${this.view==='bookmarks'}">${icon('heart')}${this.view==='bookmarks'?'返回推荐':'收藏'}</button>`:''}</div></div><div class="px-showcase"><div class="px-gallery-flow"><div class="px-gallery"></div><div class="px-load-sentinel" role="status">正在加载画作…</div></div><aside class="px-floating-tools" aria-label="展柜操作"><div class="px-floating-actions"><button class="px-icon-button" data-action="lookup" aria-label="按 PID 查找" title="按 PID 查找">${icon('search')}</button><button class="px-icon-button" data-action="refresh" aria-label="${this.view==='feed'?'更新动态':'换一批'}" title="${this.view==='feed'?'更新动态':'换一批'}">${icon('refresh')}</button><button class="px-icon-button" data-action="top" aria-label="回到顶部" title="回到顶部">${icon('top')}</button></div><button class="px-icon-button px-floating-cart" data-view="cart" aria-label="打开优选夹" title="优选夹">${icon('bag')}<span class="px-cart-count" aria-hidden="true" ${this.cartCount()?'':'hidden'}>${this.cartCount()}</span></button>${this.importButton()}</aside></div>`;
             this.positionTools();this.animateMode();this.updateImportTools();
             const avatar=content.querySelector('.px-account-profile img');
             if(this.account.avatar_url)this.media.load(this.account.avatar_url,'account-avatar').then(url=>{if(avatar.isConnected)avatar.src=url;}).catch(()=>avatar.remove());else avatar.remove();
@@ -315,15 +328,15 @@
             if(!flow.more){await this.continueReading(flow);return;}
             flow.busy=true;const sentinel=this.root.querySelector('.px-load-sentinel');sentinel.textContent='正在加载画作…';
             const params=new URLSearchParams({limit:String(galleryPageSize),offset:String(flow.cursor?0:flow.offset)});
-            if(flow.view==='feed'){if(flow.cursor)params.set('cursor',flow.cursor);}else{params.set('mode',flow.mode);if(flow.batch)params.set('batch_id',flow.batch);}
+            if(flow.view==='feed'||flow.view==='bookmarks'){if(flow.cursor)params.set('cursor',flow.cursor);}else{params.set('mode',flow.mode);if(flow.batch)params.set('batch_id',flow.batch);}
             try {
-                const data=await request(`/${flow.view==='feed'?'feed':'recommendations'}?${params}`,{signal:this.abort.signal});
+                const data=await request(`/${flow.view==='feed'?'feed':flow.view==='bookmarks'?'bookmarks/items':'recommendations'}?${params}`,{signal:this.abort.signal});
                 if(this.flow!==flow)return;
                 flow.batch=data.batch_id||flow.batch;this.batch=flow.batch;
                 flow.offset=flow.view==='recommendations'&&Number.isInteger(data.next_offset)?data.next_offset:flow.offset+data.items.length;flow.cursor=data.next_cursor||data.tail_cursor||flow.cursor;
                 const fresh=data.items.filter(item=>{if(flow.seen.has(item.pid))return false;flow.seen.add(item.pid);return flow.view!=='recommendations'||!this.recommendationExcluded(item);});
                 const firstScreen=!this.items.length;this.items.push(...fresh);this.root.querySelector('.px-gallery').insertAdjacentHTML('beforeend',fresh.map((item,index)=>this.card(item,firstScreen&&index<5)).join(''));
-                flow.more=flow.view==='recommendations'&&'has_more' in data?data.has_more:flow.view==='feed'&&'next_cursor' in data?!!data.next_cursor:flow.offset<data.total&&data.items.length>0;
+                flow.more=flow.view==='recommendations'&&'has_more' in data?data.has_more:(flow.view==='feed'||flow.view==='bookmarks')&&'next_cursor' in data?!!data.next_cursor:flow.offset<data.total&&data.items.length>0;
                 if(fresh.length)flow.emptyRounds=0;
                 sentinel.textContent='继续下滑加载';
             } catch(error) {
@@ -335,6 +348,7 @@
             }
         }
         async continueReading(flow) {
+            if(flow?.view==='bookmarks'){flow.upstreamMore=false;const sentinel=this.root.querySelector('.px-load-sentinel');if(sentinel)sentinel.textContent='收藏已加载完毕';return;}
             const sentinel=this.root.querySelector('.px-load-sentinel');
             if(!flow.upstreamMore||flow.emptyRounds>=3){sentinel.textContent='暂时没有更多画作，稍后刷新试试';return;}
             flow.busy=true;sentinel.textContent='正在获取更多画作…';
@@ -463,7 +477,7 @@
                 else if(action==='reload') await this.init();
                 else if(action==='refresh') {
                     if(this.pendingRefresh||this.refreshStarting)return;
-                    const view=this.view,mode=this.mode;this.refreshStarting=true;this.updateRefreshButton();
+                    const view=this.view,mode=this.mode;if(view==='bookmarks'){if(window.auth.isRoot())await request('/bookmarks/sync',{method:'POST'});this.readingStates.delete(this.readingKey());await this.render();return;}this.refreshStarting=true;this.updateRefreshButton();
                     try {
                         const job=await request('/sync',{method:'POST',body:JSON.stringify({kind:view==='feed'?'sync':'recommendations',mode,first_page:true})});
                         this.pendingRefresh={id:job.id,view,mode};this.watch();
@@ -494,6 +508,7 @@
                 else if(action==='resolve') {if(button.dataset.choice?.startsWith('merge')&&!confirm('确认合并并删除另一份重复图片？\n只保留选定的文件，此操作无法恢复。'))return;await request(`/imports/${Number(button.dataset.id)}/resolve`,{method:'POST',body:JSON.stringify({action:button.dataset.choice,image_id:button.dataset.image || null})});this.watch();}
                 else if(action==='login') await this.login();
                 else if(action==='disconnect') {if(!confirm(`确认解除 Pixiv 账号“${this.account.name||'当前账号'}”的绑定？\n登录凭据、优选夹缓存及 Pixiv 喜欢记录将被清理，已入库图片会保留。`))return;await request('/account',{method:'DELETE'});await this.loadAccount();await this.loadCart();await this.settings();}
+                else if(action==='sync-bookmarks') {await request('/bookmarks/sync?full=true',{method:'POST'});ui.showToast('收藏对账已加入队列','success');await this.settings();}
                 else if(action==='save-settings') await this.saveSettings();
 
             } finally {button.disabled=button.classList.contains('px-added');this.updateRefreshButton();}
@@ -694,7 +709,7 @@
         }
         async toggleLike(pid, button) {
             const liked=button.getAttribute('aria-pressed')==='true';
-            if(liked&&!confirm('确认取消这幅作品的喜欢状态？\n作品仍保留在图库或优选夹中。'))return;
+            if(liked&&!confirm('确认取消这幅作品的喜欢状态？\n启用双向同步后也会取消 Pixiv 收藏，图片仍保留在图库或优选夹中。'))return;
             button.disabled=true;
             try {
                 await request('/feedback',{method:'POST',body:JSON.stringify({pid,value:liked?'clear':'like'})});
@@ -935,20 +950,27 @@
         async settings() {
             await this.entities(true);this.preferences=await request('/preferences');
             const root=window.auth.isRoot(),pref=this.preferences,content=this.settingsRoot;
+            let bookmarkStatus=null,bookmarkStatusUnavailable=false;
+            if(root&&this.account.connected){
+                try{bookmarkStatus=await request('/bookmarks/status');}
+                catch(_){bookmarkStatusUnavailable=true;}
+            }
             const rows=this.groups.map(group=>{const p=(pref.groups||{})[group.id]||{},enabled=p.enabled??((pref.inventory||{})[group.id]>0),characters=this.characters.filter(c=>c.group_id===group.id);return `<div class="px-preference-group" data-group="${group.id}"><label><input type="checkbox" ${enabled?'checked':''}><span>${esc(group.name)}</span><small>${((pref.quotas||{})[group.id]*100||0).toFixed(1)}%</small></label><p>${pref.inventory?.[group.id]||0} 张库存</p>${characters.length?`<details class="px-preference-character-fold"><summary>${characters.length} 个角色<span>展开全部</span></summary><div class="px-preference-characters">${characters.map(c=>`<span class="pm-tag pm-tag-character">${esc(c.name)}</span>`).join('')}</div></details>`:'<p class="px-group-no-characters">暂无角色</p>'}</div>`;}).join('');
             content.innerHTML=`<div class="px-preference-layout"><section class="px-preference-panel px-account-panel"><span class="px-eyebrow">PIXIV ACCOUNT</span><a class="px-settings-identity" ${this.account.connected?`href="https://www.pixiv.net/users/${esc(this.account.user_id)}" target="_blank" rel="noopener noreferrer"`:''}><span class="px-settings-avatar"><img src="/static/icon/Pic.png" alt="" data-account-avatar></span><div><h3>${this.account.connected?esc(this.account.name):'连接你的 Pixiv'}</h3>${this.account.connected?`<span class="px-settings-user-id">Pixiv ID · ${esc(this.account.user_id)}</span>`:''}</div></a><p id="pixiv-account-status" class="px-account-status ${this.account.status==='connected'?'is-connected':''}">${this.account.connected?(this.account.status==='connected'?'已连接':'需要重新登录'):'尚未连接'}</p><p class="px-help">${this.account.connected?'推荐与关注更新会使用此账号，偏好与标签关联由你的图库共同决定。':'使用 Pixiv 本站登录，开始发现画作。'}</p><div class="px-account-actions">${root?`<button class="px-button px-primary" data-action="login">${this.account.connected?'重新登录':'登录 Pixiv'}</button>${this.account.connected?'<button class="px-text-button px-remove" data-action="disconnect">解除绑定</button>':''}`:'<span class="px-help">由 Root 连接账号</span>'}</div></section>
-                <section class="px-preference-panel px-content-panel"><h3>推荐与内容偏好</h3><fieldset ${root&&this.account.connected?'':'disabled'}><div class="px-preferences"><label>AI 作品<select id="pixiv-ai"><option value="exclude">排除已标记 AI</option><option value="include">包含 AI 作品</option><option value="only">只看 AI 作品</option></select></label><label><input id="pixiv-r18" type="checkbox" ${pref.include_r18?'checked':''}>包含 R18</label><label><input id="pixiv-r18g" type="checkbox" ${pref.include_r18g?'checked':''}>包含 R18G</label><label><input id="pixiv-private" type="checkbox" ${pref.private_following?'checked':''}>同步私密关注</label></div><button class="px-button px-primary" data-action="save-settings">保存偏好与分组选择</button></fieldset></section></div><details class="px-preference-panel px-group-panel"><summary class="px-group-panel-toggle"><h3>参与推荐的分组</h3><span class="px-group-fold-hint" aria-hidden="true"></span></summary><div class="px-group-panel-body"><div class="px-group-panel-heading"><p class="px-help">角色默认收起，展开可查看该分组的全部角色。</p><label>筛选分组或角色<input id="pixiv-group-search" type="search" placeholder="输入名称"></label></div><fieldset ${root&&this.account.connected?'':'disabled'}><div class="px-preference-groups">${rows||'<p class="px-help">请先在分组管理页创建分组。</p>'}</div></fieldset></div></details>`;
+                <section class="px-preference-panel px-content-panel"><h3>推荐与内容偏好</h3><fieldset ${root&&this.account.connected?'':'disabled'}><div class="px-preferences"><label>AI 作品<select id="pixiv-ai"><option value="exclude">排除已标记 AI</option><option value="include">包含 AI 作品</option><option value="only">只看 AI 作品</option></select></label><label><input id="pixiv-r18" type="checkbox" ${pref.include_r18?'checked':''}>包含 R18</label><label><input id="pixiv-r18g" type="checkbox" ${pref.include_r18g?'checked':''}>包含 R18G</label><label><input id="pixiv-private" type="checkbox" ${pref.private_following?'checked':''}>同步私密关注</label></div><details class="px-bookmark-settings" ${content.querySelector('.px-bookmark-settings')?.open?'open':''}><summary>收藏双向同步</summary><label><input id="pixiv-bookmark-sync" type="checkbox" ${pref.bookmark_sync?'checked':''}>POL 小心心与 Pixiv 收藏双向同步</label><label>从 Pixiv 同步的收藏范围<select id="pixiv-bookmark-scope"><option value="both">公开与非公开（都同步）</option><option value="public">仅公开收藏</option><option value="private">仅非公开收藏</option></select></label><label>POL 新增收藏在 Pixiv 中<select id="pixiv-bookmark-visibility"><option value="private">非公开</option><option value="public">公开</option></select></label><p class="px-help">所选范围的 Pixiv 收藏同步为本地喜欢；更改范围会重新核对，保留范围外已同步的喜欢。新增收藏的公开方式单独设置，现有收藏维持原样。</p><p class="px-help" data-bookmark-status>${bookmarkStatusUnavailable?'收藏同步状态暂时不可用，正在自动重试；其他设置仍可使用。':bookmarkStatus?this.bookmarkStatusText(bookmarkStatus):''}</p><button class="px-button" data-action="sync-bookmarks" ${pref.bookmark_sync?'':'disabled'}>立即对账与重试</button></details><button class="px-button px-primary" data-action="save-settings">保存偏好与分组选择</button></fieldset></section></div><details class="px-preference-panel px-group-panel"><summary class="px-group-panel-toggle"><h3>参与推荐的分组</h3><span class="px-group-fold-hint" aria-hidden="true"></span></summary><div class="px-group-panel-body"><div class="px-group-panel-heading"><p class="px-help">角色默认收起，展开可查看该分组的全部角色。</p><label>筛选分组或角色<input id="pixiv-group-search" type="search" placeholder="输入名称"></label></div><fieldset ${root&&this.account.connected?'':'disabled'}><div class="px-preference-groups">${rows||'<p class="px-help">请先在分组管理页创建分组。</p>'}</div></fieldset></div></details>`;
             const avatar=content.querySelector('[data-account-avatar]');
             if(this.account.avatar_url)this.media.load(this.account.avatar_url,'account-avatar').then(url=>{if(avatar.isConnected)avatar.src=url;}).catch(()=>{});
-            document.getElementById('pixiv-ai').value=pref.ai||'exclude';
+            document.getElementById('pixiv-ai').value=pref.ai||'exclude';document.getElementById('pixiv-bookmark-visibility').value=pref.bookmark_visibility||'private';document.getElementById('pixiv-bookmark-scope').value=pref.bookmark_sync_scope||'both';
             document.getElementById('pixiv-group-search').oninput=event=>{
                 const query=event.target.value.trim().toLocaleLowerCase();
                 this.settingsRoot.querySelectorAll('[data-group]').forEach(row=>{row.hidden=!row.textContent.toLocaleLowerCase().includes(query);const fold=row.querySelector('details');if(fold){if(query){if(!('beforeSearch' in fold.dataset))fold.dataset.beforeSearch=String(fold.open);fold.open=!row.hidden;}else if('beforeSearch' in fold.dataset){fold.open=fold.dataset.beforeSearch==='true';delete fold.dataset.beforeSearch;}}});
             };
         }
         async saveSettings() {
+            const bookmarkSync=document.getElementById('pixiv-bookmark-sync').checked;
+            if(bookmarkSync&&!this.preferences.bookmark_sync&&!confirm('启用后会将本地喜欢与 Pixiv 收藏合并，后续取消喜欢也会同步取消收藏。确认启用？'))return;
             const groups={};this.settingsRoot.querySelectorAll('[data-group]').forEach(row=>{groups[row.dataset.group]={enabled:row.querySelector('[type="checkbox"]').checked};});
-            await request('/preferences',{method:'PUT',body:JSON.stringify({...this.preferences,groups,ai:document.getElementById('pixiv-ai').value,include_r18:document.getElementById('pixiv-r18').checked,include_r18g:document.getElementById('pixiv-r18g').checked,private_following:document.getElementById('pixiv-private').checked})});this.media.clear();this.readingStates.clear();ui.showToast('推荐偏好已保存','success');await this.settings();
+            await request('/preferences',{method:'PUT',body:JSON.stringify({...this.preferences,groups,ai:document.getElementById('pixiv-ai').value,include_r18:document.getElementById('pixiv-r18').checked,include_r18g:document.getElementById('pixiv-r18g').checked,private_following:document.getElementById('pixiv-private').checked,bookmark_sync:bookmarkSync,bookmark_sync_scope:document.getElementById('pixiv-bookmark-scope').value,bookmark_visibility:document.getElementById('pixiv-bookmark-visibility').value})});this.media.clear();this.readingStates.clear();ui.showToast('推荐偏好已保存','success');await this.settings();
         }
         async editMappings(kind=null,id=null,name='',tags=[],onSaved=null) {
             await this.entities(true);
@@ -1086,12 +1108,40 @@
                 }
             },1500);
         }
+        bookmarkStatusText(status) {
+            const side={public:'公开收藏',private:'非公开收藏',confirm:'取消核对'}[status.scan_side]||'收藏';
+            return `本地喜欢 ${status.local_count||0} · 已同步公开 ${status.public_count||0} / 非公开 ${status.private_count||0} · 待同步 ${status.pending||0} · 失败 ${status.failed||0}${status.scanning?` · 正在读取${side}（已读取 ${status.scanned_count||0}）`:''}${status.error?' · 本次对账未完成，可重试':''}${status.last_success?' · 上次同步 '+new Date(status.last_success+'Z').toLocaleTimeString():''}`;
+        }
+        watchBookmarkSettings() {
+            clearTimeout(this.bookmarkSettingsTimer);
+            if(!window.auth.isRoot()||!this.account?.connected)return;
+            this.bookmarkSettingsTimer=setTimeout(async()=>{
+                if(ui.currentPage!=='settings')return;
+                try{const status=await request('/bookmarks/status');const label=this.settingsRoot?.querySelector('[data-bookmark-status]');
+                    if(label)label.textContent=this.bookmarkStatusText(status);
+                }catch(_){const label=this.settingsRoot?.querySelector('[data-bookmark-status]');if(label)label.textContent='收藏同步状态暂时不可用，正在自动重试；其他设置仍可使用。';}finally{this.watchBookmarkSettings();}
+            },10000);
+        }
+        async refreshBookmarkStates() {
+            if(!this.account?.connected)return;
+            const now=Date.now();if(now-(this.lastBookmarkPoll||0)<10000)return;this.lastBookmarkPoll=now;
+            const pids=[...new Set([...(this.items||[]),...this.cartItems.map(row=>row.artwork)].map(item=>item.pid))];
+            for(let start=0;start<pids.length;start+=100){
+                const params=new URLSearchParams();pids.slice(start,start+100).forEach(pid=>params.append('pid',pid));
+                const result=await request(`/bookmarks/states?${params}`);
+                for(const item of result.items||[]){this.setLiked(item.pid,item.liked);this.root?.querySelectorAll(`[data-action="like"][data-pid="${item.pid}"]`).forEach(button=>{button.dataset.sync=item.sync;button.title=item.sync==='pending'?'收藏待同步':item.sync==='failed'?'收藏同步失败，请在设置重试':item.sync==='synced'?'已与 Pixiv 同步':'';});}
+            }
+            if(window.auth.isRoot()){
+                const status=await request('/bookmarks/status');
+                if(status.enabled&&(!status.last_success||now-Date.parse(status.last_success+'Z')>300000)&&!status.scanning)await request('/bookmarks/sync',{method:'POST'});
+            }
+        }
         watch() {
             clearTimeout(this.timer);
             this.timer=setTimeout(async()=>{
                 if(ui.currentPage!=='pixiv-ol') return;
                 try {
-                    const jobs=await this.loadImportJobs();const before=JSON.stringify(this.cartItems.map(row=>[row.id,row.status,row.cached_pages,row.job?.status]));
+                    await this.refreshBookmarkStates();const jobs=await this.loadImportJobs();const before=JSON.stringify(this.cartItems.map(row=>[row.id,row.status,row.cached_pages,row.job?.status]));
                     const flows=new Set([this.flow,...Array.from(this.readingStates.values(),state=>state.flow)]);
                     for(const flow of flows) {
                         if(!flow?.continueJob)continue;

@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, SecretStr, field_validator
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from ... import models
 from ...config import settings
@@ -121,6 +121,9 @@ class PreferencesBody(BaseModel):
     include_r18: bool = False
     include_r18g: bool = False
     private_following: bool = False
+    bookmark_sync: bool = False
+    bookmark_sync_scope: Literal['both', 'public', 'private'] = 'both'
+    bookmark_visibility: Literal['public', 'private'] = 'private'
     ai: Literal["exclude", "include", "only"] = "exclude"
     blocked_authors: list[str] = Field(default_factory=list, max_length=200)
     blocked_tags: list[str] = Field(default_factory=list, max_length=200)
@@ -619,7 +622,8 @@ def disconnect_account():
         db.query(models.PixivJob).filter(models.PixivJob.status.in_(ACTIVE)).update(
             {"status": "cancelled", "dedupe_key": None}
         )
-        for cls in (models.PixivArtwork, models.PixivFollow, models.PixivRecommendationBatch, models.PixivFeedback):
+        for cls in (models.PixivBookmarkOutbox, models.PixivBookmarkState, models.PixivRecommendationExposure,
+                    models.PixivArtwork, models.PixivFollow, models.PixivRecommendationBatch, models.PixivFeedback):
             db.query(cls).delete()
         db.query(models.PixivAccount).delete()
     from ...integrations.pixiv_ol.cart import cleanup
@@ -667,7 +671,7 @@ def jobs():
             job_json(x)
             for x in db.query(models.PixivJob)
             .filter_by(account_revision=account.revision)
-            .filter(models.PixivJob.kind.notin_(['stock_refill', 'home_covers']))
+            .filter(models.PixivJob.kind.notin_(['stock_refill', 'home_covers', 'bookmarks']))
             .order_by(models.PixivJob.id.desc())
             .limit(50)
             .all()
@@ -1034,6 +1038,10 @@ def recommendations(
         if mode in ('personal', 'stock') and not batch_id:
             from ...integrations.pixiv_ol.strategies import policy_version
             query = query.filter(models.PixivRecommendationBatch.profile['policy_version'].as_string() == policy_version(mode))
+            from ...integrations.pixiv_ol.recommendations import input_revision
+            signature=input_revision(TagIndex(db),account.preferences)
+            query=query.filter(or_(models.PixivRecommendationBatch.profile['input_revision'].as_string().is_(None),
+                models.PixivRecommendationBatch.profile['input_revision'].as_string()==signature))
         batch = (
             query.filter_by(id=batch_id).first()
             if batch_id
@@ -1242,16 +1250,32 @@ def preferences():
 
 @router.put("/preferences", dependencies=[Depends(write_guard), Depends(require_root_user_id)])
 def set_preferences(body: PreferencesBody):
-    with get_db_context() as db:
+    with ACCOUNT_LOCK, get_db_context() as db:
         account = service.require_account(db)
         valid = {str(x[0]) for x in db.query(models.Group.id).all()}
         if not set(body.groups).issubset(valid):
             raise HTTPException(422, "分组不存在")
+        from ...integrations.pixiv_ol import bookmarks
+        previously_enabled = bookmarks.enabled(account)
+        previous_scope = bookmarks.sync_scope(account)
         account.preferences = body.model_dump()
+        if body.bookmark_sync and (not previously_enabled or previous_scope != body.bookmark_sync_scope):
+            current = account.sync_state.get('bookmarks', {})
+            account.sync_state = {**account.sync_state, 'bookmarks':{**current,'scan':None,'full_requested':True}}
+            for row in db.query(models.PixivBookmarkState).filter_by(account_revision=account.revision).all():
+                if row.desired is not None and row.version > row.synced_version:
+                    bookmarks.queue(db,row)
+            enqueue(db,account.owner_id,'bookmarks',{'full':True})
     return {"saved": True}
 
 
 def mark_liked(db, revision, actor_id, pid):
+    from ...integrations.pixiv_ol import bookmarks
+    account = service.require_account(db, revision)
+    bookmarks.intent(db, account, actor_id, pid, True, 'auto_cart')
+    mirror = db.query(models.PixivBookmarkState).filter_by(account_revision=revision, pid=pid).first()
+    if actor_id == account.owner_id and mirror and mirror.desired is False:
+        return
     row = db.query(models.PixivFeedback).filter_by(account_revision=revision, actor_id=actor_id, pid=pid).first()
     if not row:
         row = models.PixivFeedback(account_revision=revision, actor_id=actor_id, pid=pid)
@@ -1264,6 +1288,9 @@ def mark_liked(db, revision, actor_id, pid):
 def feedback(body: FeedbackBody, actor_id=Depends(require_admin_user_id)):
     with get_db_context() as db:
         account = service.require_account(db)
+        from ...integrations.pixiv_ol import bookmarks
+        if body.value in ('clear','like','dislike'):
+            bookmarks.intent(db, account, actor_id, body.pid, body.value == 'like')
         row = (
             db.query(models.PixivFeedback)
             .filter_by(account_revision=account.revision, actor_id=actor_id, pid=body.pid)
@@ -1278,6 +1305,103 @@ def feedback(body: FeedbackBody, actor_id=Depends(require_admin_user_id)):
                 db.add(row)
             row.value = body.value
     return {"saved": True}
+
+
+@router.get('/bookmarks/status')
+def bookmark_status(actor_id=Depends(require_root_user_id)):
+    from ...integrations.pixiv_ol import bookmarks
+    with get_db_context() as db:
+        account = db.get(models.PixivAccount, 1)
+        return bookmarks.status(db, account) if account else {'enabled':False, 'pending':0, 'failed':0}
+
+
+@router.get('/bookmarks/states')
+def bookmark_states(pid: list[str] = Query(default=[],max_length=100),actor_id=Depends(require_admin_user_id)):
+    if any(not value.isascii() or not value.isdigit() or len(value)>30 for value in pid):
+        raise HTTPException(422,'无效的 Pixiv PID')
+    with get_db_context() as db:
+        account=service.require_account(db)
+        liked={p for p, in db.query(models.PixivFeedback.pid).filter(models.PixivFeedback.account_revision==account.revision,
+            models.PixivFeedback.actor_id==actor_id,models.PixivFeedback.value=='like',models.PixivFeedback.pid.in_(pid))}
+        mirrors={r.pid:r for r in db.query(models.PixivBookmarkState).filter(
+            models.PixivBookmarkState.account_revision==account.revision,models.PixivBookmarkState.pid.in_(pid))} if actor_id==account.owner_id else {}
+        tasks={}
+        if mirrors:
+            for task in db.query(models.PixivBookmarkOutbox).filter(models.PixivBookmarkOutbox.state_id.in_([r.id for r in mirrors.values()])).order_by(models.PixivBookmarkOutbox.id):
+                tasks[task.state_id]=task
+        result=[]
+        for value in dict.fromkeys(pid):
+            row=mirrors.get(value);task=tasks.get(row.id) if row else None
+            state='local'
+            if account.preferences.get('bookmark_sync') and row:
+                state='synced' if row.desired==row.observed and row.version==row.synced_version else ('failed' if task and task.status in ('failed','paused') else 'pending')
+            result.append({'pid':value,'liked':value in liked,'sync':state})
+        return {'items':result}
+
+
+@router.get('/bookmarks/items')
+def bookmarked_items(cursor:int|None=Query(None,ge=1),limit:int=Query(20,ge=1,le=50),actor_id=Depends(require_admin_user_id)):
+    with get_db_context() as db:
+        account=service.require_account(db)
+        query=db.query(models.PixivArtwork,models.PixivFeedback.id).join(models.PixivFeedback,
+            (models.PixivFeedback.pid==models.PixivArtwork.pid)&(models.PixivFeedback.account_revision==models.PixivArtwork.account_revision)).filter(
+            models.PixivFeedback.account_revision==account.revision,models.PixivFeedback.actor_id==actor_id,models.PixivFeedback.value=='like').order_by(models.PixivFeedback.id.desc())
+        if cursor is not None:
+            query=query.filter(models.PixivFeedback.id<cursor)
+        rows=[]
+        for row,id_ in query.yield_per(100):
+            if allowed(row.metadata_json,account.preferences):
+                rows.append((row,id_))
+            if len(rows)>limit:
+                break
+        index=TagIndex(db)
+        return {'items':[public_art(db,row,index,actor_id=actor_id) for row,_ in rows[:limit]],
+            'next_cursor':rows[limit-1][1] if len(rows)>limit else None,'total':len(rows)}
+
+
+@router.post('/bookmarks/sync', dependencies=[Depends(write_guard)])
+def sync_bookmarks(full: bool = False, actor_id=Depends(require_root_user_id)):
+    from ...integrations.pixiv_ol import bookmarks
+    with get_db_context() as db:
+        account = service.require_account(db)
+        if not bookmarks.enabled(account):
+            raise HTTPException(409, '请先启用双向收藏同步')
+        if full:
+            account.sync_state={**account.sync_state,'bookmarks':{**account.sync_state.get('bookmarks',{}),'full_requested':True}}
+        ids = [row.id for row in db.query(models.PixivBookmarkState).filter_by(account_revision=account.revision)]
+        if ids:
+            db.query(models.PixivBookmarkOutbox).filter(models.PixivBookmarkOutbox.state_id.in_(ids),
+                models.PixivBookmarkOutbox.status.in_(('failed','paused'))).update({'status':'retry', 'attempts':0})
+        job = enqueue(db, actor_id, 'bookmarks', {'full':full})
+        return {'job_id':job.id}
+
+
+class ExposureBody(BaseModel):
+    batch_id: str = Field(pattern=r'^[a-f0-9]{32}$')
+    pids: list[str] = Field(max_length=50)
+
+
+@router.post('/exposures', dependencies=[Depends(write_guard)])
+def record_exposures(body: ExposureBody, actor_id=Depends(require_admin_user_id)):
+    with ACCOUNT_LOCK, get_db_context() as db:
+        account=service.require_account(db)
+        batch=db.get(models.PixivRecommendationBatch,body.batch_id)
+        if not batch or batch.account_revision!=account.revision or batch.profile.get('actor_id')!=actor_id:
+            return {'recorded':0}
+        allowed_items={item['pid']:item for item in batch.items}
+        existing={pid for pid, in db.query(models.PixivRecommendationExposure.pid).filter_by(
+            account_revision=account.revision,actor_id=actor_id,batch_id=body.batch_id)}
+        count=0
+        for pid in set(body.pids)-existing:
+            item=allowed_items.get(pid)
+            if not item:
+                continue
+            db.add(models.PixivRecommendationExposure(account_revision=account.revision,actor_id=actor_id,
+                batch_id=body.batch_id,pid=pid,metadata_json={'mode':batch.mode,'signals':item.get('ranking_signals',{}),
+                'primary_group':item.get('primary_group'),'primary_character':item.get('primary_character'),
+                'stock_pool':item.get('stock_pool')}))
+            count+=1
+        return {'recorded':count}
 
 
 @router.get("/tag-mappings")

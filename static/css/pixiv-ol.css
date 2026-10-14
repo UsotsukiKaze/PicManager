@@ -485,3 +485,10 @@ body:has(#upload-queue-dock:not([hidden])) .px-floating-tools { top:min(calc(42v
 @keyframes px-heart-confirm { 50% { transform:scale(1.18); } }
 @media(max-width:1000px) { .px-artwork-reader .px-detail-body { width:min(100%,440px); } }
 @media(max-width:600px) { .px-mode-switch { display:none; }.px-mode-select { display:block; }.px-floating-actions { padding:3px; }.px-floating-tools .px-floating-actions>.px-icon-button { width:34px; height:38px; }.px-floating-tools .px-floating-cart { width:42px; height:42px; }.px-toolbar { gap:10px; }.px-account-profile { font-size:12px; } }
+/* Bookmark controls follow the compact account preferences surface. */
+.px-bookmark-settings { margin: 16px 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
+.px-bookmark-settings summary { cursor: pointer; font-weight: 600; }
+.px-bookmark-settings[open] summary { margin-bottom: 12px; }
+.px-bookmark-settings label { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
+.px-icon-button[data-sync="pending"] { box-shadow: inset 0 -2px var(--primary-color); }
+.px-icon-button[data-sync="failed"] { box-shadow: inset 0 -2px var(--danger-color, #c46b82); }

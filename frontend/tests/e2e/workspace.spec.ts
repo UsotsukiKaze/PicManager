@@ -693,6 +693,71 @@ test('gallery resumes interrupted filter and reader motion without a jump', asyn
   expect(errors).toEqual([]);
 });
 
+test('bookmark preferences confirm union, default to private and expose retry state', async ({ page }) => {
+  const { errors } = await mockWorkspace(page);
+  let preferences: Record<string, unknown> = { groups: {}, ai: 'exclude', bookmark_sync: false };
+  let saves = 0;
+  await page.route('**/api/pixiv-ol/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/account')) await route.fulfill({ json: { connected: true, status: 'connected', user_id: '7', name: '测试画友' } });
+    else if (path.endsWith('/preferences')) {
+      if (route.request().method() === 'PUT') { preferences = route.request().postDataJSON(); saves++; }
+      await route.fulfill({ json: preferences });
+    } else if (path.endsWith('/bookmarks/status')) await route.fulfill({ json: { enabled: preferences.bookmark_sync, pending: 2, failed: 1, local_count: 8, public_count: 5, private_count: 3 } });
+    else await route.fallback();
+  });
+  await page.goto('/#/settings');
+  await page.getByText('收藏双向同步', { exact: true }).click();
+  await expect(page.locator('#pixiv-bookmark-visibility')).toHaveValue('private');
+  await expect(page.locator('#pixiv-bookmark-scope')).toHaveValue('both');
+  await expect(page.locator('[data-bookmark-status]')).toContainText('已同步公开 5 / 非公开 3');
+  await expect(page.locator('[data-bookmark-status]')).toContainText('待同步 2');
+  await page.locator('#pixiv-bookmark-sync').check();
+  page.once('dialog', dialog => dialog.dismiss());
+  await page.getByRole('button', { name: '保存偏好与分组选择' }).click();
+  expect(saves).toBe(0);
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: '保存偏好与分组选择' }).click();
+  await expect.poll(() => saves).toBe(1);
+  expect(preferences.bookmark_sync).toBe(true);
+  expect(preferences.bookmark_visibility).toBe('private');
+  expect(preferences.bookmark_sync_scope).toBe('both');
+  await expect(page.getByRole('button', { name: '保存偏好与分组选择' })).toBeEnabled();
+  await page.locator('#pixiv-bookmark-scope').selectOption('public');
+  await page.getByRole('button', { name: '保存偏好与分组选择' }).click();
+  await expect.poll(() => saves).toBe(2);
+  expect(preferences.bookmark_sync_scope).toBe('public');
+  expect(preferences.bookmark_visibility).toBe('private');
+  await expect(page.locator('#pixiv-bookmark-scope')).toHaveValue('public');
+  expect(errors).toEqual([]);
+});
+
+test('Pixiv imported bookmarks are browsable without automatically entering the collection', async ({ page }) => {
+  const { errors } = await mockWorkspace(page);
+  let cartWrites = 0;
+  const requests: string[] = [];
+  await page.route('**/api/pixiv-ol/**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/account')) await route.fulfill({ json: { connected: true, status: 'connected', user_id: '7', name: '测试画友' } });
+    else if (url.pathname.endsWith('/bookmarks/items')) {
+      requests.push(url.search);
+      await route.fulfill({ json: { items: [{ pid: '900', title: '远端收藏作品', author: '画师', author_id: '9', page_count: 1, liked: true, preview_url: '/static/icon/Pic.png', imported_pages: [] }], total: 1, next_cursor: null } });
+    } else if (url.pathname.endsWith('/cart') && route.request().method() === 'POST') { cartWrites++; await route.fulfill({ json: {} }); }
+    else await route.fallback();
+  });
+  await page.goto('/#/pixiv');
+  await page.getByRole('button', { name: '收藏', exact: true }).click();
+  await expect(page.locator('.px-gallery')).toContainText('远端收藏作品');
+  await page.locator('.px-card').hover();
+  await expect(page.getByRole('button', { name: '取消喜欢', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.px-load-sentinel')).toHaveText('收藏已加载完毕');
+  expect(requests).toHaveLength(1);
+  expect(cartWrites).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+
+
 test('gallery chips remove individual conditions and clearing preserves the selected rating', async ({ page }) => {
   const { errors } = await mockWorkspace(page);
   await page.goto('/#/gallery?age_rating=r12&group_id=1&character_id=1&feature_tag_id=1&pid=10000&artist=画师&description=测试');
@@ -769,5 +834,32 @@ test('gallery dropdown stays inside the viewport and Escape closes it before the
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   expect(await page.locator('#workspace-scroll').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
   await page.screenshot({ path: test.info().outputPath('gallery-search-mobile.png') });
+  expect(errors).toEqual([]);
+});
+
+test('Pixiv settings remain usable when bookmark status fails and recover on retry', async ({ page }) => {
+  const { errors } = await mockWorkspace(page);
+  let unavailable = true;
+  let saves = 0;
+  await page.route('**/api/pixiv-ol/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/account')) await route.fulfill({ json: { connected: true, status: 'connected', user_id: '7', name: '测试画友' } });
+    else if (path.endsWith('/bookmarks/status')) {
+      if (unavailable) await route.fulfill({ status: 500, body: 'Internal Server Error' });
+      else await route.fulfill({ json: { pending: 2, failed: 1, local_count: 8 } });
+    } else if (path.endsWith('/preferences') && route.request().method() === 'PUT') {
+      saves++;
+      await route.fulfill({ json: route.request().postDataJSON() });
+    } else await route.fallback();
+  });
+  await page.goto('/#/settings');
+  await expect(page.getByRole('heading', { name: '推荐与内容偏好' })).toBeVisible();
+  await page.getByText('收藏双向同步', { exact: true }).click();
+  await expect(page.locator('[data-bookmark-status]')).toContainText('其他设置仍可使用');
+  await expect(page.locator('#pixiv-ai')).toBeEnabled();
+  await page.getByRole('button', { name: '保存偏好与分组选择' }).click();
+  await expect.poll(() => saves).toBe(1);
+  unavailable = false;
+  await expect(page.locator('[data-bookmark-status]')).toContainText('待同步 2', { timeout: 15000 });
   expect(errors).toEqual([]);
 });

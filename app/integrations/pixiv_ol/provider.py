@@ -312,7 +312,7 @@ class Provider:
         parsed = urlparse(next_url)
         if parsed.scheme != "https" or parsed.hostname != "app-api.pixiv.net":
             raise PixivError("invalid_cursor")
-        allowed = {"offset", "max_bookmark_id_for_recommend", "min_bookmark_id_for_recent_illust", "seed_illust_ids"}
+        allowed = {"offset", "max_bookmark_id", "max_bookmark_id_for_recommend", "min_bookmark_id_for_recent_illust", "seed_illust_ids"}
         return {key: value[-1] for key, value in parse_qs(parsed.query).items() if key in allowed}
 
 

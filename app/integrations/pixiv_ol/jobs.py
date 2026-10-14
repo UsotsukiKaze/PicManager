@@ -341,7 +341,7 @@ class Worker:
                 candidate = (
                     select(models.PixivJob.id)
                     .where(models.PixivJob.status.in_(("queued", "retry")), models.PixivJob.available_at <= now)
-                    .order_by(case((models.PixivJob.kind == 'stock_refill', 1), else_=0),
+                    .order_by(case((models.PixivJob.kind.in_(('stock_refill','bookmarks')), 1), else_=0),
                               models.PixivJob.available_at, models.PixivJob.id)
                     .limit(1)
                     .scalar_subquery()
@@ -372,7 +372,10 @@ class Worker:
                         stale_refill = not service.current_stock_replenishment(account, actor_id, payload.get('source_batch'))
                 if not stale_refill and not (kind == "import" and payload.get("cart_id")):
                     provider = service.client_for_job(actor_id, revision)
-                if kind == "sync":
+                if kind == 'bookmarks':
+                    from .bookmarks import scan_step
+                    result = scan_step(provider, revision, actor_id, full=payload.get('full', False))
+                elif kind == "sync":
                     result = service.sync_feed(provider, revision, actor_id, payload.get("restrict", "public"),
                         first_page=payload.get("first_page", False))
                 elif kind == "following":
@@ -421,6 +424,9 @@ class Worker:
                         job.result, job.error, job.locked_at = result, None, None
                         if kind != "import":
                             job.dedupe_key = None
+                        if result.get('bookmark_more'):
+                            db.flush()
+                            enqueue(db, actor_id, 'bookmarks')
                         if result.get('replenish'):
                             # Production sessions disable autoflush. Commit this
                             # wave's status before deduplicating its successor.
@@ -464,6 +470,9 @@ class Worker:
                         if job.status == "failed" and kind != "import":
                             job.dedupe_key = None
                         account = db.get(models.PixivAccount, 1)
+                        if account and account.revision == revision and kind == 'bookmarks':
+                            account.sync_state = {**account.sync_state, 'bookmarks':{
+                                **account.sync_state.get('bookmarks', {}), 'error':code}}
                         if account and account.revision == revision and code == "reauth_required":
                             account.status = "reauth_required"
                         if payload.get("cart_id"):
@@ -486,6 +495,11 @@ class Worker:
             if not account or account.status != "connected":
                 return
             service.require_actor(db, account.owner_id)
+            if account.preferences.get('bookmark_sync'):
+                state = account.sync_state.get('bookmarks', {})
+                last = state.get('last_success')
+                if state.get('scan') or state.get('full_requested') or not last or (datetime.utcnow() - service.iso_date(last)).total_seconds() >= 300:
+                    enqueue(db, account.owner_id, 'bookmarks')
             for restrict in (["public", "private"] if account.preferences.get("private_following") else ["public"]):
                 for kind, period in (("sync", settings.PIXIV_OL_SYNC_SECONDS), ("following", 86400)):
                     state = account.sync_state.get(f"{'feed' if kind == 'sync' else 'following'}_{restrict}", {})
@@ -508,6 +522,10 @@ class Worker:
                     self.last_schedule = time.monotonic()
                 if self.run_once():
                     continue
+                from .bookmarks import run_outbox_once
+                with ACCOUNT_LOCK:
+                    if run_outbox_once():
+                        continue
             except Exception:
                 # Never log exception bodies: third-party errors can contain credentials.
                 pass

@@ -11,8 +11,8 @@ from ...pixiv_metadata import library_pixiv_pages, split_pid
 from .recommendations import allowed, normalize, recommendation_match
 
 MODES = ('personal', 'stock', 'discovery')
-POLICY_VERSION = 'three-modes-v3'
-STOCK_POLICY_VERSION = 'stock-group-discovery-v1'
+POLICY_VERSION = 'conditional-quality-v4'
+STOCK_POLICY_VERSION = 'stock-conditional-quality-v2'
 SPARSE_CHARACTER_LIMIT = 20
 STOCK_POPULARITY_FLOOR = .45
 STOCK_DISCOVERY_QUALITY_FLOOR = .40
@@ -69,6 +69,8 @@ def stock_exploration_plan(profile, hot_groups=None):
                  for g in profile['quotas']}
     share = min(MAX_NEW_CHARACTER_SHARE, sum(profile['quotas'][g] * fraction
                                             for g, fraction in effective.items()))
+    if profile.get('algorithm')=='stock-conditional-quality-v2':
+        share *= 1-NEW_GROUP_SHARE
     known_weights = {g:weight * (1 - effective[g]) for g, weight in profile['quotas'].items()}
     new_weights = {g:weight * effective[g] for g, weight in profile['quotas'].items()}
     def normalized(weights):
@@ -131,73 +133,21 @@ def _selected(index, counts, prefs):
 
 
 def personal_profile(db, index, account, images):
-    """Three independently normalized channels; inventory never determines affinity."""
-    channels = {kind:defaultdict(Counter) for kind in ('library', 'likes', 'cart')}
-    raw_names, observed, seeds = {}, defaultdict(Counter), Counter()
-    units = defaultdict(list)
-    for image in images:
-        units[work_id(image)].append(image)
-
-    def record(channel, tags, match, weight=1):
-        words = {normalize(tag['name']):tag['name'] for tag in tags if tag.get('name')}
-        ignored = {normalize(row['pixiv_tag']) for row in match['evidence'] if row['type'] == 'ignore'}
-        blocked = {normalize(tag) for tag in account.preferences.get('blocked_tags', [])}
-        words = {key:word for key, word in words.items() if key not in ignored | blocked | {'pixiv', 'r-18', 'r-18g'}}
-        raw_names.update(words)
-        for word in words:
-            channels[channel]['raw'][word] += weight / math.sqrt(max(1, len(words)))
-        for field, ids in [('group', match['group_ids']), ('character', match['character_ids']), ('feature', match['feature_tag_ids'])]:
-            for id_ in ids:
-                if field == 'feature' and normalize(index.features[id_].name) == 'pixiv':
-                    continue
-                channels[channel][field][id_] += weight / max(1, len(ids))
-        for evidence in match['evidence']:
-            if evidence['type'] == 'feature':
-                observed[evidence['id']][evidence['pixiv_tag']] += weight
-
-    for pid, pages in units.items():
-        tags = {normalize(tag['name']):tag for image in pages if image.pixiv_metadata
-                and image.pixiv_metadata.status == 'verified' for tag in image.pixiv_metadata.tags or [] if tag.get('name')}
-        # Old images without Pixiv snapshots still train local labels, once per work.
-        match = {'group_ids':sorted({g.id for image in pages for g in image.groups}),
-                 'character_ids':sorted({r.id for image in pages for r in image.characters}),
-                 'feature_tag_ids':sorted({t.id for image in pages for t in image.feature_tags}),
-                 'evidence':index.match(list(tags.values()), group_context={g.id for image in pages for g in image.groups})['evidence']}
-        record('library', list(tags.values()), match)
-        if str(pid).isdigit():
-            seeds[pid] += 0.2
-    likes, carts, snapshots = root_snapshots(db, index, account, images)
-    for pid, art in snapshots.items():
-        match = recommendation_match(index, art.get('tags', []), index.groups)
-        if pid in likes:
-            days = max(0, (datetime.utcnow() - likes[pid].updated_at).days)
-            weight = 0.5 + 0.5 * 2 ** (-days / 30)
-            record('likes', art.get('tags', []), match, weight)
-            seeds[pid] += 3 * weight
-        if pid in carts:
-            record('cart', art.get('tags', []), match)
-            seeds[pid] += 1.5
-    vectors = defaultdict(Counter)
-    # A large existing library cannot drown out a small explicit likes channel.
-    for channel, weight in [('likes', 0.55), ('cart', 0.25), ('library', 0.20)]:
-        for field, values in channels[channel].items():
-            for key, value in distribution({key:math.log1p(count) for key, count in values.items()}).items():
-                vectors[field][key] += weight * value
-    vectors = {field:distribution(values) for field, values in vectors.items()}
+    from .learning import interest_profile
+    profile = interest_profile(db, index, account, images, work_id, root_snapshots(db,index,account,images))
     counts = Counter({g:0 for g in index.groups})
     for image in images:
         counts.update(g.id for g in image.groups)
-    selected = _selected(index, counts, account.preferences)
-    affinity = {g:vectors.get('group', {}).get(g, 0) for g in selected}
-    total = sum(affinity.values())
-    weights = {g:value / total for g, value in affinity.items()} if total else {g:1 / len(selected) for g in selected}
-    return {'algorithm':'personal-affinity-v1', 'vectors':vectors, 'raw_tag_names':raw_names,
-            'quotas':weights, 'inventory':dict(counts),
-            'tags':{g:vectors.get('feature', {}) for g in selected},
-            'characters':{g:{r.id:vectors.get('character', {}).get(r.id, 0) for r in index.characters.values() if r.group_id == g} for g in selected},
-            'liked_raw_global':vectors.get('raw', {}), 'liked_raw_tags':{},
-            'feature_query_tags':{t:[word for word, _ in values.most_common(3)] for t, values in observed.items()},
-            'related_seeds':{}, 'personal_seeds':[pid for pid, _ in seeds.most_common(4)]}
+    selected = _selected(index,counts,account.preferences)
+    weights = {g:profile['vectors'].get('group',{}).get(g,0) for g in selected}
+    total = sum(weights.values())
+    weights = {g:v/total for g,v in weights.items()} if total else {g:1/len(selected) for g in selected}
+    profile.update(algorithm='personal-conditional-v2',quotas=weights,inventory=dict(counts),
+        tags={g:profile['group_features'].get(g,{}) for g in selected},
+        characters={g:{r.id:profile['vectors'].get('character',{}).get(r.id,0)
+                       for r in index.characters.values() if r.group_id==g} for g in selected},
+        liked_raw_global=profile['vectors'].get('raw',{}),liked_raw_tags={})
+    return profile
 
 
 def stock_profile(db, index, account, images):
@@ -243,17 +193,18 @@ def stock_profile(db, index, account, images):
                 seeds[role.group_id][pid] = max(seeds[role.group_id][pid], 1 / max(1, roles[role.id]))
     group_quotas = inverse_weights({g:counts[g] for g in selected})
     character_counts = Counter(role.group_id for role in index.characters.values())
-    return {'algorithm':'stock-mapped-group-discovery-v1', 'inventory':dict(counts),
+    interest = personal_profile(db,index,account,images)
+    return {**interest, 'algorithm':'stock-conditional-quality-v2', 'inventory':dict(counts),
             'character_inventory':dict(roles), 'character_counts':{g:character_counts[g] for g in selected},
             'sparse_character_groups':[g for g in selected if character_counts[g] <= SPARSE_CHARACTER_LIMIT],
             'new_character_fractions':{g:new_character_fraction(character_counts[g]) for g in selected},
             'new_character_quotas':new_character_weights(group_quotas, character_counts),
             'quotas':group_quotas,
             'character_quotas':role_quotas, 'characters':role_quotas,
-            'tags':{g:vector for g in selected}, 'feature_vector':vector,
+            'tags':{g:interest['group_features'].get(g,vector) for g in selected}, 'feature_vector':interest['vectors'].get('feature',vector),
             'liked_raw_global':{}, 'liked_raw_tags':{}, 'raw_tag_names':{},
-            'feature_query_tags':{t:[word for word, _ in values.most_common(3)] for t, values in observed.items()},
-            'related_seeds':{g:[pid for pid, _ in values.most_common(4)] for g, values in seeds.items()}}
+            'feature_query_tags':interest['feature_query_tags'],
+            'related_seeds':{g:[pid for pid, _ in values.most_common(12)] for g, values in seeds.items()}}
 
 
 def build_profile(db, index, account, mode):
@@ -306,23 +257,8 @@ def cosine(vector, ids):
 
 
 def recent_popularity(item, now):
-    """Balance bookmark traction against publication age without rewarding age alone."""
-    try:
-        published = datetime.fromisoformat(str(item['published_at']).replace('Z', '+00:00'))
-        if published.tzinfo:
-            published = published.astimezone(timezone.utc).replace(tzinfo=None)
-        age_days = max(0, (now - published).total_seconds() / 86400)
-    except (KeyError, TypeError, ValueError):
-        age_days = 90
-    recency = 2 ** (-age_days / 45)
-    try:
-        bookmarks = max(0, int(item['bookmarks'])) if item.get('bookmarks') is not None else None
-    except (TypeError, ValueError):
-        bookmarks = None
-    if bookmarks is None:
-        return 0.1 * recency
-    popularity = min(1, math.log1p(bookmarks) / math.log1p(1000))
-    return popularity * (0.25 + 0.75 * recency)
+    from .learning import quality
+    return quality(item,now)
 
 
 def _candidates(db, index, account, mode, actor_id, seen_pids, *, source_batch=None):
@@ -343,44 +279,68 @@ def _candidates(db, index, account, mode, actor_id, seen_pids, *, source_batch=N
         native = [o.get('rank') if o.get('rank') is not None else 100 for o in origins if o.get('source') == source]
         if mode == 'discovery' and not native:
             continue
+        if mode != 'discovery':
+            native += [o['rank'] for o in origins if o.get('source') == source_key('related',mode,actor_id) and o.get('rank') is not None]
         if batch and not origins:
             continue
         match = recommendation_match(index, art['tags'], index.groups)
         item = {**art, 'match':match, 'origins':origins, 'imported_pages':[], 'reasons':[]}
-        prepared.append((item, min(native, default=100)))
+        prepared.append((item, min(native) if native else None))
     return prepared
 
 
 def rank(db, index, account, mode, actor_id, seen_pids=()):
+    from .recommendations import input_revision
     profile = build_profile(db, index, account, mode)
     profile.update({'policy_version':policy_version(mode), 'actor_id':actor_id, 'mode':mode})
+    profile['input_revision']=input_revision(index,account.preferences)
     candidates = _candidates(db, index, account, mode, actor_id, seen_pids)
+    if mode=='stock':
+        # Carry recent actual exposure deficits across independently refreshed batches.
+        history=Counter()
+        for row in db.query(models.PixivRecommendationExposure).filter(
+                models.PixivRecommendationExposure.account_revision==account.revision,
+                models.PixivRecommendationExposure.actor_id==actor_id,
+                models.PixivRecommendationExposure.metadata_json['mode'].as_string()=='stock').order_by(
+                models.PixivRecommendationExposure.id.desc()).limit(500):
+            meta=row.metadata_json
+            kind=meta.get('stock_pool')
+            if kind:
+                history[str((kind,meta.get('primary_group'),meta.get('primary_character')))]+=1
+        profile['quota_history']=dict(history)
     if mode == 'discovery':
         return [item for item, _ in sorted(candidates, key=lambda row:(row[1], row[0]['pid']))][:180], profile
+    from .learning import affinity, quality, QualityReference, age
     now = datetime.utcnow()
+    matched={item['pid']:item['match'] for item,_ in candidates}
+    historical=[]
+    for row in db.query(models.PixivArtwork).filter_by(account_revision=account.revision).order_by(
+            models.PixivArtwork.fetched_at.desc()).limit(5000):
+        art=row.metadata_json
+        if art.get('bookmarks') is not None:
+            historical.append({**art,'match':matched.get(row.pid) or recommendation_match(index,art.get('tags',[]),index.groups)})
+    reference = QualityReference(historical,now)
     for item, native_rank in candidates:
-        match = item['match']
-        native = 1 / math.log2(native_rank + 2)
-        quality = recent_popularity(item, now)
-        if mode == 'personal':
-            v = profile['vectors']
-            affinity = (0.55 * cosine(v.get('raw', {}), [normalize(t['name']) for t in item['tags']])
-                        + 0.20 * cosine(v.get('feature', {}), match['feature_tag_ids'])
-                        + 0.15 * cosine(v.get('character', {}), match['character_ids'])
-                        + 0.10 * cosine(v.get('group', {}), match['group_ids']))
-            item['_score'] = 0.70 * affinity + 0.20 * quality + 0.10 * native
-        else:
-            item['_quality'] = quality
-            item['_score'] = 0.20 * cosine(profile['feature_vector'], match['feature_tag_ids']) + 0.70 * quality + 0.10 * native
+        native = 1 / math.log2(native_rank + 2) if native_rank is not None else 0
+        q = quality(item,now,reference)
+        exploratory = mode == 'stock' and stock_identity(item,profile,index)[0] != 'known'
+        a = affinity(profile,item,exploration=exploratory)
+        item['ranking_signals'] = {'affinity':round(a,4),'quality':round(q,4),'native':round(native,4),
+                                  'policy':policy_version(mode)}
+        item['_quality'] = q
+        days=age(item,now)
+        item['age_bucket']='recent' if days<=30 else 'middle' if days<=180 else 'historical'
+        item['_score'] = .45*a+.35*q+.20*native if mode == 'personal' else .60*q+.25*a+.15*native
     if mode == 'personal':
-        pool, chosen, authors = sorted([item for item, _ in candidates], key=lambda item:(-item['_score'], item['pid'])), [], Counter()
+        from .scheduling import take
+        pool, chosen, authors = sorted([item for item, _ in candidates if item.get('bookmarks') is None or item['_quality']>=.50], key=lambda item:(-item['_score'], item['pid'])), [], Counter()
         while pool and len(chosen) < 180:
             if len(chosen) % 20 == 0:
                 authors.clear()
-            best = max(range(min(30, len(pool))), key=lambda n:pool[n]['_score'] - 0.03 * authors[pool[n]['author_id']])
-            item = pool.pop(best)
+            item = take(pool,chosen,authors,role_cap=True)
             authors[item['author_id']] += 1
             item.pop('_score')
+            item.pop('_quality',None)
             chosen.append(item)
         return chosen, profile
     return stock_schedule([item for item, _ in candidates], profile, index), profile
@@ -444,6 +404,10 @@ def stock_new_character_gap(group, supply, profile):
     return max(0, target - supply[group])
 
 
+def recall_quality_floor(profile):
+    return .60 if profile.get('algorithm')=='stock-conditional-quality-v2' else STOCK_POPULARITY_FLOOR
+
+
 def stock_query_gap(query, profile, groups, roles):
     group, role = query['group'], query.get('character')
     share, known_weights, _, _ = stock_exploration_plan(profile)
@@ -454,11 +418,15 @@ def stock_query_gap(query, profile, groups, roles):
 def stock_recall_queries(queries, candidates, profile, index, limit=3):
     """Search mapped series for new faces before topping up familiar roles."""
     groups, roles = stock_supply(candidates, profile, index)
-    new_roles = stock_new_character_supply(candidates, profile, index, min_quality=STOCK_POPULARITY_FLOOR)
+    new_roles = stock_new_character_supply(candidates, profile, index, min_quality=recall_quality_floor(profile))
     picked, remaining = [], list(queries)
+    ranking=next((query for query in remaining if query.get('source')=='ranking'),None)
+    if ranking and limit:
+        picked.append(ranking)
+        remaining.remove(ranking)
     used_groups = set()
     sparse = set(profile.get('sparse_character_groups', ()))
-    for _ in range(min(2, max(0, limit - 1))):
+    for _ in range(min(2, max(0, limit - len(picked) - 1))):
         anchors = [query for query in remaining if query['group'] in profile['quotas']
                    and query.get('source') in ('group_popular', 'group_mapping', 'group_name')
                    and stock_new_character_gap(query['group'], new_roles, profile) > 0]
@@ -503,6 +471,9 @@ def _weighted_pick(active, weights, credits):
 
 
 def stock_schedule(items, profile, index):
+    if profile.get('policy_version') == STOCK_POLICY_VERSION:
+        from .scheduling import stock_schedule as schedule
+        return schedule(items,profile,index)
     known, new_roles, new_groups = defaultdict(lambda:defaultdict(list)), defaultdict(list), []
     adaptive = bool(profile.get('new_character_fractions'))
     for item in items:
@@ -618,6 +589,8 @@ def stock_page(rows, limit, profile=None):
     Positions remain the immutable batch offsets. Skipped exploration can be
     reconsidered by the next ranked batch; seen PIDs only include returned cards.
     """
+    if (profile or {}).get('policy_version') == STOCK_POLICY_VERSION:
+        return rows[:limit]
     supply = Counter(item.get('stock_pool', 'known') for _, item in rows)
     share = min(MAX_NEW_CHARACTER_SHARE, max(LEGACY_NEW_CHARACTER_SHARE,
                 (profile or {}).get('new_character_share', LEGACY_NEW_CHARACTER_SHARE)))

@@ -21,7 +21,7 @@
         html:not(.app-booting) .app-bootstrap-status { display: none; }
     </style>
     <noscript><meta http-equiv="refresh" content="0; url=/login"></noscript>
-    <script src="/static/js/auth.js?v=20261014-recommendation-buffer"></script>
+    <script src="/static/js/auth.js?v=20261014-emoji-recommendation-buffer"></script>
 </head>
 <body>
     <div class="app-bootstrap-status" role="status">正在验证登录状态…</div>
@@ -515,16 +515,15 @@
             </div>
 
             <div class="page-content" id="page-emoji-library" style="display: none;">
-                <div class="page-header">
-                    <h2>表情包库</h2>
+                <div class="page-header emoji-page-header">
+                    <div class="emoji-heading"><h2>表情包库</h2><span aria-hidden="true">EMOTE ARCHIVE</span></div>
                     <div class="header-actions">
                         <button class="btn btn-primary" onclick="emojiLibrary.showUploadModal()">上传表情包</button>
-                        <button class="btn btn-secondary mobile-hide" onclick="emojiLibrary.load()">刷新</button>
                     </div>
                 </div>
 
-                <div class="tab-container">
-                    <div class="tab-header">
+                <div class="tab-container emoji-tab-container">
+                    <div class="tab-header emoji-tab-header">
                         <button class="tab-btn active" data-tab="emoji-list">全部表情</button>
                         <button class="tab-btn" data-tab="emotion-management">情绪 / 功能</button>
                     </div>
@@ -535,15 +534,17 @@
                                 <span class="age-filter-label">角色</span>
                                 <div class="age-filter-tabs emoji-character-tabs" id="emoji-character-tabs"
                                      role="tablist" aria-label="按角色筛选表情包">
-                                    <button type="button" class="age-filter-tab active" role="tab" aria-selected="true">全部</button>
+                                    <button type="button" class="age-filter-tab active" role="tab" aria-selected="true">不限</button>
                                 </div>
                             </div>
-                            <button type="button" class="query-toggle" data-query-toggle="emoji-query-panel"
+                            <div class="emoji-toolbar-actions"><button type="button" class="query-toggle emoji-query-toggle" data-query-toggle="emoji-query-panel"
                                     aria-expanded="false" aria-controls="emoji-query-panel"
-                                    aria-label="打开表情查询" title="查询表情">
+                                    aria-label="搜索与筛选表情包" title="搜索与筛选">
                                 <span class="query-icon" aria-hidden="true"></span>
+                                <span>搜索与筛选</span>
                                 <b data-query-badge-for="emoji-query-panel" hidden>0</b>
-                            </button>
+                                <span class="emoji-query-chevron" aria-hidden="true">⌄</span>
+                            </button><button type="button" class="emoji-refresh" onclick="emojiLibrary.load()" aria-label="刷新表情包" title="刷新表情包">↻</button></div>
                         </div>
                         <div class="query-panel" id="emoji-query-panel" aria-hidden="true">
                             <div class="query-panel-inner">
@@ -554,6 +555,7 @@
                                 </div>
                                 <div class="form-group">
                                     <label for="emoji-character-filter">角色</label>
+                                    <input id="emoji-character-query" class="form-input emoji-character-query" type="search" autocomplete="off" placeholder="输入角色名筛选选项" aria-label="搜索角色选项">
                                     <select id="emoji-character-filter" class="form-input" data-query-count></select>
                                 </div>
                                 <div class="form-group">
@@ -564,24 +566,28 @@
                                     <label for="emoji-function-filter">功能标签</label>
                                     <select id="emoji-function-filter" class="form-input" data-query-count></select>
                                 </div>
-                                <div class="form-group emoji-query-action">
-                                    <button class="btn btn-primary" onclick="emojiLibrary.applyFilters()" data-query-apply="emoji-query-panel">应用筛选</button>
+                                <div class="form-group emoji-description-field">
+                                    <label for="emoji-description-filter">搜索备注</label>
+                                    <input id="emoji-description-filter" class="form-input" type="search" autocomplete="off" placeholder="输入备注关键词" data-query-count>
                                 </div>
                             </div>
                             </div>
                         </div>
 
+                        <div class="emoji-results" id="emoji-results" aria-live="polite"></div>
                         <div class="image-grid" id="emoji-grid"></div>
                         <div class="pagination" id="emoji-pagination"></div>
                     </div>
 
                     <div class="tab-content" id="tab-emotion-management" style="display: none;">
-                        <div class="search-bar" style="margin-bottom: 24px;">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <button class="btn btn-primary" onclick="emojiLibrary.showCreateEmotionModal()">添加情绪 / 功能标签</button>
-                                </div>
+                        <div class="emoji-tag-toolbar">
+                            <div class="emoji-tag-tabs" role="group" aria-label="标签类型">
+                                <button type="button" class="is-active" data-emoji-tag-type="all">全部</button>
+                                <button type="button" data-emoji-tag-type="emotion">基础情绪</button>
+                                <button type="button" data-emoji-tag-type="function">功能标签</button>
                             </div>
+                            <input id="emoji-tag-search" class="form-input" type="search" autocomplete="off" placeholder="搜索标签名称或别称" aria-label="搜索标签">
+                            <button class="btn btn-primary" onclick="emojiLibrary.showCreateEmotionModal()">添加标签</button>
                         </div>
                         <div class="feature-tag-list" id="emotion-list"></div>
                     </div>

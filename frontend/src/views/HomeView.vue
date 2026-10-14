@@ -5,6 +5,7 @@ import { requestJSON, safeAvatar } from '../api/http';
 import type { Entity, GroupCover, Ranking, Rankings, SystemStatus } from '../api/types';
 import { useSession } from '../state/session';
 import EntityAvatar from '../components/EntityAvatar.vue';
+import DecodeText from '../components/DecodeText.vue';
 import '../styles/home.css';
 
 type FeaturedGroup = Entity & { cover?: GroupCover | null; cover_refreshing?: boolean };
@@ -40,18 +41,18 @@ const avatarFallback = (event: Event) => { (event.target as HTMLImageElement).sr
     <div class="archive-masthead"><span><i aria-hidden="true"></i> PICMANAGER / VISUAL ARCHIVE</span><span>小 · 爱 · 图 · 库</span></div>
     <section class="archive-hero" aria-labelledby="archive-heading">
       <div class="archive-intro">
-        <span class="archive-eyebrow" aria-hidden="true">YOUR COLLECTION. YOUR UNIVERSE.</span>
+        <span class="archive-eyebrow" aria-hidden="true"><DecodeText text="YOUR COLLECTION. YOUR UNIVERSE." :duration="740" :delay="250"/></span>
         <h1 id="archive-heading">小爱图库</h1>
         <div class="archive-actions">
           <RouterLink class="archive-launch" to="/gallery"><span>进入图库<small aria-hidden="true">EXPLORE ARCHIVE</small></span><b aria-hidden="true">↗</b></RouterLink>
           <RouterLink class="archive-upload" to="/upload"><span>上传资源<small aria-hidden="true">UPLOAD RESOURCE</small></span><b aria-hidden="true">＋</b></RouterLink>
         </div>
-        <div class="archive-coordinate" aria-hidden="true"><span>01 / COLLECTION TERMINAL</span><span>＋ ──── ＋</span></div>
+        <div class="archive-coordinate" aria-hidden="true"><span>01 / <DecodeText text="COLLECTION TERMINAL" :duration="500" :delay="550"/></span><span>＋ ──── ＋</span></div>
       </div>
       <aside class="archive-deck" aria-label="分组档案">
         <div class="archive-deck-top"><span>精选分组 / COLLECTIONS</span><span>{{ String(groups.length ? selectedIndex + 1 : 0).padStart(2, '0') }} / {{ String(groups.length).padStart(2, '0') }}</span></div>
         <div class="archive-stage">
-          <span class="archive-stage-word" aria-hidden="true">ARCHIVE</span>
+          <span class="archive-stage-word" aria-hidden="true"><DecodeText text="ARCHIVE" :duration="880" :delay="370"/></span>
           <div class="archive-sheet archive-sheet-back" aria-hidden="true"></div>
           <div class="archive-sheet archive-sheet-middle" aria-hidden="true"></div>
           <Transition name="archive-swap" mode="out-in">
@@ -77,7 +78,7 @@ const avatarFallback = (event: Event) => { (event.target as HTMLImageElement).sr
         { label: '表情包库', english: 'EMOJIS', value: status?.total_emojis, to: '/emoji' },
         { label: '作品分组', english: 'COLLECTIONS', value: status?.total_groups, to: '/manage/groups' },
         { label: '收录角色', english: 'CHARACTERS', value: status?.total_characters, to: '/manage/characters' },
-      ]" :key="metric.to" :to="metric.to" class="archive-metric home-metric-card"><span class="archive-metric-label">{{ metric.label }} <small>{{ metric.english }}</small></span><strong>{{ count(metric.value) }}</strong><span class="archive-metric-foot">0{{ index + 1 }} <span aria-hidden="true">↗</span></span></RouterLink>
+      ]" :key="metric.to" :to="metric.to" class="archive-metric home-metric-card"><span class="archive-metric-label">{{ metric.label }} <small>{{ metric.english }}</small></span><strong><DecodeText :text="count(metric.value)" mode="number" :ready="metric.value != null && !statusError" :duration="620" :delay="index * 70"/></strong><span class="archive-metric-foot">0{{ index + 1 }} <span aria-hidden="true">↗</span></span></RouterLink>
     </section>
     <div v-if="statusError" class="archive-status" role="status">统计暂时无法加载 <button @click="retryStatus()">重新加载</button></div>
 

@@ -1,0 +1,30 @@
+/* Emoji-specific content uses the gallery's layout, surfaces and motion. */
+.modern-section-tabs button { display:flex; align-items:center; justify-content:center; gap:8px; min-height:36px; padding:8px 18px; border:0; border-radius:var(--radius-small); background:transparent; color:var(--text-secondary); font:inherit; font-size:12px; white-space:nowrap; cursor:pointer; transition:color .2s; }
+.modern-section-tabs button:hover { color:var(--text-primary); }
+.modern-section-tabs button[aria-selected=true] { color:var(--primary-color); font-weight:600; }
+.modern-emoji .modern-age-controls { flex:1; min-width:0; }
+.modern-emoji-role-tabs { overflow-x:auto; scrollbar-width:none; min-width:0; }
+.modern-emoji-role-tabs::-webkit-scrollbar { display:none; }
+.modern-emoji-description { grid-column:span 2; }
+.modern-emoji-card .modern-image-open { padding:10px 10px 72px; }
+.modern-emoji-card .modern-image-open img { object-fit:contain; }
+.modern-emoji-card:is(:hover,:focus-within) .modern-image-open img { transform:none; }
+.modern-emoji-card .modern-card-actions a { display:flex; justify-content:center; align-items:center; gap:5px; flex:1; border:1px solid var(--gallery-action-border); border-radius:var(--radius-small); background:var(--gallery-action-surface); color:var(--text-primary); font:inherit; font-size:11px; cursor:pointer; text-decoration:none; transition:background .18s,color .18s; }
+.modern-emoji-card .modern-card-actions a:hover { background:var(--primary-color); color:var(--surface); border-color:transparent; }
+.modern-emoji #modern-emoji-results { scroll-margin-top:16px; }
+.modern-emoji-tags { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.modern-emoji-tag-card { display:flex; align-items:center; justify-content:space-between; gap:16px; min-width:0; padding:16px 18px; border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); box-shadow:var(--shadow); }
+.modern-emoji-tag-card>div:first-child { min-width:0; }
+.modern-emoji-tag-card strong { color:var(--text-primary); font-size:13px; font-weight:600; }
+.modern-emoji-tag-card small { margin-left:8px; color:var(--text-tertiary); font-size:10px; }
+.modern-emoji-tag-card p { margin:6px 0 0; color:var(--text-secondary); font-size:11px; overflow-wrap:anywhere; }
+.modern-emoji-tag-actions { display:flex; gap:6px; flex:none; }
+.modern-emoji-tag-search { width:220px; min-width:0; height:36px; border:1px solid var(--border); border-radius:var(--radius); padding:8px 11px; background:var(--surface); color:var(--text-primary); font:inherit; font-size:12px; }
+.modern-emoji-tag-search:focus { outline:0; border-color:var(--accent-blue); box-shadow:0 0 0 3px var(--primary-soft); }
+.modern-emoji-reader .modern-detail-facts>div { gap:12px; }
+.modern-emoji-reader .modern-detail-facts dd { max-width:65%; text-align:right; overflow-wrap:anywhere; }
+.modern-emoji-reader .modern-detail-actions:not(:has(button)) { grid-template-columns:1fr; }
+@media(max-width:960px) { .modern-emoji .modern-management-header { grid-template-columns:1fr; }.modern-emoji .modern-management-tabs { justify-self:start; }.modern-emoji-description { grid-column:span 2; } }
+@media(max-width:768px) { .modern-section-tabs button { flex:1; gap:5px; padding:9px 8px; font-size:11px; }.modern-emoji-card .modern-card-actions a { font-size:10px; }.modern-emoji-tags { grid-template-columns:1fr; } }
+@media(max-width:640px) { .modern-emoji .modern-age-controls { flex-basis:100%; }.modern-emoji .modern-emoji-tag-tools { justify-content:space-between; }.modern-emoji-tag-search { flex:1; width:0; } }
+@media(max-width:360px) { .modern-emoji-description { grid-column:auto; }.modern-emoji-upload span { display:none; } }

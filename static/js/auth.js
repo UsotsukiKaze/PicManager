@@ -15,7 +15,7 @@ class AuthManager {
                 resolve: () => window.upload,
             },
             emoji: {
-                src: '/static/js/emoji-library.js?v=20261008-confirm',
+                src: '/static/js/emoji-library.js?v=20261014-emoji-unified',
                 resolve: () => window.emojiLibrary,
             },
         };
@@ -123,7 +123,7 @@ class AuthManager {
         this.applicationLoadPromise = (async () => {
             await this.waitForDocumentBody();
             const stylesReady = Promise.all([
-                this.loadStyle('/static/css/style.css?v=20261004q'),
+                this.loadStyle('/static/css/style.css?v=20261014-emoji'),
                 this.loadStyle('/static/css/icons.css?v=20260812a'),
                 this.loadStyle('/static/css/workspace-shell.css?v=20261004l'),
             ]);
@@ -141,7 +141,7 @@ class AuthManager {
                 '/static/js/image-list.js?v=20261007a',
                 '/static/js/modal.js?v=20261004q',
                 '/static/js/workspace-shell.js?v=20261014-bookmark-scope',
-                '/static/js/ui.js?v=20261014-bookmark-scope',
+                '/static/js/ui.js?v=20261014-emoji',
                 '/static/js/main.js?v=20261004f',
             ];
 

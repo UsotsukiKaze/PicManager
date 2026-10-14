@@ -11,6 +11,11 @@ export const queryClient = new QueryClient({
 });
 
 export function invalidateDomain(path: string) {
+  if (/\/emojis|\/emotion-tags/.test(path)) {
+    void queryClient.invalidateQueries({ queryKey: ['emojis'] });
+    void queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+  }
+  if (/\/emotion-tags/.test(path)) void queryClient.invalidateQueries({ queryKey: ['catalog'] });
   // Mutations made by either runtime invalidate the same server-data cache.
   if (/\/images|\/groups|\/characters|\/feature-tags|\/upload|\/imports|\/jobs|\/pending|\/system|\/tag-mappings/.test(path)) {
     void queryClient.invalidateQueries({ queryKey: ['images'] });

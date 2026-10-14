@@ -1,6 +1,10 @@
 {
-  "_EntityAvatar-B-tsWAa-.js": {
-    "file": "assets/EntityAvatar-B-tsWAa-.js",
+  "_EntityAvatar-BAY-R0pc.css": {
+    "file": "assets/EntityAvatar-BAY-R0pc.css",
+    "src": "_EntityAvatar-BAY-R0pc.css"
+  },
+  "_EntityAvatar-ClJlaSPC.js": {
+    "file": "assets/EntityAvatar-ClJlaSPC.js",
     "name": "EntityAvatar",
     "imports": [
       "_pinia-BLiYcBqC.js",
@@ -10,17 +14,22 @@
       "assets/EntityAvatar-BAY-R0pc.css"
     ]
   },
-  "_EntityAvatar-BAY-R0pc.css": {
-    "file": "assets/EntityAvatar-BAY-R0pc.css",
-    "src": "_EntityAvatar-BAY-R0pc.css"
+  "_EntityPicker-DvTVqfs5.js": {
+    "file": "assets/EntityPicker-DvTVqfs5.js",
+    "name": "EntityPicker",
+    "imports": [
+      "_pinia-BLiYcBqC.js",
+      "index.html",
+      "_scripts-bR4EmR_G.js"
+    ]
   },
-  "_bridge-Bmw76LCT.js": {
-    "file": "assets/bridge-Bmw76LCT.js",
+  "_bridge-C2ksn73M.js": {
+    "file": "assets/bridge-C2ksn73M.js",
     "name": "bridge",
     "imports": [
       "_rolldown-runtime-DK3Fl9T5.js",
       "index.html",
-      "_scripts-BqSC4gfs.js"
+      "_scripts-bR4EmR_G.js"
     ]
   },
   "_pinia-BLiYcBqC.js": {
@@ -31,15 +40,15 @@
     "file": "assets/rolldown-runtime-DK3Fl9T5.js",
     "name": "rolldown-runtime"
   },
-  "_scripts-BqSC4gfs.js": {
-    "file": "assets/scripts-BqSC4gfs.js",
+  "_scripts-bR4EmR_G.js": {
+    "file": "assets/scripts-bR4EmR_G.js",
     "name": "scripts",
     "imports": [
       "index.html"
     ]
   },
   "index.html": {
-    "file": "assets/index-uLU0_jSq.js",
+    "file": "assets/index-abzLlWIT.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -49,71 +58,106 @@
     "dynamicImports": [
       "src/views/HomeView.vue",
       "src/views/GalleryView.vue",
+      "src/views/EmojiView.vue",
       "src/views/ProfileView.vue",
       "src/views/FeatureView.vue",
-      "_bridge-Bmw76LCT.js"
+      "_bridge-C2ksn73M.js"
     ],
     "css": [
       "assets/index-DBytEzJQ.css"
     ]
   },
+  "src/components/EmojiDetail.vue": {
+    "file": "assets/EmojiDetail-DiDKxdHb.js",
+    "name": "EmojiDetail",
+    "src": "src/components/EmojiDetail.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "_pinia-BLiYcBqC.js",
+      "_EntityAvatar-ClJlaSPC.js",
+      "index.html",
+      "_EntityPicker-DvTVqfs5.js",
+      "src/views/EmojiView.vue"
+    ]
+  },
   "src/components/ImageDetail.vue": {
-    "file": "assets/ImageDetail-DBarH7Wz.js",
+    "file": "assets/ImageDetail--jdMU-Bi.js",
     "name": "ImageDetail",
     "src": "src/components/ImageDetail.vue",
     "isDynamicEntry": true,
     "imports": [
       "_pinia-BLiYcBqC.js",
-      "_EntityAvatar-B-tsWAa-.js",
+      "_EntityAvatar-ClJlaSPC.js",
       "index.html",
-      "_scripts-BqSC4gfs.js",
-      "src/views/GalleryView.vue"
+      "_scripts-bR4EmR_G.js",
+      "_EntityPicker-DvTVqfs5.js"
+    ]
+  },
+  "src/views/EmojiView.vue": {
+    "file": "assets/EmojiView-BIUt4VJi.js",
+    "name": "EmojiView",
+    "src": "src/views/EmojiView.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "_rolldown-runtime-DK3Fl9T5.js",
+      "_pinia-BLiYcBqC.js",
+      "_EntityAvatar-ClJlaSPC.js",
+      "index.html",
+      "_scripts-bR4EmR_G.js",
+      "_EntityPicker-DvTVqfs5.js"
+    ],
+    "dynamicImports": [
+      "_bridge-C2ksn73M.js",
+      "src/components/EmojiDetail.vue"
+    ],
+    "css": [
+      "assets/EmojiView-CpPLGh6u.css"
     ]
   },
   "src/views/FeatureView.vue": {
-    "file": "assets/FeatureView-Bw_bmacY.js",
+    "file": "assets/FeatureView-Czc4n0uf.js",
     "name": "FeatureView",
     "src": "src/views/FeatureView.vue",
     "isDynamicEntry": true,
     "imports": [
       "_pinia-BLiYcBqC.js",
       "index.html",
-      "_bridge-Bmw76LCT.js"
+      "_bridge-C2ksn73M.js"
     ]
   },
   "src/views/GalleryView.vue": {
-    "file": "assets/GalleryView-krWgU8aE.js",
+    "file": "assets/GalleryView-5ivKTXuc.js",
     "name": "GalleryView",
     "src": "src/views/GalleryView.vue",
     "isDynamicEntry": true,
     "imports": [
-      "_rolldown-runtime-DK3Fl9T5.js",
       "_pinia-BLiYcBqC.js",
-      "_EntityAvatar-B-tsWAa-.js",
+      "_EntityAvatar-ClJlaSPC.js",
       "index.html",
-      "_scripts-BqSC4gfs.js"
+      "_scripts-bR4EmR_G.js",
+      "_EntityPicker-DvTVqfs5.js"
     ],
     "dynamicImports": [
       "src/components/ImageDetail.vue",
-      "_bridge-Bmw76LCT.js"
+      "_bridge-C2ksn73M.js"
     ]
   },
   "src/views/HomeView.vue": {
-    "file": "assets/HomeView-DAfu9zrx.js",
+    "file": "assets/HomeView-C9Gv0Pmw.js",
     "name": "HomeView",
     "src": "src/views/HomeView.vue",
     "isDynamicEntry": true,
     "imports": [
       "_pinia-BLiYcBqC.js",
-      "_EntityAvatar-B-tsWAa-.js",
+      "_EntityAvatar-ClJlaSPC.js",
       "index.html"
     ],
     "css": [
-      "assets/HomeView-D454V1Eo.css"
+      "assets/HomeView-TwgI7nY7.css"
     ]
   },
   "src/views/ProfileView.vue": {
-    "file": "assets/ProfileView-DroTmK7u.js",
+    "file": "assets/ProfileView-DNXYXGz3.js",
     "name": "ProfileView",
     "src": "src/views/ProfileView.vue",
     "isDynamicEntry": true,

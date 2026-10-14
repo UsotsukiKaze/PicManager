@@ -11,7 +11,7 @@ import EntityPicker from '../components/EntityPicker.vue';
 import ImageCard from '../components/ImageCard.vue';
 import AppIcon from '../components/AppIcon.vue';
 import { reducedMotion } from '../state/appearance';
-import { motionEasing } from '../ui/motion';
+import { useFilterMotion } from '../ui/filterMotion';
 const ImageDetail = defineAsyncComponent(() => import('../components/ImageDetail.vue'));
 const session = useSession();
 const workspace = useWorkspace();
@@ -28,38 +28,7 @@ const draft = ref({ pid: workspace.filters.pid || '', artist: workspace.filters.
 const filtersOpen = ref(false);
 const filterCount = computed(() => Object.entries(workspace.filters).filter(([key, value]) => key !== 'age_rating' && value !== undefined && value !== '').length);
 function closeFilters() { filtersOpen.value = false; document.getElementById('gallery-query-toggle')?.focus({ preventScroll: true }); }
-const filterAnimations = new WeakMap<HTMLElement, Animation>();
-const filterFrames = new WeakMap<HTMLElement, { height: string; opacity: number; paddingBottom: string }>();
-function filterMotion(element: Element, done: () => void, opening: boolean) {
-  const node = element as HTMLElement;
-  const interrupted = filterFrames.get(node);
-  filterFrames.delete(node);
-  if (reducedMotion()) { node.style.overflow = ''; done(); return; }
-  const gap = getComputedStyle(node).getPropertyValue('--filter-gap').trim() || '16px';
-  const height = `${(node.firstElementChild as HTMLElement).offsetHeight + Number.parseFloat(gap)}px`;
-  node.style.overflow = 'hidden';
-  const from = interrupted || { height: opening ? '0px' : height, opacity: opening ? 0 : 1, paddingBottom: opening ? '0px' : gap };
-  const to = { height: opening ? height : '0px', opacity: opening ? 1 : 0, paddingBottom: opening ? gap : '0px' };
-  const animation = node.animate([from, to], { duration: opening ? 360 : 280, easing: motionEasing() });
-  filterAnimations.set(node, animation);
-  const finish = () => {
-    if (filterAnimations.get(node) !== animation) return;
-    filterAnimations.delete(node);
-    node.style.overflow = '';
-    done();
-  };
-  void animation.finished.then(finish, finish);
-}
-function cancelFilterMotion(element: Element) {
-  const node = element as HTMLElement;
-  const animation = filterAnimations.get(node);
-  if (!animation) return;
-  const style = getComputedStyle(node);
-  filterFrames.set(node, { height: style.height, opacity: Number(style.opacity), paddingBottom: style.paddingBottom });
-  filterAnimations.delete(node);
-  animation.cancel();
-  node.style.overflow = '';
-}
+const { filterMotion, cancelFilterMotion } = useFilterMotion();
 function clearFilters() {
   clearTimeout(debounce);
   workspace.filters = workspace.filters.age_rating ? { age_rating: workspace.filters.age_rating } : {};

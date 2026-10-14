@@ -292,6 +292,8 @@ class UIManager {
             const emojiLibrary = await window.auth.loadFeature('emoji');
             if (!emojiLibrary.initialized) {
                 await emojiLibrary.init();
+            } else {
+                await emojiLibrary.resume();
             }
         }, '表情包功能加载失败，请重试');
     }

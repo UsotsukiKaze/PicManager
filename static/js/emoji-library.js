@@ -10,6 +10,10 @@ class EmojiLibrary {
         this.uploadFile = null;
         this.uploadPreviewUrl = null;
         this.pagination = { currentPage: 1, totalPages: 1, limit: 20, total: 0 };
+        this.requestSerial = 0;
+        this.descriptionTimer = null;
+        this.tagType = 'all';
+        this.tagQuery = '';
     }
 
     escape(value) {
@@ -23,9 +27,81 @@ class EmojiLibrary {
     }
 
     async init() {
+        this.restoreFromUrl();
+        this.bindLibraryControls();
         await this.loadOptions();
         await this.load();
         this.initialized = true;
+    }
+
+    async resume() {
+        this.restoreFromUrl();
+        await this.loadOptions();
+        await this.load();
+    }
+
+    restoreFromUrl() {
+        const query = new URLSearchParams((window.location.hash.split('?')[1] || '').split('#')[0]);
+        const ids = { group_id: 'emoji-group-filter', character_id: 'emoji-character-filter', emotion_id: 'emoji-emotion-filter', function_id: 'emoji-function-filter', description: 'emoji-description-filter' };
+        this.restoredFilters = Object.fromEntries(Object.entries(ids).map(([key]) => [key, query.get(key) || '']));
+        const page = Number(query.get('page'));
+        this.pagination.currentPage = Number.isSafeInteger(page) && page > 0 ? page : 1;
+        this.restoredTab = query.get('tab') === 'tags' ? 'emotion-management' : 'emoji-list';
+    }
+
+    syncUrl() {
+        if (document.querySelector('.modern-emoji')) return;
+        if (!window.location.hash.startsWith('#/emoji')) return;
+        const query = new URLSearchParams();
+        for (const [key, id] of Object.entries({ group_id: 'emoji-group-filter', character_id: 'emoji-character-filter', emotion_id: 'emoji-emotion-filter', function_id: 'emoji-function-filter', description: 'emoji-description-filter' })) {
+            const value = document.getElementById(id)?.value?.trim();
+            if (value) query.set(key, value);
+        }
+        if (this.pagination.currentPage > 1) query.set('page', String(this.pagination.currentPage));
+        if (document.querySelector('#page-emoji-library .tab-btn[data-tab="emotion-management"]')?.classList.contains('active')) query.set('tab', 'tags');
+        const next = `#/emoji${query.size ? `?${query}` : ''}`;
+        if (window.location.hash !== next) window.history.replaceState(window.history.state, '', next);
+    }
+
+    bindLibraryControls() {
+        const page = document.getElementById('page-emoji-library');
+        if (!page || page.dataset.emojiBound) return;
+        page.dataset.emojiBound = 'true';
+        for (const id of ['emoji-group-filter', 'emoji-character-filter', 'emoji-emotion-filter', 'emoji-function-filter']) {
+            document.getElementById(id)?.addEventListener('change', event => {
+                if (event.target.id === 'emoji-group-filter') {
+                    const character = this.getById(this.characters, document.getElementById('emoji-character-filter')?.value);
+                    if (character && event.target.value && String(character.group_id) !== event.target.value) {
+                        document.getElementById('emoji-character-filter').value = '';
+                    }
+                    this.renderCharacterOptions();
+                }
+                this.applyFilters();
+            });
+        }
+        document.getElementById('emoji-character-query')?.addEventListener('input', () => this.renderCharacterOptions());
+        document.getElementById('emoji-description-filter')?.addEventListener('input', () => {
+            window.clearTimeout(this.descriptionTimer);
+            this.descriptionTimer = window.setTimeout(() => this.applyFilters(), 300);
+        });
+        document.getElementById('emoji-description-filter')?.addEventListener('keydown', event => {
+            if (event.key === 'Enter') { event.preventDefault(); window.clearTimeout(this.descriptionTimer); this.applyFilters(); }
+        });
+        document.getElementById('emoji-tag-search')?.addEventListener('input', event => { this.tagQuery = event.target.value.trim().toLocaleLowerCase(); this.renderEmotions(); });
+        page.querySelector('.emoji-tag-tabs')?.addEventListener('click', event => {
+            const button = event.target.closest('[data-emoji-tag-type]');
+            if (!button) return;
+            this.tagType = button.dataset.emojiTagType;
+            page.querySelectorAll('[data-emoji-tag-type]').forEach(item => item.classList.toggle('is-active', item === button));
+            this.renderEmotions();
+        });
+        page.querySelector('.emoji-tab-header')?.addEventListener('click', () => window.setTimeout(() => this.syncUrl(), 0));
+        document.getElementById('emoji-grid')?.addEventListener('click', event => {
+            const download = event.target.closest('[data-emoji-download]');
+            if (download) { this.downloadEmoji(download.dataset.emojiDownload); return; }
+            const open = event.target.closest('.image-card-open');
+            if (open) this.showEmojiDetail(open.closest('.emoji-card').dataset.emojiId);
+        });
     }
 
     optionHtml(items, placeholder) {
@@ -56,12 +132,14 @@ class EmojiLibrary {
     }
 
     async loadOptions() {
-        const selectedFilters = {
-            group: document.getElementById('emoji-group-filter')?.value || '',
-            character: document.getElementById('emoji-character-filter')?.value || '',
-            emotion: document.getElementById('emoji-emotion-filter')?.value || '',
-            function: document.getElementById('emoji-function-filter')?.value || '',
+        const selectedFilters = this.restoredFilters || {
+            group_id: document.getElementById('emoji-group-filter')?.value || '',
+            character_id: document.getElementById('emoji-character-filter')?.value || '',
+            emotion_id: document.getElementById('emoji-emotion-filter')?.value || '',
+            function_id: document.getElementById('emoji-function-filter')?.value || '',
+            description: document.getElementById('emoji-description-filter')?.value || '',
         };
+        this.restoredFilters = null;
         const [groups, characters, emotions, emojiCharacters] = await Promise.all([
             api.getGroups(),
             api.getCharacters(),
@@ -81,12 +159,18 @@ class EmojiLibrary {
         if (characterFilter) characterFilter.innerHTML = this.optionHtml(this.characters, '全部角色');
         if (emotionFilter) emotionFilter.innerHTML = this.optionHtml(this.getEmotionTags(false), '全部基础情绪');
         if (functionFilter) functionFilter.innerHTML = this.optionHtml(this.getEmotionTags(true), '全部功能');
-        if (groupFilter) groupFilter.value = selectedFilters.group;
-        if (characterFilter) characterFilter.value = selectedFilters.character;
-        if (emotionFilter) emotionFilter.value = selectedFilters.emotion;
-        if (functionFilter) functionFilter.value = selectedFilters.function;
+        if (groupFilter) groupFilter.value = selectedFilters.group_id;
+        if (characterFilter) characterFilter.value = selectedFilters.character_id;
+        if (emotionFilter) emotionFilter.value = selectedFilters.emotion_id;
+        if (functionFilter) functionFilter.value = selectedFilters.function_id;
+        const descriptionFilter = document.getElementById('emoji-description-filter');
+        if (descriptionFilter) descriptionFilter.value = selectedFilters.description || '';
+        this.renderCharacterOptions();
         window.queryPanels?.update('emoji-query-panel');
         this.renderCharacterTabs();
+
+        if (this.restoredTab === 'emotion-management') window.ui?.switchTab('emotion-management');
+        this.restoredTab = null;
 
         this.renderUploadTagControls();
     }
@@ -105,18 +189,42 @@ class EmojiLibrary {
                         onclick="emojiLibrary.selectCharacter('${this.escape(value)}')">${this.escape(name)}</button>
             `;
         };
-        tabs.innerHTML = button('', '全部') + this.emojiCharacters.map(character => (
+        tabs.innerHTML = button('', '不限') + this.emojiCharacters.map(character => (
             button(character.id, character.name, character.emoji_count)
         )).join('');
+        const activeTab = tabs.querySelector('.active');
+        if (this.initialized && activeTab) {
+            const tabRect = tabs.getBoundingClientRect();
+            const activeRect = activeTab.getBoundingClientRect();
+            if (activeRect.left < tabRect.left || activeRect.right > tabRect.right) {
+                tabs.scrollTo({ left: tabs.scrollLeft + activeRect.left - tabRect.left - 12, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+            }
+        }
+    }
+
+    renderCharacterOptions() {
+        const select = document.getElementById('emoji-character-filter');
+        if (!select) return;
+        const current = select.value;
+        const group = document.getElementById('emoji-group-filter')?.value || '';
+        const query = document.getElementById('emoji-character-query')?.value.trim().toLocaleLowerCase() || '';
+        const available = this.characters.filter(character => (!group || String(character.group_id) === group)
+            && (!query || this.filterItems([character], query).length || String(character.id) === current));
+        select.innerHTML = this.optionHtml(available, '全部角色');
+        select.value = current;
+        if (select.selectedIndex < 0) select.value = '';
     }
 
     selectCharacter(characterId) {
         const filter = document.getElementById('emoji-character-filter');
+        const character = this.getById(this.characters, characterId);
+        const group = document.getElementById('emoji-group-filter');
+        if (character?.group_id && group?.value && String(character.group_id) !== group.value) group.value = String(character.group_id);
         if (filter) filter.value = String(characterId || '');
+        this.renderCharacterOptions();
         this.renderCharacterTabs();
         window.queryPanels?.update('emoji-query-panel');
-        this.pagination.currentPage = 1;
-        return this.load();
+        return this.applyFilters();
     }
 
     async refreshCharacterFacets() {
@@ -317,15 +425,27 @@ class EmojiLibrary {
         if (!this.groups.length && !this.initialized) {
             await this.loadOptions();
         }
+        const serial = ++this.requestSerial;
         const params = {
             group_id: document.getElementById('emoji-group-filter')?.value || '',
             character_id: document.getElementById('emoji-character-filter')?.value || '',
             emotion_id: document.getElementById('emoji-emotion-filter')?.value || '',
             function_id: document.getElementById('emoji-function-filter')?.value || '',
+            description: document.getElementById('emoji-description-filter')?.value?.trim() || '',
             limit: this.pagination.limit,
             offset: (this.pagination.currentPage - 1) * this.pagination.limit,
         };
-        const result = await api.searchEmojis(params);
+        document.getElementById('emoji-results')?.classList.add('is-loading');
+        let result;
+        try { result = await api.searchEmojis(params); }
+        catch (error) {
+            if (serial === this.requestSerial) {
+                document.getElementById('emoji-results')?.classList.remove('is-loading');
+                ui.showToast(`加载表情包失败: ${error.message}`, 'error');
+            }
+            return;
+        }
+        if (serial !== this.requestSerial) return;
         const total = result.total || 0;
         const totalPages = Math.max(1, Math.ceil(total / this.pagination.limit));
         if (!(result.emojis || []).length && total > 0 && this.pagination.currentPage > totalPages) {
@@ -337,12 +457,53 @@ class EmojiLibrary {
         this.renderGrid(result.emojis || []);
         this.renderPagination();
         this.renderEmotions();
+        this.renderResults();
+        document.getElementById('emoji-results')?.classList.remove('is-loading');
+        this.syncUrl();
     }
 
     applyFilters() {
+        window.clearTimeout(this.descriptionTimer);
         this.pagination.currentPage = 1;
         this.renderCharacterTabs();
+        window.queryPanels?.update('emoji-query-panel');
+        this.renderResults();
         return this.load();
+    }
+
+    clearFilter(key) {
+        const id = { group_id: 'emoji-group-filter', character_id: 'emoji-character-filter', emotion_id: 'emoji-emotion-filter', function_id: 'emoji-function-filter', description: 'emoji-description-filter' }[key];
+        if (!id) return;
+        document.getElementById(id).value = '';
+        if (key === 'group_id') this.renderCharacterOptions();
+        this.applyFilters();
+    }
+
+    clearFilters() {
+        for (const id of ['emoji-group-filter', 'emoji-character-filter', 'emoji-emotion-filter', 'emoji-function-filter', 'emoji-description-filter', 'emoji-character-query']) {
+            document.getElementById(id).value = '';
+        }
+        this.renderCharacterOptions();
+        this.applyFilters();
+    }
+
+    renderResults() {
+        const target = document.getElementById('emoji-results');
+        if (!target) return;
+        const sources = [
+            ['group_id', 'emoji-group-filter', '分组'],
+            ['character_id', 'emoji-character-filter', '角色'],
+            ['emotion_id', 'emoji-emotion-filter', '情绪'],
+            ['function_id', 'emoji-function-filter', '功能'],
+            ['description', 'emoji-description-filter', '备注'],
+        ];
+        const chips = sources.map(([key, id, label]) => {
+            const field = document.getElementById(id);
+            if (!field?.value) return '';
+            const value = field.tagName === 'SELECT' ? field.selectedOptions[0]?.textContent : field.value;
+            return `<button type="button" class="emoji-result-chip" onclick="emojiLibrary.clearFilter('${key}')" aria-label="移除${label}筛选：${this.escape(value)}"><span>${label}：${this.escape(value)}</span><b aria-hidden="true">×</b></button>`;
+        }).filter(Boolean);
+        target.innerHTML = `<span class="emoji-result-count">${chips.length ? '找到' : '共'} ${this.pagination.total} 个表情包</span><div class="emoji-result-chips">${chips.join('')}</div>${chips.length ? '<button type="button" class="emoji-result-clear" onclick="emojiLibrary.clearFilters()">清除条件</button>' : ''}`;
     }
 
     changePage(page) {
@@ -350,7 +511,8 @@ class EmojiLibrary {
         if (!Number.isInteger(nextPage) || nextPage < 1 || nextPage > this.pagination.totalPages) return;
         this.pagination.currentPage = nextPage;
         this.load();
-        document.getElementById('emoji-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        this.syncUrl();
+        document.getElementById('emoji-results')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
     }
 
     renderPagination() {
@@ -358,7 +520,7 @@ class EmojiLibrary {
         if (!container) return;
         const { currentPage, totalPages, total } = this.pagination;
         if (totalPages <= 1) {
-            container.innerHTML = total ? `<span class="pagination-summary">共 ${total} 个 · 20/页</span>` : '';
+            container.innerHTML = '';
             return;
         }
 
@@ -426,16 +588,21 @@ class EmojiLibrary {
         const grid = document.getElementById('emoji-grid');
         if (!grid) return;
         if (!emojis.length) {
-            grid.innerHTML = '<div class="empty-state">还没有表情包</div>';
+            const filtered = ['emoji-group-filter', 'emoji-character-filter', 'emoji-emotion-filter', 'emoji-function-filter', 'emoji-description-filter'].some(id => document.getElementById(id)?.value);
+            grid.innerHTML = `<div class="emoji-empty"><span aria-hidden="true">✦</span><p>${filtered ? '没有匹配的表情包' : '还没有表情包'}</p>${filtered ? '<button type="button" onclick="emojiLibrary.clearFilters()">清除搜索条件</button>' : ''}</div>`;
             return;
         }
-        grid.innerHTML = emojis.map(emoji => {
-            const emotion = [
+        grid.innerHTML = emojis.map((emoji, index) => {
+            const tags = [
                 ...this.getEmotionTags(false, emoji.emotions),
                 ...this.getEmotionTags(true, emoji.emotions),
-            ].map(tag => tag.name).join(' · ') || '未标情绪或功能';
+            ].slice(0, 2);
+            const character = (emoji.characters || [])[0]?.name || '';
+            const group = (emoji.groups || [])[0]?.name || '';
+            const title = character || group || '未分类';
+            const gif = String(emoji.file_extension || '').toLowerCase() === 'gif';
             return `
-                <article class="image-card emoji-card" data-emoji-id="${this.escape(emoji.emoji_id)}">
+                <article class="image-card emoji-card" data-emoji-id="${this.escape(emoji.emoji_id)}" style="--emoji-order:${Math.min(index % 5, 4)}">
                     <button type="button" class="image-card-open" aria-label="查看表情包 ${this.escape(emoji.emoji_id)} 的详情">
                         <div class="image-card-media">
                             <img class="image-card-img emoji-card-img"
@@ -443,31 +610,24 @@ class EmojiLibrary {
                                  loading="lazy"
                                  decoding="async"
                                  alt="表情包 ${this.escape(emoji.emoji_id)}">
+                            ${gif ? '<span class="emoji-format-badge">GIF</span>' : ''}
                         </div>
                         <div class="image-card-info">
-                            <div class="image-card-id">${this.escape(emoji.emoji_id)}</div>
-                            <div class="image-card-characters">${this.escape(this.formatEmojiTags(emoji))}</div>
-                            <div class="image-card-pid">${this.escape(emotion)}</div>
+                            <strong class="emoji-card-title">${this.escape(title)}</strong>
+                            <div class="emoji-card-meta">${group && character ? `<span class="emoji-card-group">${this.escape(group)}</span>` : ''}${tags.map(tag => `<span class="emoji-card-tag ${this.isFunctionTag(tag) ? 'is-function' : ''}">${this.escape(tag.name)}</span>`).join('')}</div>
                         </div>
                     </button>
+                    <button type="button" class="emoji-card-download" data-emoji-download="${this.escape(emoji.emoji_id)}" aria-label="下载表情包 ${this.escape(emoji.emoji_id)}" title="下载表情包">↓</button>
                 </article>
             `;
         }).join('');
-        grid.querySelectorAll('.emoji-card').forEach(card => {
-            card.querySelector('.image-card-open')?.addEventListener('click', () => {
-                this.showEmojiDetail(card.dataset.emojiId);
-            });
-        });
     }
 
     async showEmojiDetail(id) {
         try {
             const emoji = await api.getEmoji(id);
             const isAdmin = Boolean(window.auth?.isAdmin?.());
-            const adminActions = isAdmin ? `
-                <button class="btn btn-primary" onclick="emojiLibrary.showEditEmojiModal('${this.escape(emoji.emoji_id)}')">修改信息</button>
-                <button class="btn btn-danger" onclick="emojiLibrary.deleteEmoji('${this.escape(emoji.emoji_id)}')">删除</button>
-            ` : '';
+            const adminActions = isAdmin ? `<button class="btn btn-secondary" onclick="emojiLibrary.showEditEmojiModal('${this.escape(emoji.emoji_id)}')">编辑信息</button><details class="emoji-detail-more"><summary aria-label="更多操作">···</summary><button class="btn btn-danger" onclick="emojiLibrary.deleteEmoji('${this.escape(emoji.emoji_id)}')">删除表情包</button></details>` : '';
             ui.showModal('表情包详情', `
                 <div class="image-detail-card emoji-detail-card">
                     <div class="image-detail-media emoji-detail-media ${String(emoji.file_extension || '').toLowerCase() === 'gif' ? 'is-gif' : ''}">
@@ -475,26 +635,20 @@ class EmojiLibrary {
                     </div>
                     <div class="image-detail-panel">
                         <div class="image-detail-head">
-                            <span>表情包名片</span>
+                            <span>EMOTE ARCHIVE</span>
                             <h3>${this.escape(this.formatEmojiTags(emoji))}</h3>
                         </div>
-                        <div class="detail-meta-grid">
-                            <div class="detail-meta-item"><span>编号</span><strong>${this.escape(emoji.emoji_id)}</strong></div>
-                            <div class="detail-meta-item"><span>原文件名</span><strong>${this.escape(emoji.original_filename || '未记录')}</strong></div>
-                            <div class="detail-meta-item"><span>格式与大小</span><strong>${this.escape(String(emoji.file_extension || '').toUpperCase())} · ${this.formatBytes(emoji.file_size)}</strong></div>
-                            <div class="detail-meta-item"><span>尺寸</span><strong>${emoji.width && emoji.height ? `${emoji.width} × ${emoji.height}` : '未知'}</strong></div>
-                            <div class="detail-meta-item"><span>添加时间</span><strong>${this.escape(this.formatDate(emoji.created_at))}</strong></div>
-                        </div>
+                        <p class="emoji-detail-spec">${this.escape(String(emoji.file_extension || '').toUpperCase())} · ${this.formatBytes(emoji.file_size)} · ${emoji.width && emoji.height ? `${emoji.width} × ${emoji.height}` : '尺寸未知'}</p>
                         <div class="detail-tag-section"><label>分组</label><div class="detail-chip-row">${this.renderDetailChips(emoji.groups, 'group')}</div></div>
                         <div class="detail-tag-section"><label>角色</label><div class="detail-chip-row">${this.renderDetailChips(emoji.characters, 'character')}</div></div>
                         <div class="detail-tag-section"><label>基础情绪</label><div class="detail-chip-row">${this.renderDetailChips(this.getEmotionTags(false, emoji.emotions), 'emotion')}</div></div>
                         <div class="detail-tag-section"><label>功能标签</label><div class="detail-chip-row">${this.renderDetailChips(this.getEmotionTags(true, emoji.emotions), 'function')}</div></div>
-                        <div class="detail-note"><span>备注</span><p>${this.escape(emoji.description || '无')}</p></div>
+                        ${emoji.description ? `<div class="detail-note"><span>备注</span><p>${this.escape(emoji.description)}</p></div>` : ''}
+                        <details class="emoji-file-details"><summary>文件信息</summary><dl><dt>编号</dt><dd>${this.escape(emoji.emoji_id)}</dd><dt>原文件名</dt><dd>${this.escape(emoji.original_filename || '未记录')}</dd><dt>添加时间</dt><dd>${this.escape(this.formatDate(emoji.created_at))}</dd></dl></details>
                     </div>
                     <div class="detail-actions">
-                        <button class="btn btn-secondary" onclick="emojiLibrary.downloadEmoji('${this.escape(emoji.emoji_id)}')">下载表情包</button>
+                        <button class="btn btn-primary" onclick="emojiLibrary.downloadEmoji('${this.escape(emoji.emoji_id)}')">下载表情包</button>
                         ${adminActions}
-                        <button class="btn btn-secondary" onclick="ui.closeModal()">关闭</button>
                     </div>
                 </div>
             `);
@@ -564,22 +718,21 @@ class EmojiLibrary {
     renderEmotions() {
         const list = document.getElementById('emotion-list');
         if (!list) return;
-        if (!this.emotions.length) {
-            list.innerHTML = '<div class="empty-state">暂无情绪或功能标签</div>';
+        const items = this.emotions.filter(tag => (this.tagType === 'all' || this.isFunctionTag(tag) === (this.tagType === 'function'))
+            && (!this.tagQuery || this.filterItems([tag], this.tagQuery).length));
+        if (!items.length) {
+            list.innerHTML = `<div class="emoji-empty"><span aria-hidden="true">✦</span><p>${this.emotions.length ? '没有匹配的标签' : '暂无情绪或功能标签'}</p></div>`;
             return;
         }
-        list.innerHTML = this.emotions.map(emotion => `
-            <div class="list-item">
+        list.innerHTML = items.map(emotion => `
+            <div class="list-item emoji-tag-card">
                 <div class="list-item-info">
-                    <div class="list-item-name">${this.escape(emotion.name)} <small class="emoji-tag-kind">${this.isFunctionTag(emotion) ? '功能标签' : '基础情绪'}</small></div>
-                    <div class="list-item-description">
-                        ${this.escape(emotion.description || '无描述')}
-                        ${(emotion.aliases || []).length ? ` | 别称: ${this.escape(emotion.aliases.join(' / '))}` : ''}
-                    </div>
+                    <div class="list-item-name">${this.escape(emotion.name)} <small class="emoji-tag-kind ${this.isFunctionTag(emotion) ? 'is-function' : ''}">${this.isFunctionTag(emotion) ? '功能标签' : '基础情绪'}</small></div>
+                    ${emotion.description || (emotion.aliases || []).length ? `<div class="list-item-description">${emotion.description ? this.escape(emotion.description) : ''}${(emotion.aliases || []).length ? `<span>别称：${this.escape(emotion.aliases.join(' / '))}</span>` : ''}</div>` : ''}
                 </div>
                 <div class="list-item-actions">
                     <button class="action-btn edit" onclick="emojiLibrary.showEditEmotionModal(${emotion.id})">编辑</button>
-                    <button class="action-btn delete" onclick="emojiLibrary.deleteEmotion(${emotion.id})">删除</button>
+                    <details class="emoji-tag-more"><summary aria-label="${this.escape(emotion.name)}更多操作">···</summary><button class="action-btn delete" onclick="emojiLibrary.deleteEmotion(${emotion.id})">删除</button></details>
                 </div>
             </div>
         `).join('');
@@ -746,10 +899,11 @@ class EmojiLibrary {
     showEmotionModal(emotion = null) {
         const aliases = (emotion?.aliases || []).join(', ');
         ui.showModal(emotion ? '编辑情绪 / 功能标签' : '添加情绪 / 功能标签', `
+            <div class="emoji-tag-kind-picker" role="group" aria-label="标签类型"><label><input type="radio" name="emotion-kind" value="emotion" ${!this.isFunctionTag(emotion) ? 'checked' : ''}>基础情绪</label><label><input type="radio" name="emotion-kind" value="function" ${this.isFunctionTag(emotion) ? 'checked' : ''}>功能标签</label></div>
             <div class="form-group">
                 <label>名称</label>
-                <input id="emotion-name" class="form-input" maxlength="255" value="${this.escape(emotion?.name || '')}" placeholder="例如 love、#睡觉、#摸头">
-                <small class="emoji-tag-hint">以 # 开头的名称会自动归为功能标签，例如 #睡觉；其他名称为基础情绪。</small>
+                <input id="emotion-name" class="form-input" maxlength="255" value="${this.escape(String(emotion?.name || '').replace(/^#/, ''))}" placeholder="例如 开心、摸头">
+                <small class="emoji-tag-hint">功能标签会自动添加 # 前缀。</small>
             </div>
             <div class="form-group">
                 <label>别称</label>
@@ -767,13 +921,15 @@ class EmojiLibrary {
     }
 
     async saveEmotion(id = null) {
+        const kind = document.querySelector('input[name="emotion-kind"]:checked')?.value || 'emotion';
+        const name = document.getElementById('emotion-name')?.value?.trim().replace(/^#+/, '').trim() || '';
         const payload = {
-            name: document.getElementById('emotion-name')?.value?.trim() || '',
+            name: kind === 'function' && name ? `#${name}` : name,
             aliases: (document.getElementById('emotion-aliases')?.value || '').split(',').map(item => item.trim()).filter(Boolean),
             description: document.getElementById('emotion-description')?.value || '',
         };
-        if (!payload.name || (payload.name.startsWith('#') && !payload.name.slice(1).trim())) {
-            ui.showToast('请填写标签名称，功能标签的 # 后需要填写功能名称', 'warning');
+        if (!name) {
+            ui.showToast('请填写标签名称', 'warning');
             return;
         }
         try {

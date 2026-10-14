@@ -169,6 +169,44 @@ test('homepage is native and does not download legacy controllers or phonetic di
   expect(errors).toEqual([]);
 });
 
+test('homepage decoding keeps layout stable and does not replay on a cached return', async ({ page }) => {
+  const { errors } = await mockWorkspace(page);
+  await page.route('**/api/system/status', async route => {
+    await new Promise(resolve => setTimeout(resolve, 350));
+    await route.fulfill({ json: { total_images: 12486, total_groups: 32, total_characters: 128, total_emojis: 0 } });
+  });
+  await page.goto('/');
+  const slogan = page.locator('.archive-eyebrow .decode-text');
+  await expect(slogan).toHaveAttribute('data-decoding', 'true');
+  const width = (await slogan.boundingBox())!.width;
+  const firstMetric = page.locator('.archive-metric').first();
+  await expect(firstMetric.locator('.decode-text-readable')).toHaveText('12,486');
+  await expect(firstMetric).toHaveAccessibleName(/12,486/);
+  await expect(page.locator('.archive-home [data-decoding]')).toHaveCount(0);
+  expect((await slogan.boundingBox())!.width).toBeCloseTo(width, 1);
+  await expect(firstMetric.locator('strong')).toHaveText('12,486');
+  await expect(page.locator('.archive-metric strong').nth(1)).toHaveText('0');
+  await page.getByRole('link', { name: '图片管理', exact: true }).click();
+  await expect(page.locator('.modern-image-card')).toHaveCount(20);
+  await page.getByRole('link', { name: '首页', exact: true }).click();
+  await expect(page.locator('.archive-eyebrow')).toBeVisible();
+  await expect(page.locator('.archive-home [data-decoding]')).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: test.info().outputPath('homepage-decode-mobile.png') });
+  expect(errors).toEqual([]);
+});
+
+test('homepage decoding respects system reduced motion', async ({ page }) => {
+  const { errors } = await mockWorkspace(page);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/');
+  await expect(page.locator('.archive-metric strong').first()).toHaveText('41');
+  await expect(page.locator('.archive-eyebrow')).toHaveText('YOUR COLLECTION. YOUR UNIVERSE.');
+  await expect(page.locator('.archive-home [data-decoding]')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test('gallery cancels obsolete searches, retains filters and supports browser history', async ({ page }) => {
   const { errors } = await mockWorkspace(page);
   await page.goto('/#/gallery');

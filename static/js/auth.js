@@ -123,7 +123,7 @@ class AuthManager {
         this.applicationLoadPromise = (async () => {
             await this.waitForDocumentBody();
             const stylesReady = Promise.all([
-                this.loadStyle('/static/css/style.css?v=20261014-emoji'),
+                this.loadStyle('/static/css/style.css?v=20261015-ranking-filter'),
                 this.loadStyle('/static/css/icons.css?v=20260812a'),
                 this.loadStyle('/static/css/workspace-shell.css?v=20261004l'),
             ]);
@@ -133,7 +133,7 @@ class AuthManager {
                 '/static/js/pinyin-search.js?v=20260820c',
                 '/static/js/character-selector.js?v=20261008-confirm',
                 '/static/js/tag-selector.js?v=20261008-confirm',
-                '/static/js/api.js?v=20261007a',
+                '/static/js/api.js?v=20261015-ranking-filter',
                 '/static/js/upload-queue.js?v=20261008-confirm',
                 '/static/js/query-panel.js?v=20260820d',
                 '/static/js/entity-cache.js?v=20260820a',
@@ -141,7 +141,7 @@ class AuthManager {
                 '/static/js/image-list.js?v=20261007a',
                 '/static/js/modal.js?v=20261004q',
                 '/static/js/workspace-shell.js?v=20261014-bookmark-scope',
-                '/static/js/ui.js?v=20261014-emoji',
+                '/static/js/ui.js?v=20261015-ranking-filter',
                 '/static/js/main.js?v=20261004f',
             ];
 

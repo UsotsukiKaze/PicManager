@@ -1,7 +1,7 @@
 import type { RouteLocationNormalizedLoaded, RouteLocationRaw } from 'vue-router';
 
 export interface SectionItem { key: string; name: string; title: string; icon: string; to: RouteLocationRaw }
-export type SectionFamily = 'management' | 'emoji' | 'upload' | 'settings' | 'profile';
+export type SectionFamily = 'management' | 'emoji' | 'upload' | 'settings' | 'profile' | 'rankings';
 type SectionRoute = Pick<RouteLocationNormalizedLoaded, 'path' | 'query'>;
 export const workspaceTitles: Array<{ family: SectionFamily; title: string }> = [
   { family: 'management', title: '图片管理' },
@@ -9,6 +9,7 @@ export const workspaceTitles: Array<{ family: SectionFamily; title: string }> = 
   { family: 'upload', title: '上传资源' },
   { family: 'settings', title: '设置' },
   { family: 'profile', title: '我的' },
+  { family: 'rankings', title: '榜上有名' },
 ];
 export const managementSections: SectionItem[] = [
   { key: 'images', name: '图片', title: '图片管理', icon: 'gallery', to: '/gallery' },
@@ -22,11 +23,17 @@ export function sectionFamily(path: string): SectionFamily | undefined {
   if (path === '/emoji') return 'emoji';
   if (path === '/settings') return 'settings';
   if (path === '/profile') return 'profile';
+  if (path === '/rankings') return 'rankings';
 }
 export function sectionsFor(route: SectionRoute): SectionItem[] {
-  if (route.path === '/settings' || route.path === '/profile') return [{
-    key: route.path.slice(1), name: route.path === '/settings' ? '设置' : '我的',
-    title: route.path === '/settings' ? '设置' : '我的', icon: route.path === '/settings' ? 'settings' : 'character', to: route.path,
+  if (route.path === '/rankings') return [
+    { key: 'contribution', name: '贡献榜', title: '榜上有名', icon: 'rankings', to: { path: '/rankings', query: { ...route.query, board: undefined } } },
+    { key: 'characters', name: '角色榜', title: '角色榜', icon: 'character', to: { path: '/rankings', query: { ...route.query, board: 'characters' } } },
+    { key: 'groups', name: '分组榜', title: '分组榜', icon: 'groups', to: { path: '/rankings', query: { ...route.query, board: 'groups' } } },
+  ];
+  if (['/settings', '/profile'].includes(route.path)) return [{
+    key: route.path.slice(1), name: workspaceTitles.find(item => item.family === sectionFamily(route.path))!.title,
+    title: workspaceTitles.find(item => item.family === sectionFamily(route.path))!.title, icon: route.path === '/settings' ? 'settings' : 'character', to: route.path,
   }];
   if (sectionFamily(route.path) === 'management') return managementSections;
   if (route.path === '/upload') return [
@@ -39,7 +46,8 @@ export function sectionsFor(route: SectionRoute): SectionItem[] {
   ];
 }
 export function activeSection(route: SectionRoute) {
-  if (route.path === '/settings' || route.path === '/profile') return route.path.slice(1);
+  if (route.path === '/rankings') return route.query.board === 'characters' || route.query.board === 'groups' ? route.query.board : 'contribution';
+  if (['/settings', '/profile'].includes(route.path)) return route.path.slice(1);
   if (route.path === '/upload') return route.query.tab === 'temp' ? 'temp' : 'local';
   return route.path === '/emoji' ? (route.query.tab === 'tags' ? 'tags' : 'list')
     : managementSections.find(item => item.to === route.path)?.key || 'images';

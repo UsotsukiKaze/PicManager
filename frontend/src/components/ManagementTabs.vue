@@ -14,7 +14,8 @@ type HeadingRoute = Pick<RouteLocationNormalizedLoaded, 'path' | 'query'>;
 const snapshot = (value: HeadingRoute): HeadingRoute => ({ path: value.path, query: { ...value.query } });
 const heading = shallowRef(snapshot(route));
 const family = computed(() => sectionFamily(heading.value.path) || 'management');
-const utility = computed(() => family.value === 'settings' || family.value === 'profile');
+const utility = computed(() => ['settings', 'profile'].includes(family.value));
+const caption = computed(() => ({ settings: 'PREFERENCES', profile: 'MY ARCHIVE' }[family.value as 'settings' | 'profile']));
 const items = computed(() => sectionsFor(heading.value).filter(item => family.value !== 'upload' || session.isAdmin || item.key !== 'temp'));
 const revision = ref(0), duration = ref(940), epoch = ref<number>();
 const active = computed(() => items.value.find(item => item.key === activeSection(heading.value)) || items.value[0]!);
@@ -59,6 +60,6 @@ const stopError = router.onError((_error, to) => {
 onBeforeUnmount(() => { stopBefore(); stopAfter(); stopError(); });
 </script>
 <template><header class="modern-management-header section-heading" :data-family="family" :data-section="active.key">
-  <div class="section-heading-start"><FilmTitle :title="active.title" :titles="titles" :revision="revision" :duration="duration" :epoch="epoch" @seat="seatIndex"/><span v-if="utility" class="section-heading-caption" aria-hidden="true" :key="family">{{ family === 'settings' ? 'PREFERENCES' : 'MY ARCHIVE' }}</span><span v-else class="section-heading-index" :class="{ 'is-pending': indexPending }" aria-hidden="true">{{ String(index).padStart(2, '0') }}<i>/</i>{{ String(count).padStart(2, '0') }}</span></div>
-  <SectionWheel v-if="!utility" :items="items" :active="active.key" :family="family" :epoch="epoch" :label="family === 'emoji' ? '表情包库分类' : family === 'upload' ? '上传工作区' : '图片管理分类'" @select="select"/>
+  <div class="section-heading-start"><FilmTitle :title="active.title" :titles="titles" :revision="revision" :duration="duration" :epoch="epoch" @seat="seatIndex"/><span v-if="utility" class="section-heading-caption" aria-hidden="true" :key="family">{{ caption }}</span><span v-else class="section-heading-index" :class="{ 'is-pending': indexPending }" aria-hidden="true">{{ String(index).padStart(2, '0') }}<i>/</i>{{ String(count).padStart(2, '0') }}</span></div>
+  <SectionWheel v-if="!utility" :items="items" :active="active.key" :family="family" :epoch="epoch" :label="family === 'emoji' ? '表情包库分类' : family === 'upload' ? '上传工作区' : family === 'rankings' ? '榜单分类' : '图片管理分类'" @select="select"/>
 </header></template>

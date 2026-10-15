@@ -22,6 +22,13 @@
 .section-heading[data-family=management] .section-wheel-intro .app-icon { width:16px; height:16px; }
 .section-heading[data-family=management] .section-wheel-trigger { gap:6px; }
 .section-heading[data-family=management] .section-wheel-trigger>.app-icon { width:16px; height:16px; }
+.section-heading[data-family=rankings] .section-wheel { min-width:110px; width:110px; }
+.section-heading[data-family=rankings] .section-wheel-intro button { width:78px; padding-inline:10px; gap:6px; justify-content:center; }
+.section-heading[data-family=rankings] .section-wheel-intro .app-icon,.section-heading[data-family=rankings] .section-wheel-trigger>.app-icon { width:16px; height:16px; }
+.section-heading[data-family=rankings] .section-wheel-trigger { gap:6px; }
+.modern-app .header-rankings[aria-current=page] { color:var(--primary-color)!important; background:var(--primary-soft); }
+@media(max-width:420px) { .header-rankings>span { display:none; }.modern-app .header-rankings { gap:0; } }
+@media(max-width:360px) { .modern-app .modern-brand { font-size:15px; gap:7px; }.modern-app .modern-brand img { width:24px; height:24px; }.modern-app .header-link { padding:6px; gap:4px; }.modern-app .modern-appearance>summary { padding:6px; }.header-logout>span { display:none; }.modern-app .header-logout { gap:0; } }
 .section-wheel button { font:inherit; cursor:pointer; color:var(--text-secondary); }
 .section-wheel-trigger { display:flex; position:relative; z-index:3; height:44px; width:100%; align-items:center; justify-content:center; gap:9px; padding:0 13px; border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); color:var(--primary-color)!important; font-size:12px!important; font-weight:600!important; box-shadow:var(--shadow); transition:background .22s,border-color .22s,opacity .3s,transform .36s var(--motion-ease-out); }
 .section-wheel-trigger>.app-icon { width:18px; height:18px; }

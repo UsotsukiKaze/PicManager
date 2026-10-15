@@ -40,7 +40,7 @@ test('title makes one shared revolution and seats with two diminishing rebounds'
   await page.goto('/#/gallery');
   await expect(page.locator('.section-film-title')).toHaveAttribute('data-rolling', 'true');
   const start = await sample(page, 0);
-  expect(start.titles).toEqual(['图片管理', '表情包库', '上传资源', '设置', '我的', '图片管理']);
+  expect(start.titles).toEqual(['图片管理', '表情包库', '上传资源', '设置', '我的', '榜上有名', '图片管理']);
   const fast = await sample(page, .25), slowing = await sample(page, .60);
   expect(fast.y).toBeLessThan(start.y); expect(slowing.y).toBeLessThan(fast.y);
   expect(fast.filter).not.toBe('blur(0px)');
@@ -73,7 +73,7 @@ test('all three workspaces share a continuous reel and the same navigation clock
     expect(Math.abs(Number(clocks.title) - Number(clocks.rail))).toBeLessThan(1);
     const frame = await sample(page, 0);
     expect(frame.titles[0]).toBe(previous); expect(frame.titles.at(-1)).toBe(title);
-    expect(frame.titles.length).toBeGreaterThanOrEqual(4); expect(frame.titles.length).toBeLessThanOrEqual(8);
+    expect(frame.titles.length).toBeGreaterThanOrEqual(4); expect(frame.titles.length).toBeLessThanOrEqual(9);
     expect(frame.titles.every((name, i) => i === 0 || name !== frame.titles[i - 1])).toBe(true);
     expect(await page.locator('.section-film-title').evaluate(element => element.getBoundingClientRect().width)).toBeCloseTo(width, 1);
     await finish(page); previous = title;

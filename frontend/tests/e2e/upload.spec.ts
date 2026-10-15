@@ -52,6 +52,32 @@ async function pick(page: Page, label: string, name: string) {
   await page.getByRole('option', { name, exact: true }).click();
 }
 
+test('upload recognizes files when secure-context crypto APIs are unavailable', async ({ page }) => {
+  const mock = await fixture(page);
+  // Keep the browser on an ordinary HTTP origin while serving its test assets
+  // locally. Unlike localhost, this origin is not treated as a secure context.
+  await page.route(/^http:\/\/picmanager\.test\/(?!api\/|auth\/).*/, async route => {
+    const url = new URL(route.request().url());
+    const response = await route.fetch({ url: `http://127.0.0.1:18877${url.pathname}${url.search}` });
+    await route.fulfill({ response });
+  });
+  await page.goto('http://picmanager.test/#/upload');
+  expect(await page.evaluate(() => window.isSecureContext)).toBe(false);
+  const file = await image(page, '12345678_p0.PNG');
+  await page.getByLabel('选择上传文件', { exact: true }).setInputFiles(file);
+  await expect(page.locator('.intake-card')).toHaveCount(1);
+  await expect(page.locator('.intake-card-info')).toContainText('12345678_p0.PNG');
+  await pick(page, '角色', '琳奈');
+  await page.getByRole('button', { name: '继续添加图片', exact: true }).click();
+  await page.getByLabel('选择上传文件', { exact: true }).setInputFiles(file);
+  await expect(page.locator('.intake-card')).toHaveCount(1);
+  await expect(page.getByText(/已在列表中/)).toBeVisible();
+  await page.getByRole('button', { name: '提交 1 张', exact: true }).click();
+  await expect(page.locator('.intake-state')).toHaveText('已入库');
+  expect(mock.sent).toHaveLength(1);
+  expect(mock.errors).toEqual([]);
+});
+
 test('one intake expands into a batch, preserves metadata and appends selected tags', async ({ page }, info) => {
   const mock = await fixture(page);
   await page.goto('/#/upload');

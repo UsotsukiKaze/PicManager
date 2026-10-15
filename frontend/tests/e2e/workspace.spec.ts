@@ -1,5 +1,74 @@
 import { test, expect, type Page } from '@playwright/test';
 
+test('role rankings filter by shared groups and ignore stale responses', async ({ page }) => {
+  const { errors } = await mockWorkspace(page);
+  const requests: string[] = [];
+  await page.route('**/api/rankings**', async route => {
+    const group = new URL(route.request().url()).searchParams.get('group_id') || '';
+    requests.push(group);
+    if (group === '1') await new Promise(resolve => setTimeout(resolve, 600));
+    await route.fulfill({ json: {
+      contribution: [], groups: [{ name: '原神', character_count: 2, image_count: 30 }],
+      characters: group === '2' ? [] : [{ name: group === '1' ? '芙宁娜' : '全库第一', image_count: 12 }],
+      recent_groups: [], recent_days: 30,
+    } });
+  });
+  await page.goto('/#/rankings');
+  await page.getByRole('button', { name: '角色图片数', exact: true }).click();
+  await expect(page.locator('#leaderboard-characters-list')).toContainText('全库第一');
+  await page.getByRole('button', { name: '打开角色榜分组筛选', exact: true }).click();
+  const input = page.getByRole('textbox', { name: '按分组筛选角色榜', exact: true });
+  await input.fill('原神');
+  await page.locator('#ranking-group-filter-dropdown .searchable-option').filter({ hasText: '原神' }).click();
+  await expect(page.locator('#ranking-group-label')).toHaveText('原神');
+  await input.fill('崩坏');
+  await page.locator('#ranking-group-filter-dropdown .searchable-option').filter({ hasText: '崩坏星穹铁道' }).click();
+  await expect(page.locator('#leaderboard-characters-list')).toContainText('暂无角色数据');
+  await expect(page.locator('#leaderboard-characters-list')).toHaveAttribute('aria-busy', 'false');
+  await page.waitForTimeout(700);
+  await expect(page.locator('#leaderboard-characters-list')).toContainText('暂无角色数据');
+  await page.getByRole('button', { name: '清除筛选', exact: true }).click();
+  await expect(page.locator('#leaderboard-characters-list')).toContainText('全库第一');
+  await expect(page.locator('#ranking-group-label')).toHaveText('全部分组');
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: test.info().outputPath('ranking-filter-mobile.png') });
+  expect(requests).toEqual(expect.arrayContaining(['', '1', '2']));
+  expect(errors).toEqual([]);
+});
+
+test('rankings show inventory totals in two columns and fit mobile', async ({ page }) => {
+  const { errors } = await mockWorkspace(page);
+  await page.route('**/api/rankings**', route => route.fulfill({ json: {
+    contribution: [{ nickname: '贡献者甲', qq_number: '1', score: 8 }, { nickname: '贡献者乙', qq_number: '2', score: 5 }],
+    characters: [{ name: '角色甲', group_name: '分组甲', image_count: 1234 }, { name: '角色乙', group_name: '分组乙', image_count: 23 }],
+    groups: [{ name: '分组甲', character_count: 12, image_count: 2345 }, { name: '分组乙', character_count: 3, image_count: 89 }],
+    recent_groups: [], recent_days: 30,
+  } }));
+  await page.goto('/#/rankings');
+  await expect(page.locator('#leaderboard-contribution-list .leaderboard-item')).toHaveCount(2);
+  for (const name of ['贡献榜', '角色图片数', '人气分组']) {
+    await page.getByRole('button', { name, exact: true }).click();
+    const cards = page.locator('.leaderboard-panel.active .leaderboard-item');
+    await expect(cards).toHaveCount(2);
+    const [left, right] = await Promise.all([cards.nth(0).boundingBox(), cards.nth(1).boundingBox()]);
+    expect(Math.abs(left!.y - right!.y)).toBeLessThan(2);
+    expect(right!.x).toBeGreaterThan(left!.x + left!.width);
+  }
+  await expect(page.locator('#leaderboard-groups-list')).toContainText('2,345');
+  await expect(page.locator('#leaderboard-groups-list .leaderboard-item').first()).toContainText('12角色');
+  await page.screenshot({ path: test.info().outputPath('rankings-desktop.png') });
+  await page.getByRole('button', { name: '角色图片数', exact: true }).click();
+  await expect(page.locator('#leaderboard-characters-list .leaderboard-score').first()).toHaveText('1,234张图片');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: '人气分组', exact: true }).click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  const cards = page.locator('#leaderboard-groups-list .leaderboard-item');
+  expect((await cards.nth(1).boundingBox())!.y).toBeGreaterThan((await cards.nth(0).boundingBox())!.y);
+  await page.screenshot({ path: test.info().outputPath('rankings-mobile.png') });
+  expect(errors).toEqual([]);
+});
+
 test('POL prepares its next batch and refresh consumes it without another sync', async ({ page }) => {
   const { errors } = await mockWorkspace(page);
   const first = 'a'.repeat(32), next = 'b'.repeat(32);

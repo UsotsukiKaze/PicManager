@@ -594,22 +594,58 @@ class UIManager {
     }
 
     async loadRankings() {
+        const request = this._rankingsRequest = (this._rankingsRequest || 0) + 1;
+        const groupId = document.getElementById('ranking-group-filter')?.value || null;
+        const list = document.getElementById('leaderboard-characters-list');
+        list?.setAttribute('aria-busy', 'true');
+        void this.initializeRankingGroupFilter();
         try {
-            console.log('开始加载榜单数据...');
-            const data = await api.getRankings(10);
-            console.log('榜单数据:', data);
+            const data = await api.getRankings(10, groupId);
+            if (request !== this._rankingsRequest) return;
             
             // 渲染各榜单
             this.renderContributionRankings(data.contribution || []);
             this.renderCharacterRankings(data.characters || []);
-            this.renderImageRankings(data.images || []);
-            console.log('榜单渲染完成');
+            this.renderGroupRankings(data.groups || []);
         } catch (error) {
+            if (request !== this._rankingsRequest) return;
             console.error('加载榜单失败:', error);
             // 显示更详细的错误信息
             const errorMsg = error.message || '未知错误';
             this.showToast(`加载榜单失败: ${errorMsg}`, 'error');
+        } finally {
+            if (request === this._rankingsRequest) list?.setAttribute('aria-busy', 'false');
         }
+    }
+
+    async initializeRankingGroupFilter() {
+        await this.loadGroupsData();
+        this.initSearchableSelect({
+            containerId: 'ranking-group-filter-container',
+            inputId: 'ranking-group-filter-input',
+            hiddenId: 'ranking-group-filter',
+            dropdownId: 'ranking-group-filter-dropdown',
+            getData: () => this.allGroups || [],
+            renderOption: item => `<div class="option-main">${this.escapeHomeRankingText(item.name)}</div>`,
+            allOptionText: '全部分组',
+            onSelect: item => {
+                document.getElementById('ranking-group-label').textContent = item?.name || '全部分组';
+                document.getElementById('ranking-group-reset').hidden = !item;
+                this.loadRankings();
+            },
+        });
+        const config = document.getElementById('ranking-group-filter-input')?._config;
+        if (config) this.filterSearchableOptions(config);
+    }
+
+    clearRankingGroupFilter() {
+        document.getElementById('ranking-group-filter-input').value = '';
+        const field = document.getElementById('ranking-group-filter');
+        field.value = '';
+        window.queryPanels?.updateForField(field);
+        document.getElementById('ranking-group-label').textContent = '全部分组';
+        document.getElementById('ranking-group-reset').hidden = true;
+        this.loadRankings();
     }
 
     renderContributionRankings(items) {
@@ -956,29 +992,29 @@ class UIManager {
                     <div class="leaderboard-name">${this.escapeHomeRankingText(item.name)}</div>
                     <div class="leaderboard-sub">${this.escapeHomeRankingText(item.group_name || '未分组')}</div>
                 </div>
-                <div class="leaderboard-score">${item.count}</div>
+                <div class="leaderboard-score">${Number(item.image_count ?? item.count ?? 0).toLocaleString('zh-CN')}<small>张图片</small></div>
             </div>
         `).join('');
     }
 
-    renderImageRankings(items) {
-        const container = document.getElementById('leaderboard-images-list');
+    renderGroupRankings(items) {
+        const container = document.getElementById('leaderboard-groups-list');
         if (!container) return;
 
         if (!items.length) {
-            container.innerHTML = '<div class="empty-state">暂无图片数据</div>';
+            container.innerHTML = '<div class="empty-state">暂无分组数据</div>';
             return;
         }
 
         container.innerHTML = items.map((item, index) => `
             <div class="leaderboard-item">
                 <div class="leaderboard-rank">${index + 1}</div>
-                <img class="leaderboard-thumb" src="${this.getThumbnailUrl(item)}" alt="图片" loading="lazy" decoding="async" fetchpriority="low" onerror="ui.handleImageFallback(this)">
+                <img class="leaderboard-avatar" src="${this.getEntityAvatar(item)}" alt="" loading="lazy" decoding="async" onerror="ui.handleEntityAvatarFallback(this)">
                 <div class="leaderboard-info">
-                    <div class="leaderboard-name">图片 ${item.image_id}</div>
-                    <div class="leaderboard-sub">浏览次数</div>
+                    <div class="leaderboard-name">${this.escapeHomeRankingText(item.name)}</div>
+                    <div class="leaderboard-sub">分组收藏</div>
                 </div>
-                <div class="leaderboard-score">${item.count}</div>
+                <div class="leaderboard-metrics"><span><strong>${Number(item.character_count || 0).toLocaleString('zh-CN')}</strong><small>角色</small></span><span><strong>${Number(item.image_count ?? item.count ?? 0).toLocaleString('zh-CN')}</strong><small>图片</small></span></div>
             </div>
         `).join('');
     }

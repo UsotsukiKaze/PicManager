@@ -10,13 +10,13 @@ export const router = createRouter({
     { path: '/upload', name: 'upload', component: () => import('./views/UploadView.vue') },
     { path: '/emoji', name: 'emoji', component: () => import('./views/EmojiView.vue') },
     { path: '/profile', name: 'profile', component: () => import('./views/ProfileView.vue') },
+    { path: '/rankings', name: 'rankings', component: () => import('./views/RankingsView.vue') },
     ...[
       ['groups', '/manage/groups', 'management', 'group-management'],
       ['characters', '/manage/characters', 'management', 'character-management'],
       ['features', '/manage/features', 'management', 'feature-tag-management'],
 
       ['pixiv', '/pixiv', 'pixiv-ol', ''], ['settings', '/settings', 'settings', ''],
-      ['rankings', '/rankings', 'rankings', ''],
     ].map(([name, path, page, tab]) => ({ name, path, component: () => import('./views/FeatureView.vue'),
       meta: { legacy: true, page, tab, admin: name === 'pixiv' } })),
     { path: '/:pathMatch(.*)*', redirect: '/' },

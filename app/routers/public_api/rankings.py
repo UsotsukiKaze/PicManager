@@ -7,7 +7,7 @@ from sqlalchemy import func
 from ... import models
 from ...contributions import calculate_contribution_score
 from ...database import get_db_context
-from ...models import Character, CharacterQueryCount, Group, ImageViewCount, PendingRequest, RequestStatus, User
+from ...models import Character, Group, PendingRequest, RequestStatus, User
 from ...services import ImageService
 
 router = APIRouter()
@@ -16,16 +16,16 @@ _RANKINGS_CACHE = {"key": None, "expires_at": 0.0, "data": None}
 
 
 @router.get("/rankings")
-def get_rankings(limit: int = 10):
+def get_rankings(limit: int = 10, group_id: int | None = None):
     limit = max(1, min(limit, 50))
     now = time.time()
     if (
-        _RANKINGS_CACHE["key"] == limit
+        _RANKINGS_CACHE["key"] == (limit, group_id)
         and _RANKINGS_CACHE["data"] is not None
         and _RANKINGS_CACHE["expires_at"] > now
     ):
         return _RANKINGS_CACHE["data"]
-    """获取贡献榜、角色人气榜、图片人气榜"""
+    """获取贡献榜、角色图片数榜和分组收藏榜"""
     with get_db_context() as db:
         # 贡献榜（仅登录用户）
         approved_requests = db.query(PendingRequest).filter(
@@ -64,80 +64,48 @@ def get_rankings(limit: int = 10):
         contribution_list.sort(key=lambda item: item["score"], reverse=True)
         contribution_list = contribution_list[:limit]
 
-        # 角色人气榜（无统计时回退到最新角色）
-        character_query_rows = db.query(CharacterQueryCount).order_by(
-            CharacterQueryCount.query_count.desc()
-        ).limit(limit).all()
-        if character_query_rows:
-            character_ids = [row.character_id for row in character_query_rows]
-            characters = db.query(Character).filter(Character.id.in_(character_ids)).all()
-            character_map = {c.id: c for c in characters}
+        # Count library images, not query/view events. Aggregate independently
+        # so joining group roles cannot multiply image totals.
+        character_images = db.query(
+            models.image_character_association.c.character_id.label('character_id'),
+            func.count(func.distinct(models.Image.image_id)).label('image_count'),
+        ).join(models.Image, models.Image.image_id == models.image_character_association.c.image_id).filter(
+            models.Image.file_status == ImageService.AVAILABLE,
+        ).group_by(models.image_character_association.c.character_id).subquery()
+        count = func.coalesce(character_images.c.image_count, 0)
+        character_query = db.query(Character.id, Character.name, Character.avatar_url,
+            Group.name.label('group_name'), count.label('image_count')).outerjoin(
+                Group, Group.id == Character.group_id).outerjoin(
+                character_images, character_images.c.character_id == Character.id)
+        if group_id is not None:
+            character_query = character_query.filter(Character.group_id == group_id)
+        characters = character_query.order_by(
+                count.desc(), Character.name.asc(), Character.id.asc()).limit(limit).all()
+        character_rank = [{
+            'character_id': row.id, 'name': row.name, 'group_name': row.group_name,
+            'avatar_url': row.avatar_url or '/favicon.ico',
+            'image_count': row.image_count, 'count': row.image_count,
+        } for row in characters]
 
-            character_rank = []
-            for row in character_query_rows:
-                character = character_map.get(row.character_id)
-                if not character:
-                    continue
-                group = db.query(Group).filter(Group.id == character.group_id).first()
-                character_rank.append({
-                    "character_id": character.id,
-                    "name": character.name,
-                    "group_name": group.name if group else None,
-                    "avatar_url": character.avatar_url or "/favicon.ico",
-                    "count": row.query_count
-                })
-        else:
-            latest_characters = db.query(Character).order_by(Character.created_at.desc()).limit(limit).all()
-            character_rank = []
-            for character in latest_characters:
-                group = db.query(Group).filter(Group.id == character.group_id).first()
-                character_rank.append({
-                    "character_id": character.id,
-                    "name": character.name,
-                    "group_name": group.name if group else None,
-                    "avatar_url": character.avatar_url or "/favicon.ico",
-                    "count": 0
-                })
-
-        # 图片人气榜（无统计时回退到最新图片）
-        image_view_rows = db.query(ImageViewCount).order_by(
-            ImageViewCount.view_count.desc()
-        ).limit(limit).all()
-        if image_view_rows:
-            image_ids = [row.image_id for row in image_view_rows]
-            images = db.query(models.Image).filter(
-                models.Image.image_id.in_(image_ids),
-                models.Image.file_status == ImageService.AVAILABLE
-            ).all()
-            image_map = {img.image_id: img for img in images}
-
-            image_rank = []
-            for row in image_view_rows:
-                image = image_map.get(row.image_id)
-                if not image:
-                    continue
-                image_rank.append({
-                    "image_id": image.image_id,
-                    "file_extension": image.file_extension,
-                    "file_path": image.file_path,
-                    "count": row.view_count
-                })
-        else:
-            latest_images = db.query(models.Image).filter(
-                models.Image.file_status == ImageService.AVAILABLE
-            ).order_by(
-                models.Image.created_at.desc(),
-                models.Image.image_id.desc()
-            ).limit(limit).all()
-            image_rank = [
-                {
-                    "image_id": image.image_id,
-                    "file_extension": image.file_extension,
-                    "file_path": image.file_path,
-                    "count": 0
-                }
-                for image in latest_images
-            ]
+        group_images = db.query(
+            models.image_group_association.c.group_id.label('group_id'),
+            func.count(func.distinct(models.Image.image_id)).label('image_count'),
+        ).join(models.Image, models.Image.image_id == models.image_group_association.c.image_id).filter(
+            models.Image.file_status == ImageService.AVAILABLE,
+        ).group_by(models.image_group_association.c.group_id).subquery()
+        group_roles = db.query(Character.group_id.label('group_id'),
+            func.count(Character.id).label('character_count')).group_by(Character.group_id).subquery()
+        image_count = func.coalesce(group_images.c.image_count, 0)
+        character_count = func.coalesce(group_roles.c.character_count, 0)
+        groups = db.query(Group.id, Group.name, Group.avatar_url,
+            image_count.label('image_count'), character_count.label('character_count')).outerjoin(
+                group_images, group_images.c.group_id == Group.id).outerjoin(
+                group_roles, group_roles.c.group_id == Group.id).order_by(
+                image_count.desc(), character_count.desc(), Group.name.asc(), Group.id.asc()).limit(limit).all()
+        group_rank = [{
+            'group_id': row.id, 'name': row.name, 'avatar_url': row.avatar_url or '/favicon.ico',
+            'image_count': row.image_count, 'character_count': row.character_count, 'count': row.image_count,
+        } for row in groups]
 
         recent_since = datetime.utcnow() - timedelta(days=30)
         recent_group_rows = db.query(
@@ -166,7 +134,7 @@ def get_rankings(limit: int = 10):
         data = {
             "contribution": contribution_list,
             "characters": character_rank,
-            "images": image_rank,
+            "groups": group_rank,
             "recent_groups": [
                 {
                     "group_id": row.id,
@@ -179,7 +147,7 @@ def get_rankings(limit: int = 10):
             "recent_days": 30,
         }
         _RANKINGS_CACHE.update({
-            "key": limit,
+            "key": (limit, group_id),
             "expires_at": time.time() + 60,
             "data": data,
         })

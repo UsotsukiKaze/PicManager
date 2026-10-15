@@ -92,6 +92,8 @@ async function sequence(target: string, from = props.items[0]!.key, startAt?: nu
   try { await Promise.all(introMotion.map(animation => animation.finished)); } catch { return; }
   if (token !== introSerial) return;
   mode.value = 'idle'; stopIntro();
+  // Keep a stationary pointer effective when the intro or return finishes beneath it.
+  void nextTick(() => { if (!disposed && matchMedia('(hover:hover) and (pointer:fine)').matches && root.value?.matches(':hover')) peek(); });
 }
 function peek(event?: PointerEvent) {
   if (innerWidth <= 640 || event?.pointerType === 'touch' || modalOpen.value || returning.value || mode.value === 'intro') return;
@@ -215,7 +217,7 @@ onBeforeUnmount(() => { disposed = true; serial++; stopIntro(); clearTimeout(lea
   </nav>
   <Teleport to="body"><dialog :id="id" ref="dialog" class="section-wheel-dialog" :data-mode="modalMode" :aria-label="label + '轮盘'" @cancel.prevent="close()" @click="($event.target === dialog) && close()" @keydown="keyboard">
     <div class="section-wheel-curtain" aria-hidden="true"></div><div class="section-wheel-stage" :style="{ left: `${center.x}px`, top: `${center.y}px`, '--wheel-radius': `${radius}px` }">
-      <div class="section-wheel-caption"><small>{{ family === 'emoji' ? 'EMOTE INDEX' : family === 'upload' ? 'RESOURCE INTAKE' : 'COLLECTION INDEX' }}</small><strong>{{ pointedItem.name }}</strong><span>{{ String(items.findIndex(item => item.key === pointedItem.key) + 1).padStart(2, '0') }} / {{ String(items.length).padStart(2, '0') }}</span></div>
+      <div class="section-wheel-caption"><small>{{ family === 'emoji' ? 'EMOTE INDEX' : family === 'upload' ? 'RESOURCE INTAKE' : family === 'rankings' ? 'HONOR INDEX' : 'COLLECTION INDEX' }}</small><strong>{{ pointedItem.name }}</strong><span>{{ String(items.findIndex(item => item.key === pointedItem.key) + 1).padStart(2, '0') }} / {{ String(items.length).padStart(2, '0') }}</span></div>
       <svg class="section-wheel-arc" viewBox="-180 -180 360 360" aria-hidden="true"><path d="M-160 12 A160 160 0 0 0 160 12"/><path d="M-174 12h8M174 12h-8M0 172v-8"/></svg>
       <button ref="hub" type="button" class="section-wheel-hub" :aria-label="`返回${hubItem.name}`" @click="close()"><AppIcon :name="hubItem.icon"/><span>{{ hubItem.name }}</span></button>
       <button v-for="(item, index) in others" :key="item.key" type="button" class="section-wheel-choice" data-section-choice :style="point(index, others.length, radius)" :aria-label="`切换到${item.name}`" @pointerenter="pointed = item.key" @focus="pointed = item.key" @click="choose(item)"><span class="section-wheel-choice-icon"><AppIcon :name="item.icon"/></span><span>{{ item.name }}</span></button>

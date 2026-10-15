@@ -21,7 +21,7 @@
         html:not(.app-booting) .app-bootstrap-status { display: none; }
     </style>
     <noscript><meta http-equiv="refresh" content="0; url=/login"></noscript>
-    <script src="/static/js/auth.js?v=20261014-emoji-recommendation-buffer"></script>
+    <script src="/static/js/auth.js?v=20261015-ranking-filter"></script>
 </head>
 <body>
     <div class="app-bootstrap-status" role="status">正在验证登录状态…</div>
@@ -673,18 +673,39 @@
                     <div class="leaderboard-card">
                         <div class="leaderboard-tabs">
                             <button type="button" class="leaderboard-tab active" data-board="contribution">贡献榜</button>
-                            <button type="button" class="leaderboard-tab" data-board="characters">最佳人气角色榜</button>
-                            <button type="button" class="leaderboard-tab" data-board="images">最佳人气图片榜</button>
+                            <button type="button" class="leaderboard-tab" data-board="characters">角色图片数</button>
+                            <button type="button" class="leaderboard-tab" data-board="groups">人气分组</button>
                         </div>
                         <div class="leaderboard-content">
                             <div class="leaderboard-panel active" id="leaderboard-contribution">
                                 <div class="leaderboard-list" id="leaderboard-contribution-list"></div>
                             </div>
                             <div class="leaderboard-panel" id="leaderboard-characters">
+                                <div class="entity-toolbar ranking-filter-toolbar">
+                                    <div class="ranking-filter-summary"><span id="ranking-group-label">全部分组</span><button type="button" class="btn btn-secondary" id="ranking-group-reset" onclick="ui.clearRankingGroupFilter()" hidden>清除筛选</button></div>
+                                    <div class="entity-query-control">
+                                        <div class="query-panel compact-query-panel" id="ranking-query-panel" aria-hidden="true">
+                                            <div class="query-panel-inner">
+                                                <div class="query-surface">
+                                                    <div class="form-group">
+                                                        <div class="searchable-select" id="ranking-group-filter-container">
+                                                            <input type="text" class="form-input searchable-input" id="ranking-group-filter-input" placeholder="搜索分组" aria-label="按分组筛选角色榜" autocomplete="off">
+                                                            <input type="hidden" id="ranking-group-filter" value="" data-query-count>
+                                                            <div class="searchable-dropdown" id="ranking-group-filter-dropdown"></div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button type="button" class="query-toggle" data-query-toggle="ranking-query-panel" aria-expanded="false" aria-controls="ranking-query-panel" aria-label="打开角色榜分组筛选" title="按分组筛选">
+                                            <span class="query-icon" aria-hidden="true"></span><b data-query-badge-for="ranking-query-panel" hidden>0</b>
+                                        </button>
+                                    </div>
+                                </div>
                                 <div class="leaderboard-list" id="leaderboard-characters-list"></div>
                             </div>
-                            <div class="leaderboard-panel" id="leaderboard-images">
-                                <div class="leaderboard-list" id="leaderboard-images-list"></div>
+                            <div class="leaderboard-panel" id="leaderboard-groups">
+                                <div class="leaderboard-list" id="leaderboard-groups-list"></div>
                             </div>
                         </div>
                     </div>

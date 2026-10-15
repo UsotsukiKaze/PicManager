@@ -82,7 +82,7 @@ const navigation = computed(() => [
 ]);
 const management = computed(() => route.path.startsWith('/manage/') || route.path === '/gallery');
 const activePath = computed(() => management.value ? '/gallery' : route.path);
-const pageName = computed(() => route.path === '/profile' ? '我的' : navigation.value.find(item => item.to === activePath.value)?.name || '图库');
+const pageName = computed(() => route.path === '/profile' ? '我的' : route.path === '/rankings' ? '榜上有名' : navigation.value.find(item => item.to === activePath.value)?.name || '图库');
 const navIndex = computed(() => Math.max(0, navigation.value.findIndex(item => item.to === activePath.value)));
 watch(() => workspace.collapsed, value => document.documentElement.classList.toggle('sidebar-collapsed', value), { immediate: true });
 const expired = () => { void session.logout(); };
@@ -133,7 +133,7 @@ onUnmounted(() => {
   <div v-else class="app-container modern-app">
     <header class="top-user-bar" id="top-user-bar">
       <div class="modern-header-start"><RouterLink to="/" class="modern-brand"><img src="/static/icon/Pic.png" alt="" width="30" height="30"><span>PicManager</span></RouterLink><span class="modern-header-context">{{ pageName }}</span></div>
-      <nav class="user-actions-compact" aria-label="账户"><AppearanceMenu/><RouterLink class="header-link" to="/profile"><AppIcon name="character"/>我的</RouterLink><button class="header-link" @click="session.logout"><AppIcon name="logout"/>退出</button></nav>
+      <nav class="user-actions-compact" aria-label="账户"><RouterLink class="header-link header-rankings" to="/rankings" aria-label="榜上有名" title="榜上有名" :aria-current="route.path === '/rankings' ? 'page' : undefined"><AppIcon name="rankings"/><span>榜单</span></RouterLink><AppearanceMenu/><RouterLink class="header-link" to="/profile"><AppIcon name="character"/>我的</RouterLink><button class="header-link header-logout" aria-label="退出" title="退出" @click="session.logout"><AppIcon name="logout"/><span>退出</span></button></nav>
     </header>
     <div class="main-wrapper">
       <nav class="sidebar modern-sidebar" id="workspace-sidebar" data-shell-owner="vue" aria-label="主导航">
@@ -161,7 +161,7 @@ onUnmounted(() => {
         </div>
       </nav>
       <main class="main-content modern-content" id="workspace-scroll">
-        <ManagementTabs v-if="management || ['/emoji', '/upload', '/settings', '/profile'].includes(route.path)" @motion="animateSection"/><div ref="sectionContent" class="section-content">
+        <ManagementTabs v-if="management || ['/emoji', '/upload', '/settings', '/profile', '/rankings'].includes(route.path)" @motion="animateSection"/><div ref="sectionContent" class="section-content">
         <RouterView v-slot="{ Component }"><Transition :name="route.path === '/pixiv' ? 'pol-page' : 'workspace-page'" mode="out-in" @after-enter="restoreScroll"><KeepAlive :max="3" :include="['HomeView', 'GalleryView']"><component :is="Component" :key="route.path"/></KeepAlive></Transition></RouterView>
         <div id="legacy-page-host" class="legacy-surface" v-show="route.meta.legacy || (route.path === '/upload' && route.query.tab === 'temp')"></div></div>
       </main>

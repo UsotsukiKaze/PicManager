@@ -4,6 +4,7 @@ import { requestJSON } from '../api/http';
 import { invalidateDomain } from './client';
 import { useSession } from './session';
 import { useWorkspace } from './workspace';
+import { uploadDigest, uploadId } from '../ui/uploadIdentity';
 import { cloneMetadata, defaultMetadata, editable, formatBytes, inferPixiv, missingMetadata, type UploadCapabilities, type UploadItem, type UploadMetadata, type UploadResult, type UploadStatus } from '../ui/uploadModel';
 
 type SavedDraft = { digest: string; name: string; metadata: UploadMetadata };
@@ -71,13 +72,13 @@ export const useUploads = defineStore('uploads', () => {
               image.onload = () => { clearTimeout(timer); resolve({ width: image.naturalWidth, height: image.naturalHeight }); image.src = ''; };
               image.onerror = () => { clearTimeout(timer); reject(new Error('图片无法解码')); }; image.src = url;
             });
-            const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()))).map(value => value.toString(16).padStart(2, '0')).join('');
+            const digest = await uploadDigest(file);
             if (token !== generation) { URL.revokeObjectURL(url); return; }
             if (items.value.some(item => item.digest === digest)) { URL.revokeObjectURL(url); skipped.push(`${file.name}：已在列表中`); continue; }
             const saved = restored.value.find(item => item.digest === digest);
             const metadata = saved ? cloneMetadata(saved.metadata) : cloneMetadata(defaults.value);
             const pid = inferPixiv(file.name); if (!saved && pid) metadata.pid = pid;
-            items.value.push({ id: crypto.randomUUID(), file: markRaw(file), url, digest, ...dimensions, metadata, status: 'draft', progress: 0, message: '', pidInferred: !saved && !!pid });
+            items.value.push({ id: uploadId(), file: markRaw(file), url, digest, ...dimensions, metadata, status: 'draft', progress: 0, message: '', pidInferred: !saved && !!pid });
             restored.value = restored.value.filter(item => item.digest !== digest);
           } catch { URL.revokeObjectURL(url); skipped.push(`${file.name}：图片读取失败`); }
         }

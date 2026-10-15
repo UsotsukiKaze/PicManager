@@ -65,3 +65,45 @@ def test_rankings_count_recent_available_images_by_group(monkeypatch):
             "count": 1,
         },
     ]
+
+
+def test_character_and_group_rankings_use_available_inventory_not_traffic(monkeypatch):
+    engine = create_engine('sqlite:///:memory:')
+    models.Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    first, second, empty = [models.Group(name=name) for name in ('A', 'B', 'Empty')]
+    session.add_all([first, second, empty]); session.flush()
+    a = models.Character(name='A1', group_id=first.id)
+    b = models.Character(name='A2', group_id=first.id)
+    c = models.Character(name='B1', group_id=second.id)
+    unused = models.Character(name='Unused', group_id=first.id)
+    session.add_all([a, b, c, unused]); session.flush()
+    for n, (group, roles, status) in enumerate([
+        (first, [a, b], 'available'), (first, [a], 'available'),
+        (second, [c], 'available'), (second, [c], 'available'), (second, [c], 'available'),
+        (first, [unused], 'archived'), (first, [unused], 'missing'),
+    ]):
+        session.add(models.Image(image_id=f'{n:010}', file_extension='jpg', file_path=f'{n}.jpg',
+                                 groups=[group], characters=roles, file_status=status))
+    session.add(models.CharacterQueryCount(character_id=unused.id, query_count=999999))
+    session.commit()
+    @contextmanager
+    def context():
+        yield session
+    monkeypatch.setattr(rankings, 'get_db_context', context)
+    rankings._RANKINGS_CACHE.update(key=None, expires_at=0, data=None)
+    result = rankings.get_rankings(10)
+    assert [(row['name'], row['image_count']) for row in result['characters']] == [
+        ('B1', 3), ('A1', 2), ('A2', 1), ('Unused', 0)]
+    assert [(row['name'], row['character_count'], row['image_count']) for row in result['groups']] == [
+        ('B', 1, 3), ('A', 3, 2), ('Empty', 0, 0)]
+    assert len(rankings.get_rankings(1)['characters']) == 1
+    # Filter before limiting, including roles outside the global top result.
+    filtered = rankings.get_rankings(1, group_id=first.id)
+    assert [(row['name'], row['image_count']) for row in filtered['characters']] == [('A1', 2)]
+    assert filtered['groups'] == rankings.get_rankings(1)['groups']
+    assert rankings.get_rankings(1)['characters'][0]['name'] == 'B1'
+    assert [row['name'] for row in rankings.get_rankings(10, group_id=first.id)['characters']] == ['A1', 'A2', 'Unused']
+    assert rankings.get_rankings(10, group_id=empty.id)['characters'] == []
+    assert rankings.get_rankings(10, group_id=999999)['characters'] == []
+    session.close(); engine.dispose()

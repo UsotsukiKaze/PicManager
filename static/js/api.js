@@ -584,8 +584,10 @@ class API {
     }
 
     // 榜单
-    async getRankings(limit = 10) {
-        return this.request(`/rankings?limit=${limit}`);
+    async getRankings(limit = 10, groupId = null) {
+        const params = new URLSearchParams({ limit: String(limit) });
+        if (groupId != null && groupId !== '') params.set('group_id', String(groupId));
+        return this.request(`/rankings?${params}`);
     }
 }
 

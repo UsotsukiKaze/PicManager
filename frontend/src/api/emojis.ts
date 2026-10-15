@@ -1,4 +1,5 @@
 import { queryString, requestJSON } from './http';
+import { router } from '../router';
 import type { Entity } from './types';
 
 export interface EmojiRecord {
@@ -15,12 +16,16 @@ export const emojiDetail = (id: string, signal?: AbortSignal) => requestJSON<Emo
 export const emojiFacets = (signal?: AbortSignal) => requestJSON<EmojiFacet[]>('/api/emojis/characters', { signal });
 
 export async function editEmoji(kind: 'upload' | 'emoji' | 'emotion', id?: string | number) {
+  if (kind === 'upload') {
+    const source = router.currentRoute.value.query;
+    const query = Object.fromEntries(['group_id', 'character_id', 'emotion_id', 'function_id'].filter(key => source[key]).map(key => [key, source[key]]));
+    await router.push({ path: '/upload', query: { kind: 'emoji', ...query } }); return;
+  }
   const { ensureLegacy } = await import('../compat/bridge');
   await ensureLegacy();
   const controller = await window.auth.loadFeature('emoji');
   await controller.loadOptions();
-  if (kind === 'upload') await controller.showUploadModal();
-  else if (kind === 'emoji') await controller.showEditEmojiModal(id);
+  if (kind === 'emoji') await controller.showEditEmojiModal(id);
   else if (id) controller.showEditEmotionModal(id);
   else controller.showCreateEmotionModal();
 }

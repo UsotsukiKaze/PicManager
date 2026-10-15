@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onDeactivated, ref, shallowRef, wa
 import type { Entity } from '../api/types';
 import { loadPinyin } from '../api/phonetics';
 import AppIcon from './AppIcon.vue';
-const props = defineProps<{ label: string; items: Entity[]; modelValue?: number; disabled?: boolean }>();
+const props = withDefaults(defineProps<{ label: string; items: Entity[]; modelValue?: number; disabled?: boolean; allowClear?: boolean }>(), { allowClear: true });
 const emit = defineEmits<{ 'update:modelValue': [value: number | undefined] }>();
 const root = ref<HTMLElement>();
 const field = ref<HTMLElement>();
@@ -100,8 +100,8 @@ function keydown(event: KeyboardEvent) {
     event.preventDefault();
     if (!open.value) {
       open.value = true;
-      cursor.value = event.key === 'ArrowDown' ? 0 : Math.max(-1, matches.value.length - 1);
-    } else cursor.value = Math.max(-1, Math.min(matches.value.length - 1, cursor.value + (event.key === 'ArrowDown' ? 1 : -1)));
+      cursor.value = event.key === 'ArrowDown' ? 0 : Math.max(props.allowClear === false ? 0 : -1, matches.value.length - 1);
+    } else cursor.value = Math.max(props.allowClear === false ? 0 : -1, Math.min(matches.value.length - 1, cursor.value + (event.key === 'ArrowDown' ? 1 : -1)));
   }
   if (event.key === 'Enter' && open.value) {
     if (cursor.value === -1 || matches.value[cursor.value]) { event.preventDefault(); choose(matches.value[cursor.value]?.id); }
@@ -120,7 +120,7 @@ function focusout(event: FocusEvent) {
     <svg v-else class="modern-picker-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
   </div>
   <Teleport to="body"><div v-if="open" :id="`options-${label}`" ref="options" class="modern-picker-options" :class="{ 'opens-upwards': upwards }" :style="{ ...position, visibility: positioned ? 'visible' : 'hidden' }" role="listbox" :aria-label="label" @keydown="keydown">
-    <button :id="`option-${label}-all`" type="button" role="option" tabindex="-1" :aria-selected="modelValue === undefined" :class="{ highlighted: cursor === -1 }" @mousedown.prevent @click="choose()"><span class="modern-picker-option-copy">全部{{ label }}</span><AppIcon v-if="modelValue === undefined" name="check"/></button>
+    <button v-if="allowClear !== false" :id="`option-${label}-all`" type="button" role="option" tabindex="-1" :aria-selected="modelValue === undefined" :class="{ highlighted: cursor === -1 }" @mousedown.prevent @click="choose()"><span class="modern-picker-option-copy">全部{{ label }}</span><AppIcon v-if="modelValue === undefined" name="check"/></button>
     <button v-for="(item, index) in matches" :id="`option-${label}-${item.id}`" :key="item.id" type="button" role="option" tabindex="-1" :aria-selected="item.id === modelValue" :class="{ highlighted: cursor === index }" @mousedown.prevent @click="choose(item.id)"><span class="modern-picker-option-copy">{{ item.name }}<small v-if="item.group_name">{{ item.group_name }}</small></span><AppIcon v-if="item.id === modelValue" name="check"/></button>
     <p v-if="!matches.length">没有匹配项</p><small v-if="matches.length === 60">继续输入以缩小范围</small>
   </div></Teleport>

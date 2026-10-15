@@ -12,6 +12,9 @@ import ImageCard from '../components/ImageCard.vue';
 import AppIcon from '../components/AppIcon.vue';
 import { reducedMotion } from '../state/appearance';
 import { useFilterMotion } from '../ui/filterMotion';
+import WaveGrid from '../components/WaveGrid.vue';
+import { galleryResultKey } from '../ui/galleryWave';
+import { vSlidingTabs } from '../ui/slidingTabs';
 const ImageDetail = defineAsyncComponent(() => import('../components/ImageDetail.vue'));
 const session = useSession();
 const workspace = useWorkspace();
@@ -70,6 +73,9 @@ const { data, isPending, isFetching, isPlaceholderData, error, refetch } = useQu
   },
   enabled: active, placeholderData: keepPreviousData,
 });
+const waveKey = computed(() => galleryResultKey(session.identity, workspace.filters, workspace.page));
+const refreshRevision = ref(0);
+function refresh() { refreshRevision.value++; void refetch(); }
 const pages = computed(() => Math.max(1, Math.ceil((data.value?.total || 0) / 20)));
 const pageButtons = computed(() => {
   const start = Math.max(1, Math.min(workspace.page - 2, pages.value - 4));
@@ -154,16 +160,17 @@ onDeactivated(() => { active.value = false; close(); clearTimeout(debounce); voi
   <header class="modern-gallery-toolbar">
     <div class="modern-age-controls">
       <span class="modern-age-label" aria-hidden="true">分级</span>
-      <div class="modern-age-tabs" role="group" aria-label="年龄分级">
+      <div v-sliding-tabs class="modern-age-tabs" role="group" aria-label="年龄分级">
         <button v-for="rating in ['', 'all', 'r12', 'r16', 'r18']" :key="rating" type="button" :title="rating === '' ? '包含所有分级' : undefined" :aria-pressed="(workspace.filters.age_rating || '') === rating" @click="applyFilter('age_rating', rating)">{{ rating === '' ? '不限' : rating === 'all' ? '全年龄' : rating.toUpperCase() }}</button>
       </div>
     </div>
     <div class="modern-gallery-tools">
+      <button class="modern-query-toggle" type="button" aria-label="上传图片" @click="router.push({ path: '/upload', query: { kind: 'image', group_id: workspace.filters.group_id, character_id: workspace.filters.character_id, feature_tag_id: workspace.filters.feature_tag_id } })"><AppIcon name="upload"/><span>上传图片</span></button>
       <button id="gallery-query-toggle" class="modern-query-toggle" :aria-expanded="filtersOpen" aria-controls="gallery-search-panel" :aria-label="filtersOpen ? '收起图片查询' : '打开图片查询'" @click="filtersOpen = !filtersOpen">
         <AppIcon name="search"/><span>搜索与筛选</span><b v-if="filterCount">{{ filterCount }}</b>
         <svg class="modern-query-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
       </button>
-      <button class="modern-icon-action" :disabled="isFetching" aria-label="刷新图库" title="刷新图库" @click="refetch()"><AppIcon name="refresh" :class="{ 'is-spinning': isFetching }"/></button>
+      <button class="modern-icon-action" :disabled="isFetching" aria-label="刷新图库" title="刷新图库" @click="refresh"><AppIcon name="refresh" :class="{ 'is-spinning': isFetching }"/></button>
     </div>
   </header>
   <Transition :css="false" @enter="(element, done) => filterMotion(element, done, true)" @leave="(element, done) => filterMotion(element, done, false)" @enter-cancelled="cancelFilterMotion" @leave-cancelled="cancelFilterMotion">
@@ -190,10 +197,14 @@ onDeactivated(() => { active.value = false; close(); clearTimeout(debounce); voi
     </div>
     <button v-if="filterCount" type="button" class="modern-clear-filters" @click="clearFilters">清除条件</button>
   </div>
-  <div v-if="error" class="modern-feature-status" role="alert"><p>图片加载失败，请重试</p><button class="btn btn-secondary" @click="refetch()">重试</button></div>
-  <div v-else-if="isPending" class="modern-image-grid" aria-busy="true"><div v-for="n in 10" :key="n" class="modern-card-skeleton"></div></div>
-  <div v-else-if="!data?.images.length" class="modern-gallery-empty" role="status"><AppIcon name="search"/><p>没有匹配的图片</p><button v-if="filterCount" type="button" @click="clearFilters">清除搜索条件</button></div>
-  <div v-else class="modern-image-grid" :aria-busy="isFetching"><ImageCard v-for="(image, index) in data.images" :key="image.image_id" :image="image" :style="{ '--card-order': index % 5 }" :suppress-actions="closedCard === image.image_id" @resume="closedCard = ''" @open="open" @edit="edit"/></div>
+  <WaveGrid :items="data?.images || []" :request-key="waveKey" :scope-key="session.identity" :refresh-key="refreshRevision" :pending="isFetching || isPlaceholderData || isPending" :failed="!!error">
+    <template #default="{ item: image }"><ImageCard :key="image.image_id" :image="image" :suppress-actions="closedCard === image.image_id" @resume="closedCard = ''" @open="open" @edit="edit"/></template>
+    <template #empty>
+      <div v-if="error" class="modern-feature-status" role="alert"><p>图片加载失败，请重试</p><button class="btn btn-secondary" @click="refresh">重试</button></div>
+      <div v-else-if="isPending || isFetching" class="modern-image-grid" aria-busy="true"><div v-for="n in 10" :key="n" class="modern-card-skeleton"></div></div>
+      <div v-else class="modern-gallery-empty" role="status"><AppIcon name="search"/><p>没有匹配的图片</p><button v-if="filterCount" type="button" @click="clearFilters">清除搜索条件</button></div>
+    </template>
+  </WaveGrid>
   <nav v-if="data?.images.length" class="modern-pagination" aria-label="图库页码"><button aria-label="上一页" :disabled="workspace.page === 1 || isPlaceholderData" @click="go(workspace.page - 1)"><AppIcon name="left"/></button><button v-for="page in pageButtons" :key="page" :aria-current="page === workspace.page ? 'page' : undefined" :disabled="isPlaceholderData" @click="go(page)">{{ page }}</button><button aria-label="下一页" :disabled="workspace.page >= pages || isPlaceholderData" @click="go(workspace.page + 1)"><AppIcon name="right"/></button><span>{{ workspace.page }} / {{ pages }}</span></nav>
   <ImageDetail v-if="detail" :image="detail" :source-rect="sourceRect" :previous="detailIndex > 0" :next="detailIndex < (data?.images.length || 0) - 1" @close="close" @move="move" @edit="edit" @deleted="refetch()"/>
 </section></template>

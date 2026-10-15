@@ -1,0 +1,22 @@
+.account-motion-root .stat-value,.account-motion-root .score-value { font-variant-numeric:tabular-nums; }
+.account-motion-root summary { cursor:pointer; }
+.account-motion-root summary::marker { color:var(--accent-blue); }
+.account-motion-root details>summary:not(.px-group-panel-toggle) { list-style:none; }
+.account-motion-root details>summary:not(.px-group-panel-toggle)::-webkit-details-marker { display:none; }
+.account-motion-root details>summary:not(.px-group-panel-toggle)::before { content:''; display:inline-block; width:6px; height:6px; margin:0 10px 2px 2px; border-right:1.5px solid var(--accent-blue); border-bottom:1.5px solid var(--accent-blue); transform:rotate(-45deg); transition:transform .22s var(--workspace-ease); }
+.account-motion-root details[open]>summary:not([aria-expanded]):not(.px-group-panel-toggle)::before,.account-motion-root details>summary[aria-expanded=true]:not(.px-group-panel-toggle)::before { transform:rotate(45deg); }
+.account-motion-root .settings-group { box-shadow:var(--shadow); transition:border-color .2s,box-shadow .2s; }
+.account-motion-root .settings-group:hover { border-color:var(--border-strong); }
+.account-save-feedback { min-height:1.5em; margin:8px 0 0; font-size:12px; color:var(--primary-color); }
+.account-save-feedback:empty { display:none; }
+.account-save-feedback[data-state=error] { color:var(--danger-color,#c7546e); }
+[data-save-state=saving] { cursor:progress; }
+.profile-loading { position:absolute; inset:0 0 auto; display:grid; gap:18px; pointer-events:none; }
+.profile-loading>div { height:154px; border:1px solid var(--border); border-radius:var(--radius); background:var(--surface-secondary); }
+.profile-loading>div:first-child { height:44px; width:min(420px,100%); }
+.modern-profile { position:relative; min-height:480px; max-width:1240px; }
+.modern-profile.is-loading .profile-frame { opacity:0; }
+.modern-profile .profile-frame { display:block; width:100%; min-height:320px; border:0; transition:opacity .2s; }
+@media(prefers-reduced-motion:reduce) { .modern-profile .profile-frame { transition:none; } }
+:root[data-motion=reduced] .modern-profile .profile-frame { transition:none; }
+:root[data-motion=reduced] .account-motion-root summary::before { transition:none; }

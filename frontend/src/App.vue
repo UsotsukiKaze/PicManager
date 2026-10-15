@@ -8,6 +8,9 @@ import { requestJSON, safeAvatar } from './api/http';
 import ManagementTabs from './components/ManagementTabs.vue';
 import AppIcon from './components/AppIcon.vue';
 import AppearanceMenu from './components/AppearanceMenu.vue';
+import { createPolMotion } from './ui/polMotion';
+
+const polMotion = createPolMotion();
 
 const sectionContent = ref<HTMLElement>();
 let sectionAnimation: Animation | undefined;
@@ -29,22 +32,44 @@ const session = useSession();
 const workspace = useWorkspace();
 const route = useRoute();
 const scrollPositions = new Map<string, number>();
+let pageMotionToken = 0;
+const pageTransitions = new WeakMap<object, number>();
 function restoreScroll() { document.getElementById('workspace-scroll')?.scrollTo({ top: scrollPositions.get(route.fullPath) || 0, behavior: 'instant' }); }
 const stopBefore = router.beforeEach(async (to, from) => {
+  const token = ++pageMotionToken;
+  pageTransitions.set(to, token);
   const scroll = document.getElementById('workspace-scroll');
   if (scroll && to.fullPath !== from.fullPath) scrollPositions.set(from.fullPath, scroll.scrollTop);
+  if (to.path === '/pixiv' && from.path !== '/pixiv') {
+    polMotion.prepare(from.path);
+    try {
+      // Warm repository assets while the current page stays visible, then hand over once.
+      const bridge = await import('./compat/bridge');
+      await bridge.ensureLegacy();
+      await Promise.all([window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261014-bookmark-scope'), window.auth.loadFeature('pixiv'), import('./views/FeatureView.vue')]);
+      if (token !== pageMotionToken) return false;
+      await polMotion.depart();
+      if (token !== pageMotionToken) return false;
+      sectionAnimation?.cancel();
+    } catch {
+      if (token !== pageMotionToken) return false;
+      polMotion.cancel(); // The feature page retains its normal retry/error flow.
+    }
+  } else if (to.path !== '/pixiv') polMotion.cancel();
   // Capture and suspend before hiding the DOM island so Pixiv keeps its reading position.
   if (window.ui && to.fullPath !== from.fullPath) {
     const bridge = await import('./compat/bridge');
+    if (token !== pageMotionToken) return false;
     bridge.suspendFeatures();
   }
 });
 const stopAfter = router.afterEach(async (to, _from, failure) => {
-  if (failure) return;
+  if (failure) { if (to.path === '/pixiv' && pageTransitions.get(to) === pageMotionToken) polMotion.cancel(); return; }
   await nextTick();
   document.getElementById('workspace-scroll')?.scrollTo({ top: scrollPositions.get(to.fullPath) || 0, behavior: 'instant' });
   if (scrollPositions.size > 100) scrollPositions.delete(scrollPositions.keys().next().value!);
 });
+const stopRouteError = router.onError((_error, to) => { if (pageTransitions.get(to) === pageMotionToken) polMotion.cancel(); });
 const notificationController = new AbortController();
 let notificationTimer: ReturnType<typeof setTimeout> | undefined;
 const navigation = computed(() => [
@@ -90,7 +115,9 @@ onMounted(() => {
   window.addEventListener('picmanager-identity-changed', identityChanged);
 });
 onUnmounted(() => {
-  sectionAnimation?.cancel(); stopBefore(); stopAfter(); clearTimeout(notificationTimer); notificationController.abort();
+  pageMotionToken++;
+  polMotion.dispose();
+  sectionAnimation?.cancel(); stopBefore(); stopAfter(); stopRouteError(); clearTimeout(notificationTimer); notificationController.abort();
   window.removeEventListener('picmanager-session-expired', expired);
   window.removeEventListener('message', profileUpdate);
   window.removeEventListener('picmanager-identity-changed', identityChanged);
@@ -134,9 +161,9 @@ onUnmounted(() => {
         </div>
       </nav>
       <main class="main-content modern-content" id="workspace-scroll">
-        <ManagementTabs v-if="management || route.path === '/emoji'" @motion="animateSection"/><div ref="sectionContent" class="section-content">
-        <RouterView v-slot="{ Component }"><Transition name="workspace-page" mode="out-in" @after-enter="restoreScroll"><KeepAlive :max="3" :include="['HomeView', 'GalleryView']"><component :is="Component" :key="route.path"/></KeepAlive></Transition></RouterView>
-        <div id="legacy-page-host" class="legacy-surface" v-show="route.meta.legacy"></div></div>
+        <ManagementTabs v-if="management || ['/emoji', '/upload', '/settings', '/profile'].includes(route.path)" @motion="animateSection"/><div ref="sectionContent" class="section-content">
+        <RouterView v-slot="{ Component }"><Transition :name="route.path === '/pixiv' ? 'pol-page' : 'workspace-page'" mode="out-in" @after-enter="restoreScroll"><KeepAlive :max="3" :include="['HomeView', 'GalleryView']"><component :is="Component" :key="route.path"/></KeepAlive></Transition></RouterView>
+        <div id="legacy-page-host" class="legacy-surface" v-show="route.meta.legacy || (route.path === '/upload' && route.query.tab === 'temp')"></div></div>
       </main>
     </div>
   </div>

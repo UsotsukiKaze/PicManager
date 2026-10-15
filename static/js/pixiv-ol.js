@@ -104,7 +104,7 @@
                 this.exposureMutation=new MutationObserver(()=>node.querySelectorAll('.px-card').forEach(card=>this.exposureObserver.observe(card)));
                 this.exposureMutation.observe(node,{childList:true,subtree:true});
             }
-            node.addEventListener('load',event=>{const image=event.target;if(image.matches?.('.px-image-button img'))this.queueSimilarity(image.closest('[data-pid]').dataset.pid);},true);
+            node.addEventListener('load',event=>{const image=event.target;if(image.matches?.('.px-image-button img')){window.PicManagerPolMotion?.imageReady(image);this.queueSimilarity(image.closest('[data-pid]').dataset.pid);}},true);
             node.addEventListener('click', event => this.click(event).catch(error => ui.showToast(error.message,'error')));
             node.addEventListener('change', event => {
                 if (event.target.name==='pixiv-cart-check') {
@@ -151,9 +151,13 @@
         async init() {
             if (!window.auth.isAdmin()) return;
             this.root=document.getElementById('pixiv-ol-root'); this.bind(this.root);
-            await Promise.all([this.loadAccount(),this.loadCart({refreshTags:this.view==='cart'})]);
+            const activation=this.activation=(this.activation||0)+1;
+            this.root.innerHTML=this.heading()+'<div id="pixiv-content" class="px-content"><div class="px-load-sentinel" role="status">正在准备画作…</div></div>';
+            window.PicManagerPolMotion?.enter(this.root);
+            await Promise.all([this.loadAccount(),this.loadCart({refreshTags:this.view==='cart'}),this.loadImportJobs().catch(()=>[])]);
+            if(activation!==this.activation||ui.currentPage!=='pixiv-ol')return;
             await this.render(); this.watch();this.refreshBookmarkStates().catch(()=>{});
-            this.loadImportJobs().then(()=>this.updateImportTools()).catch(()=>{});
+            this.updateImportTools();
         }
         async initSettings() {
             if (!window.auth.isAdmin()) return;
@@ -173,18 +177,21 @@
         }
         heading() {
             const count=this.cartCount();
-            return `<header class="px-header"><div class="px-heading"><img src="/static/icon/pixiv-ol.svg" alt="" class="px-brand"><div><h2>Pixiv<span>-ol</span></h2></div></div>
+            return `<header class="px-header"><div class="px-heading"><img src="/static/icon/pixiv-ol.svg" alt="" class="px-brand"><div class="px-title-window"><h2>Pixiv<span>-ol</span></h2></div></div>
                 <button class="px-button px-cart-button ${this.view==='cart'?'is-active':''}" data-view="cart">${icon('bag')}优选夹<span class="px-count">${count}</span></button></header>
                 <div class="px-navigation"><div class="px-tabs" role="tablist" aria-label="Pixiv 内容"><button role="tab" aria-selected="${this.view==='recommendations'||this.view==='bookmarks'}" data-view="recommendations">${icon('spark')}为你推荐</button><button role="tab" aria-selected="${this.view==='feed'}" data-view="feed">关注更新</button></div><button class="px-text-button" data-action="settings">${icon('settings')}设置</button></div>`;
         }
         async render() {
             const generation=++this.generation;
+            const title=this.root.querySelector('.px-heading');
+            window.PicManagerPolMotion?.leaveContent(this.root);
             this.toolsObserver?.disconnect();
             this.loadObserver?.disconnect();this.flowScrollAbort?.abort();this.flow=null;
             if (this.abort) this.abort.abort(); this.abort=new AbortController();
             this.root.innerHTML=this.heading()+'<div id="pixiv-content" class="px-content" aria-live="polite"></div>';
+            if(title)this.root.querySelector('.px-heading').replaceWith(title);
             const content=document.getElementById('pixiv-content');
-            if (this.view==='cart') {this.renderCart(content); return;}
+            if (this.view==='cart') {this.renderCart(content);window.PicManagerPolMotion?.surface(this.root,this.previousMode,this.mode,this.view); return;}
             if (!this.account.connected) {
                 content.innerHTML=this.empty('把下一张喜欢的画作，留在这里。','连接 Pixiv 后，这里会为你推荐画作，也能查看关注作者的新发布。', '<button class="px-button px-primary" data-action="settings">前往设置登录 Pixiv</button>'); return;
             }
@@ -202,7 +209,7 @@
             }
             this.items=[];
             content.innerHTML=`<div class="px-toolbar"><a class="px-account-profile" href="https://www.pixiv.net/users/${esc(this.account.user_id||'')}" target="_blank" rel="noopener noreferrer"><span class="px-artist-avatar"><span aria-hidden="true">${esc((this.account.name||'P').slice(0,1))}</span><img alt="" decoding="async"></span><span>${esc(this.account.name||'Pixiv')}</span></a><div class="px-toolbar-actions">${this.view==='recommendations'?`<div class="px-mode-switch" role="group" aria-label="推荐方式" style="--mode-index:${['personal','stock','discovery'].indexOf(this.mode)}"><span class="px-mode-indicator" aria-hidden="true"></span>${[['personal','猜你喜欢'],['stock','进货模式'],['discovery','Pixiv 发现']].map(([value,label])=>`<button type="button" data-mode="${value}" aria-pressed="${this.mode===value}">${label}</button>`).join('')}</div><select id="pixiv-mode" class="px-mode-select" aria-label="推荐方式"><option value="personal">猜你喜欢</option><option value="stock">进货模式</option><option value="discovery">Pixiv 发现</option></select>`:''}${this.view!=='feed'?`<button class="px-text-button" data-view="${this.view==='bookmarks'?'recommendations':'bookmarks'}" aria-pressed="${this.view==='bookmarks'}">${icon('heart')}${this.view==='bookmarks'?'返回推荐':'收藏'}</button>`:''}</div></div><div class="px-showcase"><div class="px-gallery-flow"><div class="px-gallery"></div><div class="px-load-sentinel" role="status">正在加载画作…</div></div><aside class="px-floating-tools" aria-label="展柜操作"><div class="px-floating-actions"><button class="px-icon-button" data-action="lookup" aria-label="按 PID 查找" title="按 PID 查找">${icon('search')}</button><button class="px-icon-button" data-action="refresh" aria-label="${this.view==='feed'?'更新动态':'换一批'}" title="${this.view==='feed'?'更新动态':'换一批'}">${icon('refresh')}</button><button class="px-icon-button" data-action="top" aria-label="回到顶部" title="回到顶部">${icon('top')}</button></div><button class="px-icon-button px-floating-cart" data-view="cart" aria-label="打开优选夹" title="优选夹">${icon('bag')}<span class="px-cart-count" aria-hidden="true" ${this.cartCount()?'':'hidden'}>${this.cartCount()}</span></button>${this.importButton()}</aside></div>`;
-            this.positionTools();this.animateMode();this.updateImportTools();
+            this.updateImportTools();this.positionTools();this.animateMode();
             const avatar=content.querySelector('.px-account-profile img');
             if(this.account.avatar_url)this.media.load(this.account.avatar_url,'account-avatar').then(url=>{if(avatar.isConnected)avatar.src=url;}).catch(()=>avatar.remove());else avatar.remove();
             const flow=this.flow={generation,view:this.view,mode:this.mode,offset:0,batch:null,cursor:null,seen:new Set(),busy:false,more:true,upstreamMore:true,emptyRounds:0,lazyReady:false};
@@ -218,6 +225,7 @@
             this.watchRecommendations();
         }
         animateMode() {
+            if(window.PicManagerPolMotion){window.PicManagerPolMotion.surface(this.root,this.previousMode,this.mode,this.view);this.previousMode=this.mode;return;}
             const indicator=this.root?.querySelector('.px-mode-indicator');
             const modes=['personal','stock','discovery'];
             if(indicator&&this.previousMode&&this.previousMode!==this.mode&&!reducedMotion())indicator.animate([
@@ -284,7 +292,8 @@
             if(!badge)return;
             const count=this.cartCount(),previous=Number(badge.textContent)||0;
             badge.textContent=String(count);badge.hidden=!count;
-            if(count>previous&&!reducedMotion()&&button.isConnected)button.animate([{transform:'scale(1)'},{transform:'scale(1.12)'},{transform:'scale(1)'}],{duration:320,easing:'cubic-bezier(.22,1,.36,1)'});
+            if(window.PicManagerPolMotion)window.PicManagerPolMotion.count(badge,count,previous);
+            else if(count>previous&&!reducedMotion()&&button.isConnected)button.animate([{transform:'scale(1)'},{transform:'scale(1.12)'},{transform:'scale(1)'}],{duration:320,easing:'cubic-bezier(.22,1,.36,1)'});
         }
         recommendationExcluded(item) {
             return !!item?.imported_pages?.length||this.cartItems.some(row=>row.artwork.pid===item?.pid);
@@ -338,6 +347,7 @@
                 flow.offset=flow.view==='recommendations'&&Number.isInteger(data.next_offset)?data.next_offset:flow.offset+data.items.length;flow.cursor=data.next_cursor||data.tail_cursor||flow.cursor;
                 const fresh=data.items.filter(item=>{if(flow.seen.has(item.pid))return false;flow.seen.add(item.pid);return flow.view!=='recommendations'||!this.recommendationExcluded(item);});
                 const firstScreen=!this.items.length;this.items.push(...fresh);this.root.querySelector('.px-gallery').insertAdjacentHTML('beforeend',fresh.map((item,index)=>this.card(item,firstScreen&&index<5)).join(''));
+                window.PicManagerPolMotion?.cards(this.root);
                 flow.more=flow.view==='recommendations'&&'has_more' in data?data.has_more:(flow.view==='feed'||flow.view==='bookmarks')&&'next_cursor' in data?!!data.next_cursor:flow.offset<data.total&&data.items.length>0;
                 if(flow.view==='recommendations'&&['personal','stock','discovery'].includes(flow.mode)
                     &&Number.isInteger(data.remaining_count)&&data.remaining_count<=40&&fresh.length) {
@@ -346,7 +356,7 @@
                 if(fresh.length)flow.emptyRounds=0;
                 sentinel.textContent='继续下滑加载';
             } catch(error) {
-                if(error.name!=='AbortError'&&this.flow===flow)sentinel.innerHTML=`<button class="px-text-button" data-action="load-more">加载失败，点击重试</button>`;
+                if(error.name!=='AbortError'&&this.flow===flow){window.PicManagerPolMotion?.ready(this.root);sentinel.innerHTML=`<button class="px-text-button" data-action="load-more">加载失败，点击重试</button>`;}
             } finally {flow.busy=false;}
             if(this.flow===flow&&!sentinel.querySelector('button')){
                 const root=this.root.closest('.main-content');
@@ -399,7 +409,7 @@
         }
         scrollTop() {this.root.closest('.main-content')?.scrollTo({top:0,behavior:reducedMotion()?'instant':'smooth'});}
         updateRefreshButton() {const button=this.root?.querySelector('[data-action="refresh"]');if(button){const busy=!!this.pendingRefresh||!!this.refreshStarting;button.disabled=busy;button.classList.toggle('is-refreshing',busy);}}
-        suspend() {this.saveReading();this.generation++;this.flow=null;this.abort?.abort();this.loadObserver?.disconnect();this.flowScrollAbort?.abort();this.toolsObserver?.disconnect();clearTimeout(this.hoverTimer);clearTimeout(this.timer);clearTimeout(this.recommendationTimer);}
+        suspend() {this.saveReading();this.activation=(this.activation||0)+1;this.generation++;this.flow=null;this.abort?.abort();this.loadObserver?.disconnect();this.flowScrollAbort?.abort();this.toolsObserver?.disconnect();clearTimeout(this.hoverTimer);clearTimeout(this.timer);clearTimeout(this.recommendationTimer);}
         empty(title,description,action='') {
             return `<div class="px-empty"><div class="px-empty-art"><img src="/static/icon/pixiv-ol.svg" alt=""></div><h3>${esc(title)}</h3><p>${esc(description)}</p>${action}</div>`;
         }
@@ -472,7 +482,7 @@
         async click(event) {
             const button=event.target.closest('button'); if(!button) return;
             if(button.dataset.mode) {
-                if(button.dataset.mode===this.mode)return;
+                if(button.dataset.mode===this.mode){window.PicManagerPolMotion?.selectMode?.(this.root,this.mode);return;}
                 this.saveReading();this.previousMode=this.mode;this.mode=button.dataset.mode;
                 await this.render();return;
             }
@@ -498,11 +508,11 @@
                         const job=await request('/sync',{method:'POST',body:JSON.stringify({kind:view==='feed'?'sync':'recommendations',mode,first_page:true})});
                         this.pendingRefresh={id:job.id,view,mode};this.watchRecommendations();
                     } finally {this.refreshStarting=false;this.updateRefreshButton();}
-                } else if(action==='top') this.scrollTop();
+                } else if(action==='top') {window.PicManagerPolMotion?.top(button);this.scrollTop();}
                 else if(action==='lookup') await this.lookup();
                 else if(action==='load-more') {if(this.flow)this.flow.paused=false;await this.loadMore();}
                 else if(action==='detail') await this.detail(button.dataset.pid,null,button);
-                else if(action==='add') await this.add(button.dataset.pid);
+                else if(action==='add') await this.add(button.dataset.pid,undefined,true,button);
                 else if(action==='like') {await this.toggleLike(button.dataset.pid,button);}
                 else if(action==='cart-edit') await this.detail(null,this.cartItems.find(row=>row.id===button.dataset.id),button.closest('.px-cart-page,.px-cart-row')?.querySelector('img'),button.dataset.page===undefined?null:Number(button.dataset.page));
                 else if(action==='cart-remove') {
@@ -541,7 +551,8 @@
                 document.body.append(dialog);dialog.showModal();dialog.querySelector('[data-import-mode="split"]').focus();
             });
         }
-        async add(pid,pages,notify=true) {
+        async add(pid,pages,notify=true,source=null) {
+            const origin=source?.getBoundingClientRect();
             const existing=this.cartItems.some(row=>row.artwork.pid===pid);
             const item=this.items?.find(row=>row.pid===pid)||this.lookupItems.get(pid)||(!existing?await request(`/artworks/${encodeURIComponent(pid)}`):null);
             const selected=pages||Array.from({length:Math.min(item?.page_count||1,100)},(_,index)=>index).filter(page=>!(item?.imported_pages||[]).includes(page));
@@ -552,6 +563,7 @@
             this.setLiked(pid,true);
             const count=this.root.querySelector('.px-count');if(count)count.textContent=this.cartCount();
             this.root.querySelectorAll(`[data-action="add"][data-pid="${pid}"]`).forEach(button=>{button.disabled=true;button.classList.remove('px-primary');button.classList.add('px-added');button.innerHTML=icon('check')+'已加入';});
+            window.PicManagerPolMotion?.added(this.root,origin);
             this.watch();if(notify)ui.showToast('已加入优选夹，正在缓存原图','success');return true;
         }
         renderCart(content) {
@@ -730,6 +742,7 @@
             try {
                 await request('/feedback',{method:'POST',body:JSON.stringify({pid,value:liked?'clear':'like'})});
                 this.setLiked(pid,!liked);
+                window.PicManagerPolMotion?.liked(button,!liked);
             } finally {button.disabled=false;}
         }
         expandReader(dialog,sourceRect,parts={}) {
@@ -737,7 +750,7 @@
             const cover=parts.cover||dialog.querySelector('.px-detail-cover'),target=cover.getBoundingClientRect();
             const from=sourceRect?.width&&sourceRect?.height?`translate(${sourceRect.left-target.left}px,${sourceRect.top-target.top}px) scale(${sourceRect.width/target.width},${sourceRect.height/target.height})`:'scale(.92)';
             const picture=cover.animate([{transform:from,opacity:.7},{transform:'none',opacity:1}],{duration:380,easing:'cubic-bezier(.2,.8,.2,1)'});
-            const details=(parts.details||dialog.querySelector('.px-detail-body')).animate([{transform:'translateY(14px) scale(.97)',opacity:0},{transform:'none',opacity:1}],{duration:280,delay:100,fill:'backwards',easing:'ease-out'});
+            const details=(parts.details||dialog.querySelector('.px-detail-body')).animate([{transform:'translateY(14px) scale(.97)',opacity:0},{transform:'none',opacity:1}],{duration:280,delay:60,fill:'backwards',easing:'ease-out'});
             dialog.addEventListener('close',()=>{picture.cancel();details.cancel();},{once:true});
             return picture.finished.catch(()=>{});
         }
@@ -785,12 +798,14 @@
                 submit.innerHTML=icon(added||library.complete?'check':'bag')+(library.complete?'已入库':added?'已加入':'加入优选夹');
             });
             dialog.querySelectorAll('.px-reader-arrow').forEach(node=>node.hidden=allPages.length<2);
-            const close=()=>{
+            const finishClose=()=>{
                 tagDraft?.destroy();
                 dialog.close();dialog.remove();
                 const card=source?.closest('.px-card');
                 if(card?.isConnected){card.classList.add('px-resting');card.dataset.readerHover=String(card.matches(':hover'));}
+                if(source?.isConnected&&source.focus)source.focus({preventScroll:true});
             };
+            const close=()=>{if(window.PicManagerPolMotion)window.PicManagerPolMotion.closeReader(dialog,source,finishClose);else finishClose();};
             dialog.querySelector('[data-close]').onclick=close;dialog.addEventListener('cancel',event=>{event.preventDefault();close();},{once:true});
             let backdropPress=false;dialog.addEventListener('pointerdown',event=>backdropPress=event.target===dialog);
             dialog.addEventListener('click',event=>{if(backdropPress&&event.target===dialog)close();backdropPress=false;});
@@ -864,7 +879,7 @@
                         const payload={pages:selectedPages,...tagDraft.selector.getValue(),new_tags:tagDraft.newTags,age_rating:dialog.querySelector('#pixiv-draft-rating').value};
                         const updated=await request(split?`/cart/${cartRow.id}/pages/${editPage}`:`/cart/${cartRow.id}`,{method:'PUT',body:JSON.stringify(payload)});this.selectTaggedCartItem(updated);close();await this.loadCart();await this.render();ui.showToast(split?`第 ${editPage+1} 页标签已确认`:'标签草稿已保存','success');
                     } else {
-                        submit.textContent='正在加入…';const added=await this.add(item.pid,selectedPages,false);
+                        submit.textContent='正在加入…';const added=await this.add(item.pid,selectedPages,false,submit);
                         if(!added){delete dialog.dataset.submitting;submit.innerHTML=original;submit.disabled=false;return;}
                         if(!dialog.isConnected)return;
                         submit.innerHTML=icon('check')+'已加入';submit.classList.remove('px-primary');submit.classList.add('px-added','is-added');submit.setAttribute('aria-live','polite');
@@ -983,10 +998,24 @@
             };
         }
         async saveSettings() {
+            if(this.savingSettings)return;
             const bookmarkSync=document.getElementById('pixiv-bookmark-sync').checked;
             if(bookmarkSync&&!this.preferences.bookmark_sync&&!confirm('启用后会将本地喜欢与 Pixiv 收藏合并，后续取消喜欢也会同步取消收藏。确认启用？'))return;
             const groups={};this.settingsRoot.querySelectorAll('[data-group]').forEach(row=>{groups[row.dataset.group]={enabled:row.querySelector('[type="checkbox"]').checked};});
-            await request('/preferences',{method:'PUT',body:JSON.stringify({...this.preferences,groups,ai:document.getElementById('pixiv-ai').value,include_r18:document.getElementById('pixiv-r18').checked,include_r18g:document.getElementById('pixiv-r18g').checked,private_following:document.getElementById('pixiv-private').checked,bookmark_sync:bookmarkSync,bookmark_sync_scope:document.getElementById('pixiv-bookmark-scope').value,bookmark_visibility:document.getElementById('pixiv-bookmark-visibility').value})});this.media.clear();this.readingStates.clear();ui.showToast('推荐偏好已保存','success');await this.settings();
+            const payload={...this.preferences,groups,ai:document.getElementById('pixiv-ai').value,include_r18:document.getElementById('pixiv-r18').checked,include_r18g:document.getElementById('pixiv-r18g').checked,private_following:document.getElementById('pixiv-private').checked,bookmark_sync:bookmarkSync,bookmark_sync_scope:document.getElementById('pixiv-bookmark-scope').value,bookmark_visibility:document.getElementById('pixiv-bookmark-visibility').value};
+            const button=this.settingsRoot.querySelector('[data-action="save-settings"]');
+            const motion=window.PicManagerAccountMotion;
+            this.savingSettings=true;button.disabled=true;motion?.saving(button,'saving');
+            try{
+                await request('/preferences',{method:'PUT',body:JSON.stringify(payload)});
+                this.preferences=payload;this.media.clear();this.readingStates.clear();
+                if(button.isConnected&&ui.currentPage==='settings'){
+                    motion?.saving(button,'saved');
+                    const sync=this.settingsRoot.querySelector('[data-action="sync-bookmarks"]');if(sync)sync.disabled=!bookmarkSync;
+                    this.watchBookmarkSettings();ui.showToast('推荐偏好已保存','success');
+                }
+            }catch(error){if(button.isConnected&&ui.currentPage==='settings')motion?.saving(button,'error',error.message);throw error;}
+            finally{this.savingSettings=false;button.disabled=false;}
         }
         async editMappings(kind=null,id=null,name='',tags=[],onSaved=null) {
             await this.entities(true);

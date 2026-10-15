@@ -7,13 +7,14 @@ export const router = createRouter({
   routes: [
     { path: '/', name: 'home', component: () => import('./views/HomeView.vue') },
     { path: '/gallery', name: 'gallery', component: () => import('./views/GalleryView.vue') },
+    { path: '/upload', name: 'upload', component: () => import('./views/UploadView.vue') },
     { path: '/emoji', name: 'emoji', component: () => import('./views/EmojiView.vue') },
     { path: '/profile', name: 'profile', component: () => import('./views/ProfileView.vue') },
     ...[
       ['groups', '/manage/groups', 'management', 'group-management'],
       ['characters', '/manage/characters', 'management', 'character-management'],
       ['features', '/manage/features', 'management', 'feature-tag-management'],
-      ['upload', '/upload', 'upload', ''],
+
       ['pixiv', '/pixiv', 'pixiv-ol', ''], ['settings', '/settings', 'settings', ''],
       ['rankings', '/rankings', 'rankings', ''],
     ].map(([name, path, page, tab]) => ({ name, path, component: () => import('./views/FeatureView.vue'),

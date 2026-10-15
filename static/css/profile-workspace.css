@@ -43,3 +43,15 @@ body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei"
 
 .profile-tab-indicator { background:var(--primary-soft); box-shadow:inset 0 -2px 0 var(--accent-blue); }
 .stat-value,.score-value { font-family:var(--ui-mono); }
+.account-motion-root .tab-panel.active { animation:none; }
+.account-motion-root .profile-tab-indicator { transition:none; transform-origin:left center; }
+.account-tabs-moving { overflow:hidden; }
+.account-indicator-echo { pointer-events:none; }
+.account-motion-root .score-fill,.account-motion-root .preference-fill { transition:none; }
+.account-motion-root .profile-tabs { transform-origin:left center; }
+.account-motion-root details { box-sizing:border-box; }
+.account-motion-root summary { cursor:pointer; }
+.account-save-feedback { font-size:12px; margin:8px 0 0; color:var(--primary-color); }
+.account-save-feedback:empty { display:none; }
+.account-save-feedback[data-state=error] { color:var(--danger-color,#c7546e); }
+:root[data-motion=reduced] *, :root[data-motion=reduced] *::before, :root[data-motion=reduced] *::after { animation:none!important; transition:none!important; scroll-behavior:auto!important; }

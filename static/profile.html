@@ -1214,7 +1214,7 @@
         .profile-embedded .profile-content { max-width:none; padding:0 0 20px; }
     </style>
     <link rel="stylesheet" href="/static/css/design-tokens.css?v=20261014-gallery">
-    <link rel="stylesheet" href="/static/css/profile-workspace.css?v=20261013-archive">
+    <link rel="stylesheet" href="/static/css/profile-workspace.css?v=20261015-account-motion">
 </head>
 <body>
     <div class="profile-container">
@@ -1271,7 +1271,7 @@
                                         <span>编辑</span>
                                     </button>
                                 </div>
-                                <div id="edit-nickname-form" style="display: none; margin-top: 10px; gap: 8px;">
+                                <div id="edit-nickname-form" style="display: none; margin-top: 10px; gap: 8px; flex-direction: column;">
                                     <input type="text" id="new-nickname-input" class="form-input" placeholder="输入新昵称" style="width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--border-color);">
                                     <div style="display: flex; gap: 8px; margin-top: 8px;">
                                         <button class="btn btn-sm btn-success" onclick="saveNickname()">保存</button>
@@ -1458,7 +1458,7 @@
             indicator.style.opacity = '1';
             indicator.style.width = `${activeRect.width}px`;
             const inset = parseFloat(getComputedStyle(indicator).left) || 0;
-            indicator.style.transform = `translateX(${activeRect.left - tabsRect.left - inset}px)`;
+            indicator.style.transform = `translateX(${activeRect.left - tabsRect.left - inset + tabs.scrollLeft}px)`;
         }
 
         // 标签页切换
@@ -1555,6 +1555,7 @@
                     setupProfileStatsLazyLoad();
                     updateProfileTabIndicator();
                 }
+                document.documentElement.dataset.profileReady = 'true';
             } catch (error) {
                 console.error('Failed to load user info:', error);
                 if(window.parent!==window)window.top.location.href='/login';else window.location.href='/login';
@@ -1773,6 +1774,12 @@
         function toggleEditNickname() {
             const form = document.getElementById('edit-nickname-form');
             const input = document.getElementById('new-nickname-input');
+            const opening = form.dataset.expanded ? form.dataset.expanded !== 'true' : form.style.display === 'none';
+            if (window.PicManagerAccountMotion) {
+                window.PicManagerAccountMotion.edit(opening);
+                if (opening) { input.value = document.getElementById('user-nickname').textContent; input.focus({preventScroll:true}); }
+                return;
+            }
             
             if (form.style.display === 'none') {
                 form.style.display = 'flex';
@@ -1791,6 +1798,10 @@
                 showToast('昵称不能为空', 'error');
                 return;
             }
+            const button = document.querySelector('#edit-nickname-form .btn-success');
+            if (button.disabled) return;
+            button.disabled = true;
+            window.PicManagerAccountMotion?.saving(button, 'saving');
             
             try {
                 const response = await fetch('/auth/set-nickname', {
@@ -1809,10 +1820,13 @@
                 document.getElementById('user-nickname').textContent = user.nickname;
                 if(window.parent!==window)window.parent.postMessage({type:'picmanager-profile-updated'},location.origin);
                 showToast(data.message);
-                toggleEditNickname();
+                window.PicManagerAccountMotion?.saving(button, 'saved');
+                if (window.PicManagerAccountMotion) window.PicManagerAccountMotion.edit(false);
+                else document.getElementById('edit-nickname-form').style.display = 'none';
             } catch (error) {
+                window.PicManagerAccountMotion?.saving(button, 'error', error.message);
                 showToast('保存失败: ' + error.message, 'error');
-            }
+            } finally { button.disabled = false; }
         }
 
         function escapeReviewHtml(value) {
@@ -2152,6 +2166,7 @@
         // 处理审核请求
         async function handleRequest(requestId, action) {
             const card = document.querySelector(`[data-request-id="${requestId}"]`);
+            if (card?.dataset.reviewing) return;
             const type = card?.dataset.requestType;
             let warning = '';
             if (action === 'approve') {
@@ -2164,6 +2179,7 @@
                 warning = '本次上传的待审核文件将被删除。';
             }
             if (warning && !confirm(`确认${action === 'approve' ? '批准' : '拒绝'}审核 #${requestId}？\n${warning}`)) return;
+            if (card) { card.dataset.reviewing = 'true'; card.querySelectorAll('.request-actions button').forEach(button => { button.disabled = true; }); }
             try {
                 let reason = null;
                 if (action === 'reject') {
@@ -2183,8 +2199,10 @@
                 }
 
                 showToast(data.message);
+                if (window.PicManagerAccountMotion) await window.PicManagerAccountMotion.remove(card);
                 loadPendingRequests(true);
             } catch (error) {
+                if (card) { delete card.dataset.reviewing; card.querySelectorAll('.request-actions button').forEach(button => { button.disabled = false; }); }
                 showToast(error.message, 'error');
             }
         }

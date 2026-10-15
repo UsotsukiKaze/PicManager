@@ -55,6 +55,17 @@ const source = fs.readFileSync(path.join(__dirname, '..', '..', 'static', 'js', 
 vm.runInContext(source, context, { filename: 'upload-queue.js' });
 
 const queue = context.window.uploadQueue;
+let reviewed = 0;
+let disposed = 0;
+const reviewId = queue.add({ name: 'review.png', status: 'attention', review: () => { reviewed++; }, dispose: () => { disposed++; } });
+assert(ids['upload-queue-list'].innerHTML.includes('前往处理'));
+ids['upload-queue-list'].dispatch('click', { target: { closest: () => ({ dataset: { queueAction: 'review', taskId: String(reviewId) } }) } });
+assert.equal(reviewed, 1);
+assert.equal(queue.open, false);
+queue.discard(reviewId);
+assert.equal(disposed, 1);
+assert.equal(queue.get(reviewId), null);
+assert.equal(confirmations, 0);
 queue.setOpen(true);
 let closePropagationStopped = false;
 ids['upload-queue-close'].dispatch('click', {

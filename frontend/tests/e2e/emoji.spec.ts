@@ -27,6 +27,7 @@ async function mockEmojiPage(page: Page, theme: 'light' | 'dark' = 'dark') {
     else if (path === '/api/feature-tags/') body = [];
     else if (path === '/api/images/search') body = { images: emojis.map(item => ({ image_id: item.emoji_id, age_rating: 'all', groups: item.groups, characters: item.characters })), total: 2, limit: 20, offset: 0 };
     else if (path === '/api/emotion-tags/') body = emotions;
+    else if (path === '/api/upload/capabilities') body = { max_file_size: 52428800, extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'] };
     else if (path === '/api/emojis/characters') body = characters.map(character => ({ ...character, emoji_count: 1 }));
     else if (path === '/api/emojis/search') {
       const list = emojis.filter(item => (!url.searchParams.get('group_id') || String(item.groups[0].id) === url.searchParams.get('group_id'))
@@ -135,8 +136,10 @@ test('emoji and gallery reuse toolbar, card and picker styling', async ({ page }
   await page.getByRole('button', { name: '移除角色：琳奈' }).click();
   await expect(page.locator('#modern-emoji-grid .modern-image-card')).toHaveCount(2);
   await page.getByRole('button', { name: '上传表情包', exact: true }).click();
-  await expect(page.locator('.emoji-file-drop')).toBeVisible();
-  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(page).toHaveURL(/\/upload\?kind=emoji/);
+  await expect(page.locator('.intake-dropzone')).toBeVisible();
+  await expect(page.getByRole('group', { name: '新文件入库目标' }).getByRole('button', { name: '表情', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.goBack();
   await expect(page.locator('#modern-emoji-grid .modern-image-card')).toHaveCount(2);
   expect(errors).toEqual([]);
 });

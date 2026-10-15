@@ -7,7 +7,7 @@ class AuthManager {
         this.featureLoadPromises = {};
         this.featureAssets = {
             pixiv: {
-                src: '/static/js/pixiv-ol.js?v=20261014-recommendation-buffer',
+                src: '/static/js/pixiv-ol.js?v=20261015-account-motion',
                 resolve: () => window.pixivOL,
             },
             upload: {

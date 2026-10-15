@@ -7,10 +7,10 @@ import { allEntities } from '../api/catalog';
 import { loadClassicScript, PINYIN_SCRIPT } from './scripts';
 
 const scripts = [
-  '/static/js/auth.js?v=20261014-emoji-recommendation-buffer', '/static/js/security.js?v=20260820a',
+  '/static/js/auth.js?v=20261015-account-motion', '/static/js/security.js?v=20260820a',
   PINYIN_SCRIPT, '/static/js/pinyin-search.js?v=20260820c',
   '/static/js/character-selector.js?v=20261008-confirm', '/static/js/tag-selector.js?v=20261008-confirm',
-  '/static/js/api.js?v=20261007a', '/static/js/upload-queue.js?v=20261008-confirm',
+  '/static/js/api.js?v=20261007a', '/static/js/upload-queue.js?v=20261015-intake',
   '/static/js/query-panel.js?v=20260820d', '/static/js/entity-cache.js?v=20260820a',
   '/static/js/search-selector.js?v=20260820d', '/static/js/image-list.js?v=20261007a',
   '/static/js/modal.js?v=20261004q', '/static/js/workspace-shell.js?v=20261014-bookmark-scope', '/static/js/ui.js?v=20261014-emoji',

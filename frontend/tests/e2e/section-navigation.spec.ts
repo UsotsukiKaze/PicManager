@@ -36,7 +36,13 @@ async function choose(page: Page, name: string) {
 test('compact section buttons unfold with a moving marquee and dock without a layout jump', async ({ page }, info) => {
   const errors = await fixture(page);
   await page.setViewportSize({ width: 1280, height: 800 });
-  await page.goto('/#/gallery');
+  await page.goto('/#/gallery', { waitUntil: 'domcontentloaded' });
+  // Capture the intro before unrelated resource loading can consume its 940ms window.
+  await page.waitForFunction(() => {
+    const animations = document.querySelector('.section-wheel-intro')?.getAnimations({ subtree: true }) || [];
+    if (!animations.length) return false;
+    animations.forEach(animation => animation.pause()); return true;
+  });
   const rail = page.locator('.section-wheel-intro');
   await expect(rail).toBeVisible();
   await expect(rail.locator('button')).toHaveText(['图片', '分组', '角色', '特征']);

@@ -4,7 +4,7 @@ import AppIcon from './AppIcon.vue';
 import { reducedMotion } from '../state/appearance';
 import { motionEasing } from '../ui/motion';
 import type { SectionItem } from '../ui/sectionNavigation';
-const props = defineProps<{ items: SectionItem[]; active: string; label: string; family: string }>();
+const props = defineProps<{ items: SectionItem[]; active: string; label: string; family: string; epoch?: number }>();
 const emit = defineEmits<{ select: [item: SectionItem, duration: number] }>();
 const root = ref<HTMLElement>(), trigger = ref<HTMLButtonElement>(), dialog = ref<HTMLDialogElement>(), hub = ref<HTMLElement>(), intro = ref<HTMLElement>(), indicator = ref<HTMLElement>(), indicatorEcho = ref<HTMLElement>(), introBackdrop = ref<HTMLElement>();
 const mode = ref<'intro' | 'idle' | 'hover'>('intro');
@@ -30,7 +30,7 @@ function anchorRect() {
 function stopIntro() {
   introSerial++; introMotion.forEach(animation => animation.cancel()); introMotion = [];
 }
-async function sequence(target: string, from = props.items[0]!.key) {
+async function sequence(target: string, from = props.items[0]!.key, startAt?: number) {
   stopIntro(); const token = introSerial;
   if (reducedMotion() || innerWidth <= 640) { mode.value = 'idle'; return; }
   mode.value = 'intro'; introActive.value = target;
@@ -87,14 +87,14 @@ async function sequence(target: string, from = props.items[0]!.key) {
   }
   const tracks: Array<[HTMLElement, Keyframe[]]> = [[intro.value, maskFrames], [introBackdrop.value, backdropFrames], [indicator.value, markerFrames], [indicatorEcho.value, echoFrames], ...buttons.map((button, index): [HTMLElement, Keyframe[]] => [button, buttonFrames[index]!])];
   introMotion = tracks.map(([element, frames]) => element.animate(frames, { duration: 940, easing: 'linear', fill: 'forwards' }));
-  const epoch = document.timeline.currentTime;
+  const epoch = startAt ?? props.epoch ?? document.timeline.currentTime;
   if (typeof epoch === 'number') introMotion.forEach(animation => { animation.startTime = epoch; });
   try { await Promise.all(introMotion.map(animation => animation.finished)); } catch { return; }
   if (token !== introSerial) return;
   mode.value = 'idle'; stopIntro();
 }
 function peek(event?: PointerEvent) {
-  if (event?.pointerType === 'touch' || modalOpen.value || returning.value || mode.value === 'intro') return;
+  if (innerWidth <= 640 || event?.pointerType === 'touch' || modalOpen.value || returning.value || mode.value === 'intro') return;
   const rect = anchorRect();
   const room = innerWidth - rect.left - rect.width / 2 - 28;
   peekShift.value = -Math.max(0, 142 - room);
@@ -165,13 +165,15 @@ async function close(chosen?: SectionItem, previous = props.active) {
   await nextTick();
   if (disposed || token !== serial) return;
   const animation = morph(origin, anchorRect(), true, reducedMotion() ? 0 : chosen ? 460 : 320, oldRadius);
+  const epoch = chosen ? props.epoch : undefined;
+  if (epoch !== undefined) animation.startTime = epoch;
   try { await animation.finished; } catch { return; }
   if (token !== serial) return;
   dialog.value.close(); dialog.value.style.pointerEvents = ''; clearFlight();
   modalOpen.value = false; returning.value = false; selected.value = ''; mode.value = 'idle';
   await nextTick();
   trigger.value?.focus({ preventScroll: true });
-  if (chosen) void sequence(chosen.key, previous);
+  if (chosen) void sequence(chosen.key, previous, epoch === undefined ? undefined : epoch + 460);
 }
 function choose(item: SectionItem) {
   if (item.key === props.active) { if (modalOpen.value) void close(); return; }
@@ -213,7 +215,7 @@ onBeforeUnmount(() => { disposed = true; serial++; stopIntro(); clearTimeout(lea
   </nav>
   <Teleport to="body"><dialog :id="id" ref="dialog" class="section-wheel-dialog" :data-mode="modalMode" :aria-label="label + '轮盘'" @cancel.prevent="close()" @click="($event.target === dialog) && close()" @keydown="keyboard">
     <div class="section-wheel-curtain" aria-hidden="true"></div><div class="section-wheel-stage" :style="{ left: `${center.x}px`, top: `${center.y}px`, '--wheel-radius': `${radius}px` }">
-      <div class="section-wheel-caption"><small>{{ family === 'emoji' ? 'EMOTE INDEX' : 'COLLECTION INDEX' }}</small><strong>{{ pointedItem.name }}</strong><span>{{ String(items.findIndex(item => item.key === pointedItem.key) + 1).padStart(2, '0') }} / {{ String(items.length).padStart(2, '0') }}</span></div>
+      <div class="section-wheel-caption"><small>{{ family === 'emoji' ? 'EMOTE INDEX' : family === 'upload' ? 'RESOURCE INTAKE' : 'COLLECTION INDEX' }}</small><strong>{{ pointedItem.name }}</strong><span>{{ String(items.findIndex(item => item.key === pointedItem.key) + 1).padStart(2, '0') }} / {{ String(items.length).padStart(2, '0') }}</span></div>
       <svg class="section-wheel-arc" viewBox="-180 -180 360 360" aria-hidden="true"><path d="M-160 12 A160 160 0 0 0 160 12"/><path d="M-174 12h8M174 12h-8M0 172v-8"/></svg>
       <button ref="hub" type="button" class="section-wheel-hub" :aria-label="`返回${hubItem.name}`" @click="close()"><AppIcon :name="hubItem.icon"/><span>{{ hubItem.name }}</span></button>
       <button v-for="(item, index) in others" :key="item.key" type="button" class="section-wheel-choice" data-section-choice :style="point(index, others.length, radius)" :aria-label="`切换到${item.name}`" @pointerenter="pointed = item.key" @focus="pointed = item.key" @click="choose(item)"><span class="section-wheel-choice-icon"><AppIcon :name="item.icon"/></span><span>{{ item.name }}</span></button>

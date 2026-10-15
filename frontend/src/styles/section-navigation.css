@@ -1,12 +1,20 @@
 /* The image workspace and emoji library share their heading and navigation. */
 .modern-management-header.section-heading { position:relative; z-index:12; grid-template-columns:minmax(0,1fr) auto; min-height:44px; }
 .section-heading-start { display:flex; align-items:center; gap:16px; min-width:0; }
-.section-heading .section-film-title { line-height:40px; }
+.section-heading .section-film-title { line-height:40px; min-width:5em; }
 .section-film-window { display:block; height:40px; overflow:hidden; mask-image:linear-gradient(transparent,#000 10%,#000 90%,transparent); }
 .section-film-strip { display:block; will-change:transform; }
 .section-film-frame { display:block; height:40px; line-height:40px; white-space:nowrap; }
-.section-heading-index { display:flex; gap:6px; color:var(--text-tertiary); font:10px/1.2 ui-monospace,monospace; letter-spacing:1px; }
+.section-heading-index { display:flex; gap:6px; color:var(--text-tertiary); font:10px/1.2 ui-monospace,monospace; letter-spacing:1px; transition:opacity .14s; }
+.section-heading-index.is-pending { opacity:.45; }
 .section-heading-index i { color:var(--accent-blue); font-style:normal; opacity:.7; }
+.section-heading-caption { color:var(--text-tertiary); font:10px/1.2 ui-monospace,monospace; letter-spacing:1.5px; animation:section-caption-in .32s .6s both; }
+@keyframes section-caption-in { from { opacity:0; transform:translateX(-5px); } to { opacity:1; transform:none; } }
+.legacy-surface #page-settings>.page-header { display:none; }
+.legacy-surface #page-settings { animation:none; }
+@media(max-width:640px) { .section-heading-caption { font-size:9px; letter-spacing:1px; } }
+@media(prefers-reduced-motion:reduce) { .section-heading-caption { animation:none; } }
+:root[data-motion=reduced] .section-heading-caption { animation:none; }
 .section-content { position:relative; min-width:0; }
 .section-wheel { position:relative; justify-self:end; isolation:isolate; min-width:134px; height:44px; }
 .section-heading[data-family=management] .section-wheel { min-width:96px; width:96px; }

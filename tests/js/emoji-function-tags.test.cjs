@@ -120,7 +120,8 @@ test('cards show both labels, and details render each category separately', asyn
     const { lib, api, nodes, ui } = harness();
     const emoji = { emoji_id: 'TEST', emotions: [tags[3], tags[0]] };
     lib.renderGrid([emoji]);
-    assert.match(nodes['emoji-grid'].innerHTML, /love · #摸头/);
+    assert.match(nodes['emoji-grid'].innerHTML, /class="emoji-card-tag ">love<\/span>/);
+    assert.match(nodes['emoji-grid'].innerHTML, /class="emoji-card-tag is-function">#摸头<\/span>/);
     api.getEmoji = async () => emoji;
     await lib.showEmojiDetail('TEST');
     const html = ui.modals.at(-1).html;

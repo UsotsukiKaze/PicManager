@@ -43,6 +43,10 @@
                 const taskId = Number(action.dataset.taskId);
                 if (action.dataset.queueAction === 'retry') this.retry(taskId);
                 if (action.dataset.queueAction === 'remove') this.remove(taskId);
+                if (action.dataset.queueAction === 'review') {
+                    this.dismiss();
+                    this.get(taskId)?.review?.();
+                }
             });
             window.addEventListener('beforeunload', event => {
                 if (!this.tasks.some(task => ACTIVE_STATES.has(task.status))) return;
@@ -72,7 +76,7 @@
             this.root?.classList.add('is-hover-dismissed');
         }
 
-        add({ name, size = 0, status = 'queued', message = '等待上传', retry = null, dispose = null }) {
+        add({ name, size = 0, status = 'queued', message = '等待上传', retry = null, dispose = null, review = null }) {
             const task = {
                 id: this.nextId++,
                 name: String(name || '未命名图片'),
@@ -82,6 +86,7 @@
                 message,
                 retry,
                 dispose,
+                review,
             };
             this.tasks.unshift(task);
             this.render();
@@ -90,6 +95,15 @@
 
         get(taskId) {
             return this.tasks.find(task => task.id === Number(taskId)) || null;
+        }
+
+        discard(taskId) {
+            // Used by the owning workspace when its account is no longer active.
+            const task = this.get(taskId);
+            if (!task) return;
+            this.tasks = this.tasks.filter(item => item.id !== Number(taskId));
+            task.dispose?.();
+            this.render();
         }
 
         update(taskId, patch = {}) {
@@ -153,6 +167,9 @@
             const removable = !ACTIVE_STATES.has(task.status)
                 ? `<button type="button" data-queue-action="remove" data-task-id="${task.id}" aria-label="移除 ${this.escape(task.name)}">移除</button>`
                 : '';
+            const review = task.status === 'attention' && typeof task.review === 'function'
+                ? `<button type="button" data-queue-action="review" data-task-id="${task.id}">前往处理</button>`
+                : '';
             return `
                 <li class="upload-queue-item is-${task.status}">
                     <div class="upload-queue-item-head">
@@ -164,7 +181,7 @@
                         <small>${this.escape(task.message || '')}</small>
                     </div>
                     <progress max="100" value="${task.progress}" ${ACTIVE_STATES.has(task.status) ? '' : 'hidden'}></progress>
-                    ${(retry || removable) ? `<div class="upload-queue-item-actions">${retry}${removable}</div>` : ''}
+                    ${(retry || removable || review) ? `<div class="upload-queue-item-actions">${review}${retry}${removable}</div>` : ''}
                 </li>
             `;
         }

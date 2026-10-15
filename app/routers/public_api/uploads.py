@@ -25,6 +25,18 @@ import uuid
 router = APIRouter()
 
 
+@router.get('/upload/capabilities')
+def upload_capabilities(request: Request):
+    """Expose the actual server limits to the unified upload workbench."""
+    with get_db_context() as db:
+        if not get_current_session(request, db):
+            raise HTTPException(status_code=401, detail='Login required')
+    return {
+        'max_file_size': settings.MAX_FILE_SIZE,
+        'extensions': sorted(_allowed_image_extensions()),
+    }
+
+
 def _temp_pixiv_error(exc):
     raise HTTPException(409 if exc.code.startswith('temp_') or exc.code in ('account_changed', 'invalid_page', 'invalid_temp_file') else 502,
                         detail=exc.code) from None

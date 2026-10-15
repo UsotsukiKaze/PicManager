@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { router } from './router';
 import { useSession } from './state/session';
@@ -9,6 +9,22 @@ import ManagementTabs from './components/ManagementTabs.vue';
 import AppIcon from './components/AppIcon.vue';
 import AppearanceMenu from './components/AppearanceMenu.vue';
 
+const sectionContent = ref<HTMLElement>();
+let sectionAnimation: Animation | undefined;
+function animateSection(milliseconds: number) {
+  const element = sectionContent.value;
+  if (!element) return;
+  const current = getComputedStyle(element);
+  const opacity = current.opacity, transform = current.transform;
+  sectionAnimation?.cancel();
+  if (!milliseconds) return;
+  sectionAnimation = element.animate([
+    { opacity, transform, offset: 0 },
+    { opacity: .12, transform: 'translateY(3px)', offset: .13 },
+    { opacity: .2, transform: 'translateY(8px)', offset: .26, easing: 'cubic-bezier(.16,1,.3,1)' },
+    { opacity: 1, transform: 'translateY(0)', offset: 1 },
+  ], { duration: milliseconds, easing: 'linear' });
+}
 const session = useSession();
 const workspace = useWorkspace();
 const route = useRoute();
@@ -74,7 +90,7 @@ onMounted(() => {
   window.addEventListener('picmanager-identity-changed', identityChanged);
 });
 onUnmounted(() => {
-  stopBefore(); stopAfter(); clearTimeout(notificationTimer); notificationController.abort();
+  sectionAnimation?.cancel(); stopBefore(); stopAfter(); clearTimeout(notificationTimer); notificationController.abort();
   window.removeEventListener('picmanager-session-expired', expired);
   window.removeEventListener('message', profileUpdate);
   window.removeEventListener('picmanager-identity-changed', identityChanged);
@@ -118,9 +134,9 @@ onUnmounted(() => {
         </div>
       </nav>
       <main class="main-content modern-content" id="workspace-scroll">
-        <ManagementTabs v-if="management"/>
+        <ManagementTabs v-if="management || route.path === '/emoji'" @motion="animateSection"/><div ref="sectionContent" class="section-content">
         <RouterView v-slot="{ Component }"><Transition name="workspace-page" mode="out-in" @after-enter="restoreScroll"><KeepAlive :max="3" :include="['HomeView', 'GalleryView']"><component :is="Component" :key="route.path"/></KeepAlive></Transition></RouterView>
-        <div id="legacy-page-host" class="legacy-surface" v-show="route.meta.legacy"></div>
+        <div id="legacy-page-host" class="legacy-surface" v-show="route.meta.legacy"></div></div>
       </main>
     </div>
   </div>

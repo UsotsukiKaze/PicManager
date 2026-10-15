@@ -94,7 +94,8 @@ test('emoji labels and light cards restore from the URL', async ({ page }, testI
   await expect(page.locator('.modern-emoji-tag-card')).toHaveCount(1);
   await page.getByRole('searchbox', { name: '搜索标签' }).fill('摸头');
   await expect(page.locator('.modern-emoji-tags')).toContainText('#摸头');
-  await page.getByRole('tab', { name: '全部表情' }).click();
+  await page.locator('.section-wheel-trigger').click();
+  await page.getByRole('dialog').getByRole('button', { name: '切换到全部表情', exact: true }).click();
   await expect(page.locator('#modern-emoji-grid .modern-emoji-card')).toHaveCount(2);
   await expect(page.locator('#modern-emoji-grid .modern-emoji-card').first()).toHaveCSS('opacity', '1');
   await page.screenshot({ path: testInfo.outputPath('emoji-light-desktop.png') });

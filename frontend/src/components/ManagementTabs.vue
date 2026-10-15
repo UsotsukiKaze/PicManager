@@ -1,30 +1,42 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
-import AppIcon from './AppIcon.vue';
-const route = useRoute();
-const navigation = ref<HTMLElement>();
-const indicator = ref({ left: 0, width: 0, height: 0 });
-let observer: ResizeObserver | undefined;
-function measure() {
-  const node = navigation.value;
-  const active = node?.querySelector<HTMLElement>('.router-link-active');
-  if (!node || !active) return;
-  indicator.value = { left: active.offsetLeft, width: active.offsetWidth, height: active.offsetHeight };
+import { computed, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import FilmTitle from './FilmTitle.vue';
+import SectionWheel from './SectionWheel.vue';
+import { activeSection, sectionFamily, sectionsFor, type SectionItem } from '../ui/sectionNavigation';
+import { reducedMotion } from '../state/appearance';
+import '../styles/section-navigation.css';
+const route = useRoute(), router = useRouter();
+const emit = defineEmits<{ motion: [duration: number] }>();
+const family = computed(() => sectionFamily(route.path) || 'management');
+const items = computed(() => sectionsFor(route));
+const target = ref(activeSection(route)), revision = ref(0), duration = ref(940);
+const active = computed(() => items.value.find(item => item.key === target.value) || items.value[0]!);
+let pending = '', navigationToken = 0;
+function animate(key: string, milliseconds: number) {
+  target.value = key; duration.value = reducedMotion() ? 0 : milliseconds; revision.value++;
+  emit('motion', Math.min(duration.value, 680));
 }
-watch(() => route.path, async () => { await nextTick(); measure(); });
-onMounted(() => {
-  observer = new ResizeObserver(measure);
-  if (navigation.value) {
-    observer.observe(navigation.value);
-    navigation.value.querySelectorAll('a').forEach(node => observer!.observe(node));
+async function select(item: SectionItem, milliseconds: number) {
+  const token = ++navigationToken;
+  pending = item.key; animate(item.key, milliseconds);
+  try {
+    const failure = await router.push(item.to);
+    if (token !== navigationToken) return;
+    pending = '';
+    if (failure || activeSection(route) !== item.key) animate(activeSection(route), 440);
+  } catch {
+    if (token === navigationToken) { pending = ''; animate(activeSection(route), 440); }
   }
-  measure();
+}
+watch(() => `${family.value}:${activeSection(route)}`, (value, previous) => {
+  const key = activeSection(route);
+  if (pending === key && target.value === key) return;
+  navigationToken++; pending = '';
+  animate(key, value.split(':')[0] !== previous?.split(':')[0] ? 940 : 560);
 });
-onBeforeUnmount(() => observer?.disconnect());
-const tabs = [{ to: '/gallery', name: '图片', icon: 'gallery' }, { to: '/manage/groups', name: '分组', icon: 'groups' }, { to: '/manage/characters', name: '角色', icon: 'character' }, { to: '/manage/features', name: '特征标签', icon: 'tags' }];
 </script>
-<template><header class="modern-management-header"><h1>图片管理</h1><nav ref="navigation" class="modern-management-tabs" aria-label="图片管理分类">
-  <span class="modern-tab-indicator" aria-hidden="true" :style="{ transform: `translateX(${indicator.left}px)`, width: `${indicator.width}px`, height: `${indicator.height}px`, opacity: indicator.width ? 1 : 0 }"></span>
-  <RouterLink v-for="tab in tabs" :key="tab.to" :to="tab.to"><AppIcon :name="tab.icon"/>{{ tab.name }}</RouterLink>
-</nav></header></template>
+<template><header class="modern-management-header section-heading" :data-family="family" :data-section="active.key">
+  <div class="section-heading-start"><FilmTitle :title="active.title" :titles="items.map(item => item.title)" :revision="revision" :duration="duration"/><span class="section-heading-index" aria-hidden="true">{{ String(items.findIndex(item => item.key === active.key) + 1).padStart(2, '0') }}<i>/</i>{{ String(items.length).padStart(2, '0') }}</span></div>
+  <SectionWheel :items="items" :active="active.key" :family="family" :label="family === 'emoji' ? '表情包库分类' : '图片管理分类'" @select="select"/>
+</header></template>

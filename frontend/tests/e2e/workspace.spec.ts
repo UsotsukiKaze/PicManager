@@ -282,7 +282,8 @@ test('legacy tag editor saves into the shared cache and feature routes remain us
   await page.getByRole('button', { name: '查看图片 10000_p0', exact: true }).click();
   await expect(page.getByText('响应式缓存已更新', { exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
-  await page.getByRole('link', { name: '分组', exact: true }).click();
+  await page.locator('.section-wheel-trigger').click();
+  await page.getByRole('dialog').getByRole('button', { name: '切换到分组', exact: true }).click();
   await expect(page.locator('#group-list')).toContainText('原神');
   await expect.poll(() => page.locator('#page-management').evaluate(node => getComputedStyle(node).opacity)).toBe('1');
   await page.screenshot({ path: test.info().outputPath('groups.png') });
@@ -381,7 +382,8 @@ for (const rating of ['r16', 'r18']) {
 test('sidebar remains owned by Vue after loading legacy tools and toggle stays on the divider', async ({ page }) => {
   const { errors } = await mockWorkspace(page);
   await page.goto('/#/gallery');
-  await page.getByRole('link', { name: '分组', exact: true }).click();
+  await page.locator('.section-wheel-trigger').click();
+  await page.getByRole('dialog').getByRole('button', { name: '切换到分组', exact: true }).click();
   await expect(page.locator('#group-list')).toContainText('原神');
   await page.evaluate(() => (window as unknown as { PicManagerShell: { init(): void } }).PicManagerShell.init());
   const button = page.locator('#sidebar-toggle');

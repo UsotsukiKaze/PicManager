@@ -13,7 +13,7 @@ import { useFilterMotion } from '../ui/filterMotion';
 import AppIcon from '../components/AppIcon.vue';
 import EntityPicker from '../components/EntityPicker.vue';
 import EntityAvatar from '../components/EntityAvatar.vue';
-import SectionTabs from '../components/SectionTabs.vue';
+
 import '../styles/emoji.css';
 const EmojiDetail = defineAsyncComponent(() => import('../components/EmojiDetail.vue'));
 const session = useSession(), workspace = useWorkspace(), route = useRoute(), router = useRouter();
@@ -81,7 +81,7 @@ function removeFilter(key: keyof EmojiFilters) { if (key === 'description') draf
 function clearFilters() { clearTimeout(debounce); filters.value = {}; draft.value = ''; page.value = 1; syncURL(); }
 watch(draft, value => { clearTimeout(debounce); if (value.trim() !== (filters.value.description || '')) debounce = setTimeout(() => applyFilter('description', value.trim()), 300); });
 function closeFilters() { filtersOpen.value = false; document.getElementById('emoji-query-toggle')?.focus({ preventScroll: true }); }
-function switchTab(value: string) { detail.value = undefined; void router.replace({ path: '/emoji', query: { ...route.query, tab: value === 'tags' ? 'tags' : undefined } }); }
+watch(tab, () => { detail.value = undefined; });
 function go(number: number) { page.value = number; syncURL(); document.getElementById('modern-emoji-results')?.scrollIntoView({ behavior: reducedMotion() ? 'instant' : 'smooth', block: 'start' }); }
 function open(emoji: EmojiRecord, node: HTMLElement) { closedCard.value = ''; originId = emoji.emoji_id; origin = node.closest('article')?.querySelector<HTMLElement>('.modern-image-open') || node; sourceRect.value = node.closest('article')?.getBoundingClientRect() || origin.getBoundingClientRect(); detail.value = emoji; node.blur(); }
 async function close() { closedCard.value = originId || detail.value?.emoji_id || ''; detail.value = undefined; await nextTick(); origin?.focus({ preventScroll: true }); }
@@ -102,7 +102,7 @@ onBeforeUnmount(() => { clearTimeout(debounce); void queryClient.cancelQueries({
 </script>
 
 <template><section class="modern-gallery modern-emoji" aria-label="表情包库">
-  <header class="modern-management-header"><h1>表情包库</h1><SectionTabs :model-value="tab" :tabs="[{ value: 'list', name: '全部表情', icon: 'emoji' }, { value: 'tags', name: '情绪 / 功能', icon: 'tags' }]" label="表情包库分类" @update:model-value="switchTab"/></header>
+
   <template v-if="tab === 'list'">
     <header class="modern-gallery-toolbar">
       <div class="modern-age-controls"><span class="modern-age-label" aria-hidden="true">角色</span><div class="modern-age-tabs modern-emoji-role-tabs" role="group" aria-label="按角色筛选表情包"><button type="button" :aria-pressed="!filters.character_id" @click="applyFilter('character_id', undefined)">不限</button><button v-for="character in roleTabs" :key="character.id" type="button" :aria-pressed="filters.character_id === character.id" :title="`${character.emoji_count} 个表情包`" @click="applyFilter('character_id', character.id)">{{ character.name }}</button></div></div>

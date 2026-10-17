@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, event, text, inspect, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker, Session
 from contextlib import closing, contextmanager
@@ -40,6 +40,7 @@ if _is_sqlite:
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 _snapshot_lock = threading.Lock()
+_commit_counter_lock = threading.Lock()
 _commit_counter = 0
 _snapshot_daily_thread_started = False
 
@@ -64,7 +65,6 @@ def get_db_context():
     try:
         yield db
         db.commit()
-        register_db_commit()
     except Exception:
         db.rollback()
         raise
@@ -189,13 +189,87 @@ def register_db_commit() -> None:
     """记录一次数据库提交，累计到阈值后更新快照"""
     global _commit_counter
     should_snapshot = False
-    with _snapshot_lock:
+    with _commit_counter_lock:
         _commit_counter += 1
         if _commit_counter >= 50:
             _commit_counter = 0
             should_snapshot = True
     if should_snapshot:
-        create_db_snapshot()
+        _snapshot_writer.request()
+
+
+from .snapshot_worker import SnapshotWorker
+_snapshot_writer = SnapshotWorker(lambda: create_db_snapshot())
+
+_PROFILE_TABLES = {
+    'images', 'image_sources', 'pixiv_image_metadata', 'image_tag_evidence',
+    'groups', 'group_aliases', 'characters', 'character_nicknames',
+    'feature_tags', 'feature_tag_aliases', 'pixiv_tag_mappings', 'pixiv_feedback',
+    'pixiv_bookmark_states', 'users',
+    'image_group_association', 'image_character_association',
+    'image_feature_tag_association', 'character_feature_tag_association',
+}
+
+
+@event.listens_for(Session, 'before_flush')
+def _track_written_rows(session, *_):
+    changed = [obj for obj in session.new | session.deleted | session.dirty
+               if obj in session.new or obj in session.deleted or session.is_modified(obj)]
+    if not changed:
+        return
+    session.info['pm_written'] = True
+    liked_artworks = []
+    for obj in changed:
+        state = inspect(obj)
+        table = state.mapper.local_table.name
+        if table in _PROFILE_TABLES:
+            session.info['pol_profile_changed'] = True
+        elif table == 'pixiv_accounts' and (obj in session.new or obj in session.deleted or any(
+                state.attrs[name].history.has_changes() for name in ('revision', 'preferences', 'owner_id'))):
+            session.info['pol_profile_changed'] = True
+        elif table == 'pixiv_cart_items' and (obj in session.new or obj in session.deleted or
+                state.attrs.metadata_json.history.has_changes()):
+            session.info['pol_profile_changed'] = True
+        elif table == 'pixiv_artworks' and (obj in session.new or obj in session.deleted or
+                state.attrs.metadata_json.history.has_changes()):
+            liked_artworks.append(obj.pid)
+    if liked_artworks and not session.info.get('pol_profile_changed'):
+        from .models import PixivFeedback
+        if session.execute(select(PixivFeedback.id).where(
+                PixivFeedback.pid.in_(liked_artworks), PixivFeedback.value == 'like').limit(1)).first():
+            session.info['pol_profile_changed'] = True
+
+
+@event.listens_for(Session, 'do_orm_execute', retval=True)
+def _track_bulk_write(state):
+    if state.is_insert or state.is_update or state.is_delete:
+        result = state.invoke_statement()
+        if getattr(result, 'rowcount', None) == 0:
+            return result
+        state.session.info['pm_written'] = True
+        table = getattr(getattr(state.statement, 'table', None), 'name', '')
+        if table in _PROFILE_TABLES or table in ('pixiv_accounts', 'pixiv_cart_items', 'pixiv_artworks'):
+            state.session.info['pol_profile_changed'] = True
+        return result
+
+
+@event.listens_for(Session, 'after_commit')
+def _record_written_commit(session):
+    if session.in_nested_transaction():
+        return
+    wrote = session.info.pop('pm_written', False)
+    profile_changed = session.info.pop('pol_profile_changed', False)
+    if profile_changed:
+        from .integrations.pixiv_ol.profile_cache import invalidate
+        invalidate(session.get_bind())
+    if wrote and session.get_bind() is engine:
+        register_db_commit()
+
+
+@event.listens_for(Session, 'after_rollback')
+def _discard_written_commit(session):
+    session.info.pop('pm_written', None)
+    session.info.pop('pol_profile_changed', None)
 
 
 def _seconds_until_next_midnight() -> float:
@@ -214,7 +288,7 @@ def start_daily_snapshot_scheduler() -> None:
     def _worker():
         while True:
             time.sleep(_seconds_until_next_midnight())
-            create_db_snapshot()
+            _snapshot_writer.request()
 
     threading.Thread(target=_worker, name="db_snapshot_scheduler", daemon=True).start()
 

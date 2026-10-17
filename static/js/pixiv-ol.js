@@ -761,8 +761,8 @@
             const cartReady=this.loadCart().then(()=>true).catch(()=>false);
             if(cartRow) await this.entities();
             const item=cartRow?cartRow.artwork:(this.items?.find(item=>item.pid===pid)||this.lookupItems.get(pid)||await request(`/artworks/${encodeURIComponent(pid)}`));
-            if(!cartRow)await this.refreshLibraryStatus([item]).catch(()=>{});
-            const library=this.libraryState(item);
+            let library=this.libraryState(item);
+            const libraryReady=cartRow?Promise.resolve(true):this.refreshLibraryStatus([item]).then(()=>{library=this.libraryState(item);return true;}).catch(()=>false);
             const split=cartRow?.draft.import_mode==='split';
             const editPage=cartPage??cartRow?.draft.pages.find(page=>!(cartRow.draft.confirmed_pages||[]).includes(page))??cartRow?.draft.pages[0];
             const draft=(split?cartRow.draft.page_drafts?.[editPage]:cartRow?.draft) || {group_ids:item.match.group_ids,character_ids:item.match.character_ids,feature_tag_ids:item.match.feature_tag_ids,new_tags:[],age_rating:item.x_restrict?'r18':'r12'};
@@ -791,8 +791,13 @@
             const avatarUrl=item.author_avatar_url||`/api/pixiv-ol/artworks/${item.pid}/avatar`;
             avatar.removeAttribute('src');
             this.media.load(avatarUrl,`artist:${item.author_id}`).then(async url=>{if(!dialog.isConnected)return;avatar.src=url;await avatar.decode();if(dialog.isConnected)avatar.parentElement.classList.add('is-ready');}).catch(()=>avatar.remove());
-            cartReady.then(ok=>{
-                if(!ok||!dialog.isConnected||cartRow||dialog.dataset.submitting)return;
+            if(!cartRow)dialog.querySelector('#pixiv-draft-submit').disabled=true;
+            Promise.all([cartReady,libraryReady]).then(([cartOK,libraryOK])=>{
+                if(!dialog.isConnected||cartRow||dialog.dataset.submitting)return;
+                if(!cartOK||!libraryOK){dialog.querySelector('#pixiv-draft-submit').textContent='状态检查失败，请重新打开';return;}
+                for(const checkbox of dialog.querySelectorAll('[name="pixiv-page"]')){
+                    if((item.imported_pages||[]).includes(Number(checkbox.value))){checkbox.checked=false;checkbox.disabled=true;}
+                }
                 const added=this.cartItems.some(row=>row.artwork.pid===item.pid),submit=dialog.querySelector('#pixiv-draft-submit');
                 submit.disabled=library.complete||added||!pages.length;submit.classList.toggle('px-added',added||library.complete);submit.classList.toggle('px-primary',!added&&!library.complete);
                 submit.innerHTML=icon(added||library.complete?'check':'bag')+(library.complete?'已入库':added?'已加入':'加入优选夹');

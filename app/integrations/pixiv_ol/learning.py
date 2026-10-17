@@ -26,22 +26,21 @@ def interest_profile(db, index, account, images, work_id, snapshots):
     units = defaultdict(list)
     for image in images:
         units[work_id(image)].append(image)
-    corpus = list(
-        db.query(models.PixivArtwork)
-        .filter_by(account_revision=account.revision)
-        .order_by(models.PixivArtwork.fetched_at.desc())
-        .limit(5000)
-    )
-    frequency = Counter(
-        normalize(t["name"])
-        for art in corpus
-        for t in {normalize(t["name"]): t for t in art.metadata_json.get("tags", []) if t.get("name")}.values()
-    )
-    entity_frequency = defaultdict(Counter)
-    for art in corpus:
-        matched = recommendation_match(index, art.metadata_json.get("tags", []), index.groups)
-        for field, key in (("group", "group_ids"), ("character", "character_ids"), ("feature", "feature_tag_ids")):
-            entity_frequency[field].update(set(matched[key]))
+    def corpus_statistics():
+        corpus = list(db.query(models.PixivArtwork.metadata_json)
+                      .filter_by(account_revision=account.revision)
+                      .order_by(models.PixivArtwork.fetched_at.desc()).limit(5000))
+        frequency = Counter(normalize(t['name']) for art in corpus
+            for t in {normalize(t['name']): t for t in art.metadata_json.get('tags', []) if t.get('name')}.values())
+        entity_frequency = defaultdict(Counter)
+        for art in corpus:
+            matched = recommendation_match(index, art.metadata_json.get('tags', []), index.groups)
+            for field, key in (('group', 'group_ids'), ('character', 'character_ids'), ('feature', 'feature_tag_ids')):
+                entity_frequency[field].update(set(matched[key]))
+        return len(corpus), frequency, entity_frequency
+    from .profile_cache import cached_profile
+    corpus_size, frequency, entity_frequency = cached_profile(
+        db, index, account, 'tag-frequency', corpus_statistics, training_sensitive=False)
     channels, raw_names, observed = defaultdict(Counter), {}, defaultdict(Counter)
     group_features, role_features, group_n, role_n = defaultdict(Counter), defaultdict(Counter), Counter(), Counter()
     seeds = defaultdict(list)
@@ -151,7 +150,7 @@ def interest_profile(db, index, account, images, work_id, snapshots):
 
     def idf(field, key):
         df = frequency[key] if field == "raw" else entity_frequency[field][key]
-        return min(3, max(1, 1 + math.log((len(corpus) + 1) / (df + 1))))
+        return min(3, max(1, 1 + math.log((corpus_size + 1) / (df + 1))))
 
     vectors = {
         field: normalized({k: math.log1p(v) * idf(field, k) for k, v in values.items()})

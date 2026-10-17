@@ -279,7 +279,7 @@ Python 测试覆盖接口、权限、数据库与入库流程；`tests/js` 中�
 
 Python 的 `browser` 可选依赖仅供旧版 Pixiv `automatic` 登录和对应测试使用。普通部署运行 `uv sync` 即可；默认浏览器、pixiv-cli 和手动授权均不需要 Python Playwright。前端端到端测试使用 `frontend` 内的 Node Playwright。
 
-当前发布版本：**1.0.0**。使用说明见 [Pixiv-ol](docs/pixiv-ol-usage.md)、[图库校验与标签关联](docs/library-validation-and-mappings.md)、[相似提示与 PID 查找](docs/pixiv-visual-similarity.md)。后续事项见 [重构清单](docs/refactoring-roadmap.md)。
+当前发布版本：**2.0.0**。使用说明见 [Pixiv-ol](docs/pixiv-ol-usage.md)、[图库校验与标签关联](docs/library-validation-and-mappings.md)、[相似提示与 PID 查找](docs/pixiv-visual-similarity.md)。后续事项见 [重构清单](docs/refactoring-roadmap.md)。
 
 主要技术栈：
 

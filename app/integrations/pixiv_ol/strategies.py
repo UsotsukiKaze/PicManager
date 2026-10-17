@@ -84,7 +84,8 @@ def library(db):
     return db.query(models.Image).filter_by(file_status='available').options(
         selectinload(models.Image.groups), selectinload(models.Image.characters),
         selectinload(models.Image.feature_tags), selectinload(models.Image.pixiv_metadata),
-        selectinload(models.Image.pixiv_sources), selectinload(models.Image.tag_evidence),
+        selectinload(models.Image.pixiv_sources).load_only(models.PixivImageSource.work_id),
+        selectinload(models.Image.tag_evidence),
     ).all()
 
 
@@ -107,7 +108,7 @@ def root_snapshots(db, index, account, images):
     snapshots = dict(carts)
     pids = list(likes)
     for start in range(0, len(pids), 500):
-        for row in db.query(models.PixivArtwork).filter(
+        for row in db.query(models.PixivArtwork.pid, models.PixivArtwork.metadata_json).filter(
             models.PixivArtwork.account_revision == account.revision,
             models.PixivArtwork.pid.in_(pids[start:start + 500]),
         ).all():
@@ -211,8 +212,11 @@ def stock_profile(db, index, account, images):
 def build_profile(db, index, account, mode):
     if mode == 'discovery':
         return {'algorithm':'pixiv-native-v1', 'quotas':{}, 'related_seeds':{}}
-    images = library(db)
-    return personal_profile(db, index, account, images) if mode == 'personal' else stock_profile(db, index, account, images)
+    from .profile_cache import cached_profile
+    def build():
+        images = library(db)
+        return personal_profile(db, index, account, images) if mode == 'personal' else stock_profile(db, index, account, images)
+    return cached_profile(db, index, account, mode, build)
 
 
 def search_plan(db, index, profile, preferences, mode, rotation):
@@ -322,13 +326,16 @@ def rank(db, index, account, mode, actor_id, seen_pids=(), *, profile=None):
     from .learning import affinity, quality, QualityReference, age
     now = datetime.utcnow()
     matched={item['pid']:item['match'] for item,_ in candidates}
-    historical=[]
-    for row in db.query(models.PixivArtwork).filter_by(account_revision=account.revision).order_by(
-            models.PixivArtwork.fetched_at.desc()).limit(5000):
-        art=row.metadata_json
-        if art.get('bookmarks') is not None:
-            historical.append({**art,'match':matched.get(row.pid) or recommendation_match(index,art.get('tags',[]),index.groups)})
-    reference = QualityReference(historical,now)
+    def quality_reference():
+        historical=[]
+        for row in db.query(models.PixivArtwork.pid, models.PixivArtwork.metadata_json).filter_by(
+                account_revision=account.revision).order_by(models.PixivArtwork.fetched_at.desc()).limit(5000):
+            art=row.metadata_json
+            if art.get('bookmarks') is not None:
+                historical.append({**art,'match':matched.get(row.pid) or recommendation_match(index,art.get('tags',[]),index.groups)})
+        return QualityReference(historical,now)
+    from .profile_cache import cached_profile
+    reference = cached_profile(db, index, account, 'quality-reference', quality_reference, training_sensitive=False)
     for item, native_rank in candidates:
         native = 1 / math.log2(native_rank + 2) if native_rank is not None else 0
         q = quality(item,now,reference)
@@ -343,10 +350,11 @@ def rank(db, index, account, mode, actor_id, seen_pids=(), *, profile=None):
     if mode == 'personal':
         from .scheduling import take
         pool, chosen, authors = sorted([item for item, _ in candidates if item.get('bookmarks') is None or item['_quality']>=.50], key=lambda item:(-item['_score'], item['pid'])), [], Counter()
+        tag_sets = {}
         while pool and len(chosen) < 180:
             if len(chosen) % 20 == 0:
                 authors.clear()
-            item = take(pool,chosen,authors,role_cap=True)
+            item = take(pool,chosen,authors,role_cap=True,tag_sets=tag_sets)
             authors[item['author_id']] += 1
             item.pop('_score')
             item.pop('_quality',None)

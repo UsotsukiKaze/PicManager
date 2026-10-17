@@ -59,6 +59,29 @@ async function enter(page: Page) {
   await expect(page.locator('.px-card')).toHaveCount(20);
 }
 
+test('reader opens and loads preview before library status finishes', async ({ page }) => {
+  const mock = await fixture(page);
+  await page.goto('/#/pixiv');
+  await expect(page.locator('.px-card')).toHaveCount(20);
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/pixiv-ol/library-status?**', async route => {
+    await gate;
+    await route.fulfill({ json: { items: [{ pid: '1000', imported_pages: [0] }] } });
+  });
+  await page.locator('.px-card').first().locator('[data-action=detail]').first().click();
+  const reader = page.locator('.px-artwork-reader');
+  await expect(reader).toBeVisible({ timeout: 1500 });
+  await expect(reader.locator('.px-detail-cover')).toHaveClass(/is-ready/);
+  await expect(reader.locator('#pixiv-draft-submit')).toBeDisabled();
+  release();
+  await expect(reader.locator('#pixiv-draft-submit')).toHaveText('已入库');
+  await expect(reader.locator('#pixiv-draft-submit')).toBeDisabled();
+  await reader.getByRole('button', { name: '关闭', exact: true }).click();
+  await expect(reader).toHaveCount(0);
+  expect(mock.errors).toEqual([]);
+});
+
 test('all sources use the icon push while marquee and center-expanding tools enter together', async ({ page }, info) => {
   const mock = await fixture(page, { activeJob: true });
   await page.setViewportSize({ width: 1280, height: 800 });

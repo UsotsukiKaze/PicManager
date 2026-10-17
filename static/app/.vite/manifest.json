@@ -3,8 +3,8 @@
     "file": "assets/EntityAvatar-BAY-R0pc.css",
     "src": "_EntityAvatar-BAY-R0pc.css"
   },
-  "_EntityAvatar-CnPiug1r.js": {
-    "file": "assets/EntityAvatar-CnPiug1r.js",
+  "_EntityAvatar-_y2kaBLS.js": {
+    "file": "assets/EntityAvatar-_y2kaBLS.js",
     "name": "EntityAvatar",
     "imports": [
       "_pinia-BfC4E69E.js",
@@ -14,17 +14,21 @@
       "assets/EntityAvatar-BAY-R0pc.css"
     ]
   },
-  "_EntityPicker-D56FLve3.js": {
-    "file": "assets/EntityPicker-D56FLve3.js",
+  "_EntityPicker-BN-OXYxo.js": {
+    "file": "assets/EntityPicker-BN-OXYxo.js",
     "name": "EntityPicker",
     "imports": [
       "_pinia-BfC4E69E.js",
       "index.html",
-      "_scripts-CVuY2E7F.js"
+      "_scripts-ijQ4VFrc.js"
     ]
   },
-  "_accountMotion-CXyDUY24.js": {
-    "file": "assets/accountMotion-CXyDUY24.js",
+  "_accountMotion-CgKE-uPr.css": {
+    "file": "assets/accountMotion-CgKE-uPr.css",
+    "src": "_accountMotion-CgKE-uPr.css"
+  },
+  "_accountMotion-FcBmO0VV.js": {
+    "file": "assets/accountMotion-FcBmO0VV.js",
     "name": "accountMotion",
     "imports": [
       "index.html"
@@ -33,16 +37,12 @@
       "assets/accountMotion-CgKE-uPr.css"
     ]
   },
-  "_accountMotion-CgKE-uPr.css": {
-    "file": "assets/accountMotion-CgKE-uPr.css",
-    "src": "_accountMotion-CgKE-uPr.css"
-  },
-  "_bridge-BdSgvUH-.js": {
-    "file": "assets/bridge-BdSgvUH-.js",
+  "_bridge-Ck8Cy2f_.js": {
+    "file": "assets/bridge-Ck8Cy2f_.js",
     "name": "bridge",
     "imports": [
       "index.html",
-      "_scripts-CVuY2E7F.js"
+      "_scripts-ijQ4VFrc.js"
     ]
   },
   "_devtools-EWN81iOl-B5MW2_Xv.js": {
@@ -56,15 +56,15 @@
     "file": "assets/pinia-BfC4E69E.js",
     "name": "pinia"
   },
-  "_scripts-CVuY2E7F.js": {
-    "file": "assets/scripts-CVuY2E7F.js",
+  "_scripts-ijQ4VFrc.js": {
+    "file": "assets/scripts-ijQ4VFrc.js",
     "name": "scripts",
     "imports": [
       "index.html"
     ]
   },
-  "_slidingTabs-4yAygyn8.js": {
-    "file": "assets/slidingTabs-4yAygyn8.js",
+  "_slidingTabs-B9OQImKk.js": {
+    "file": "assets/slidingTabs-B9OQImKk.js",
     "name": "slidingTabs",
     "imports": [
       "_pinia-BfC4E69E.js",
@@ -78,8 +78,8 @@
     "file": "assets/slidingTabs-Byi0_ayD.css",
     "src": "_slidingTabs-Byi0_ayD.css"
   },
-  "_useQuery-Y6fjdS86.js": {
-    "file": "assets/useQuery-Y6fjdS86.js",
+  "_useQuery-D8iwSUIF.js": {
+    "file": "assets/useQuery-D8iwSUIF.js",
     "name": "useQuery",
     "imports": [
       "_pinia-BfC4E69E.js",
@@ -87,7 +87,7 @@
     ]
   },
   "index.html": {
-    "file": "assets/index-DeAlvDCf.js",
+    "file": "assets/index-rjhmlufk.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -103,7 +103,7 @@
       "src/views/ProfileView.vue",
       "src/views/RankingsView.vue",
       "src/views/FeatureView.vue",
-      "_bridge-BdSgvUH-.js"
+      "_bridge-Ck8Cy2f_.js"
     ],
     "css": [
       "assets/index-DKhJ4l3O.css"
@@ -116,46 +116,46 @@
     "isDynamicEntry": true
   },
   "src/components/EmojiDetail.vue": {
-    "file": "assets/EmojiDetail-Cba6VUrW.js",
+    "file": "assets/EmojiDetail-Dct8sNj0.js",
     "name": "EmojiDetail",
     "src": "src/components/EmojiDetail.vue",
     "isDynamicEntry": true,
     "imports": [
       "_pinia-BfC4E69E.js",
-      "_useQuery-Y6fjdS86.js",
+      "_useQuery-D8iwSUIF.js",
       "index.html",
       "src/views/EmojiView.vue"
     ]
   },
   "src/components/ImageDetail.vue": {
-    "file": "assets/ImageDetail-C9u_GX5g.js",
+    "file": "assets/ImageDetail-C2bXASV8.js",
     "name": "ImageDetail",
     "src": "src/components/ImageDetail.vue",
     "isDynamicEntry": true,
     "imports": [
       "_pinia-BfC4E69E.js",
-      "_useQuery-Y6fjdS86.js",
+      "_useQuery-D8iwSUIF.js",
       "index.html",
-      "_scripts-CVuY2E7F.js",
-      "_EntityAvatar-CnPiug1r.js"
+      "_scripts-ijQ4VFrc.js",
+      "_EntityAvatar-_y2kaBLS.js"
     ]
   },
   "src/views/EmojiView.vue": {
-    "file": "assets/EmojiView-DG_CgkE3.js",
+    "file": "assets/EmojiView-Dm5cKojR.js",
     "name": "EmojiView",
     "src": "src/views/EmojiView.vue",
     "isDynamicEntry": true,
     "imports": [
       "_pinia-BfC4E69E.js",
-      "_useQuery-Y6fjdS86.js",
+      "_useQuery-D8iwSUIF.js",
       "index.html",
-      "_scripts-CVuY2E7F.js",
-      "_EntityAvatar-CnPiug1r.js",
-      "_slidingTabs-4yAygyn8.js",
-      "_EntityPicker-D56FLve3.js"
+      "_scripts-ijQ4VFrc.js",
+      "_EntityAvatar-_y2kaBLS.js",
+      "_slidingTabs-B9OQImKk.js",
+      "_EntityPicker-BN-OXYxo.js"
     ],
     "dynamicImports": [
-      "_bridge-BdSgvUH-.js",
+      "_bridge-Ck8Cy2f_.js",
       "src/components/EmojiDetail.vue"
     ],
     "css": [
@@ -163,7 +163,7 @@
     ]
   },
   "src/views/FeatureView.vue": {
-    "file": "assets/FeatureView-Ds57SnVJ.js",
+    "file": "assets/FeatureView-B10rJGu_.js",
     "name": "FeatureView",
     "src": "src/views/FeatureView.vue",
     "isDynamicEntry": true,
@@ -171,46 +171,46 @@
       "_pinia-BfC4E69E.js",
       "_devtools-EWN81iOl-B5MW2_Xv.js",
       "index.html",
-      "_bridge-BdSgvUH-.js",
-      "_accountMotion-CXyDUY24.js"
+      "_bridge-Ck8Cy2f_.js",
+      "_accountMotion-FcBmO0VV.js"
     ]
   },
   "src/views/GalleryView.vue": {
-    "file": "assets/GalleryView-pLSu2oOw.js",
+    "file": "assets/GalleryView-C-P-0qvn.js",
     "name": "GalleryView",
     "src": "src/views/GalleryView.vue",
     "isDynamicEntry": true,
     "imports": [
       "_pinia-BfC4E69E.js",
-      "_useQuery-Y6fjdS86.js",
+      "_useQuery-D8iwSUIF.js",
       "index.html",
-      "_scripts-CVuY2E7F.js",
-      "_EntityAvatar-CnPiug1r.js",
-      "_slidingTabs-4yAygyn8.js",
-      "_EntityPicker-D56FLve3.js"
+      "_scripts-ijQ4VFrc.js",
+      "_EntityAvatar-_y2kaBLS.js",
+      "_slidingTabs-B9OQImKk.js",
+      "_EntityPicker-BN-OXYxo.js"
     ],
     "dynamicImports": [
       "src/components/ImageDetail.vue",
-      "_bridge-BdSgvUH-.js"
+      "_bridge-Ck8Cy2f_.js"
     ]
   },
   "src/views/HomeView.vue": {
-    "file": "assets/HomeView-DOflazLZ.js",
+    "file": "assets/HomeView-Vl0zdnNg.js",
     "name": "HomeView",
     "src": "src/views/HomeView.vue",
     "isDynamicEntry": true,
     "imports": [
       "_pinia-BfC4E69E.js",
-      "_useQuery-Y6fjdS86.js",
+      "_useQuery-D8iwSUIF.js",
       "index.html",
-      "_EntityAvatar-CnPiug1r.js"
+      "_EntityAvatar-_y2kaBLS.js"
     ],
     "css": [
-      "assets/HomeView-TwgI7nY7.css"
+      "assets/HomeView-CcNdDHIV.css"
     ]
   },
   "src/views/ProfileView.vue": {
-    "file": "assets/ProfileView-CHiAkulY.js",
+    "file": "assets/ProfileView-BFJH9FAx.js",
     "name": "ProfileView",
     "src": "src/views/ProfileView.vue",
     "isDynamicEntry": true,
@@ -218,41 +218,41 @@
       "_pinia-BfC4E69E.js",
       "_devtools-EWN81iOl-B5MW2_Xv.js",
       "index.html",
-      "_accountMotion-CXyDUY24.js"
+      "_accountMotion-FcBmO0VV.js"
     ]
   },
   "src/views/RankingsView.vue": {
-    "file": "assets/RankingsView-R4JF3umw.js",
+    "file": "assets/RankingsView-Cy02ymJO.js",
     "name": "RankingsView",
     "src": "src/views/RankingsView.vue",
     "isDynamicEntry": true,
     "imports": [
       "_pinia-BfC4E69E.js",
-      "_useQuery-Y6fjdS86.js",
+      "_useQuery-D8iwSUIF.js",
       "index.html",
-      "_scripts-CVuY2E7F.js",
-      "_EntityAvatar-CnPiug1r.js",
-      "_EntityPicker-D56FLve3.js"
+      "_scripts-ijQ4VFrc.js",
+      "_EntityAvatar-_y2kaBLS.js",
+      "_EntityPicker-BN-OXYxo.js"
     ],
     "css": [
       "assets/RankingsView-DAJdpnmK.css"
     ]
   },
   "src/views/UploadView.vue": {
-    "file": "assets/UploadView-0z-EvlCi.js",
+    "file": "assets/UploadView-BTnOXpFx.js",
     "name": "UploadView",
     "src": "src/views/UploadView.vue",
     "isDynamicEntry": true,
     "imports": [
       "_pinia-BfC4E69E.js",
-      "_useQuery-Y6fjdS86.js",
+      "_useQuery-D8iwSUIF.js",
       "index.html",
-      "_scripts-CVuY2E7F.js",
-      "_EntityPicker-D56FLve3.js"
+      "_scripts-ijQ4VFrc.js",
+      "_EntityPicker-BN-OXYxo.js"
     ],
     "dynamicImports": [
       "node_modules/@noble/hashes/sha2.js",
-      "_bridge-BdSgvUH-.js",
+      "_bridge-Ck8Cy2f_.js",
       "index.html"
     ],
     "css": [

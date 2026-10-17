@@ -11,8 +11,16 @@ def overlap(a, b):
     return len(x & y) / max(1, len(x | y))
 
 
-def take(pool, chosen, authors, *, role_cap=False):
+def take(pool, chosen, authors, *, role_cap=False, tag_sets=None):
+    tag_sets = {} if tag_sets is None else tag_sets
+    def tags(item):
+        key = id(item)
+        if key not in tag_sets:
+            tag_sets[key] = {normalize(t['name']) for t in item['tags']}
+        return tag_sets[key]
     window = chosen[-20:]
+    previous_tags = [tags(item) for item in window]
+    role_counts = Counter(r for old in window for r in set(old['match']['character_ids'])) if role_cap else {}
     allowed = [n for n, i in enumerate(pool[:60]) if authors[i["author_id"]] < 2]
     choices = allowed or list(range(min(60, len(pool))))
     temporal = Counter(i.get("age_bucket", "recent") for i in chosen)
@@ -23,11 +31,13 @@ def take(pool, chosen, authors, *, role_cap=False):
 
     def score(n):
         item = pool[n]
-        similarity = max((overlap(item, old) for old in window), default=0)
+        current_tags = tags(item)
+        similarity = max((len(current_tags & old) / max(1, len(current_tags | old))
+                          for old in previous_tags), default=0)
         role_penalty = 0
         if role_cap and item["match"]["character_ids"]:
             role_penalty = 0.08 * max(
-                sum(r in old["match"]["character_ids"] for old in window) for r in item["match"]["character_ids"]
+                role_counts[r] for r in item["match"]["character_ids"]
             )
         penalty = 0.12 * similarity + 0.06 * authors[item["author_id"]] + role_penalty
         return item["_score"] - min(penalty, 0.25 * item["_score"])
@@ -72,6 +82,7 @@ def stock_schedule(items, profile, index):
     history_total = sum(history.values())
     # Use a fixed batch budget rather than shrinking away exploration when supply is thin.
     # Repeated pages consume this one immutable schedule, with no per-page rounding.
+    tag_sets = {}
     for slot in range(180):
         if len(chosen) % 20 == 0:
             authors.clear()
@@ -82,7 +93,7 @@ def stock_schedule(items, profile, index):
         if not active:
             continue
         key = max(active, key=lambda k: (weights[k] * (history_total + slot + 1) - history[k] - counts[k], str(k)))
-        item = take(pools[key], chosen, authors)
+        item = take(pools[key], chosen, authors, tag_sets=tag_sets)
         item.pop("_score", None)
         item.pop("_quality", None)
         chosen.append(item)

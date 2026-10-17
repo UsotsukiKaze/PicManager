@@ -22,7 +22,7 @@ from .services import ImageService
 ALGORITHM = "visual64-grid-v1"
 COS = [[math.cos(math.pi * (2*x+1)*k/32) for x in range(16)] for k in range(8)]
 INDEX_LOCK = threading.Lock()
-INDEX = (None, None)
+INDEX = {}
 
 
 def unidentified():
@@ -99,11 +99,14 @@ def describe(path):
     return {"variants":variants}
 
 
-def index_missing_batch(db, limit=24):
-    rows=db.query(models.Image).outerjoin(models.ImageVisualFingerprint).filter(
-        unidentified(),models.Image.file_status=="available",
+def index_missing_batch(db, limit=24, *, include_identified=False):
+    query=db.query(models.Image).outerjoin(models.ImageVisualFingerprint).filter(
+        models.Image.file_status=="available",
         or_(models.ImageVisualFingerprint.image_id.is_(None),models.ImageVisualFingerprint.algorithm!=ALGORITHM),
-    ).order_by(models.Image.image_id).limit(limit).all()
+    )
+    if not include_identified:
+        query=query.filter(unidentified())
+    rows=query.order_by(models.Image.image_id).limit(limit).all()
     failed=0
     for image in rows:
         path=Path(ImageService.image_full_path(image))
@@ -144,15 +147,17 @@ class HashIndex:
             yield self.entries[index]
 
 
-def get_index(db):
+def get_index(db, *, include_identified=False):
     global INDEX
-    query=db.query(models.ImageVisualFingerprint).join(models.Image).filter(unidentified(),models.Image.file_status=='available',models.ImageVisualFingerprint.algorithm==ALGORITHM)
-    stamp=(id(db.get_bind()), *query.with_entities(func.count(models.ImageVisualFingerprint.image_id),func.max(models.ImageVisualFingerprint.updated_at),func.max(models.Image.updated_at)).one())
+    query=db.query(models.ImageVisualFingerprint).join(models.Image).filter(models.Image.file_status=='available',models.ImageVisualFingerprint.algorithm==ALGORITHM)
+    if not include_identified:
+        query=query.filter(unidentified())
+    stamp=(include_identified,id(db.get_bind()), *query.with_entities(func.count(models.ImageVisualFingerprint.image_id),func.max(models.ImageVisualFingerprint.updated_at),func.max(models.Image.updated_at)).one())
     with INDEX_LOCK:
-        if INDEX[0]!=tuple(stamp):
+        if INDEX.get(include_identified, (None, None))[0]!=tuple(stamp):
             rows=query.with_entities(models.ImageVisualFingerprint.image_id,models.ImageVisualFingerprint.descriptor,models.ImageVisualFingerprint.source_signature).all()
-            INDEX=(tuple(stamp),HashIndex(rows))
-        return INDEX[1]
+            INDEX[include_identified]=(tuple(stamp),HashIndex(rows))
+        return INDEX[include_identified][1]
 
 
 def correlation(left,right):
@@ -169,11 +174,11 @@ def cached_descriptor(path, size, mtime):
     return describe(Path(path))
 
 
-def match_cached_preview(db, path, index=None):
+def match_cached_preview(db, path, index=None, *, include_identified=False):
     try:
         descriptor=cached_descriptor(*signature(path))
     except (OSError,ValueError,Image.DecompressionBombError):return []
-    index=index or get_index(db);matches={}
+    index=index or get_index(db,include_identified=include_identified);matches={}
     for variant in descriptor['variants']:
         for image_id,local,source in islice(index.nearest(int(variant['p'],16)),256):
             if abs(math.log(local[4]/variant['ratio']))>.12:continue

@@ -234,6 +234,8 @@ def get_bot_random_image(
     group_id: int | None = None,
     character_id: int | None = None,
     exclude_group_id: int | None = None,
+    exclude_character_id: int | None = None,
+    exclude_feature_tag_id: int | None = None,
     feature_tag_id: int | None = None,
     feature_tag_ids: list[int] | None = Query(None),
     age_rating: str | None = None,
@@ -302,6 +304,8 @@ def get_bot_random_image(
             requested_age_rating or max_age_rating,
             feature_tag_ids=feature_tag_ids,
             exact_age_rating=requested_age_rating if exact_age_rating else None,
+            exclude_character_id=exclude_character_id,
+            exclude_feature_tag_id=exclude_feature_tag_id,
         )
         if not image:
             raise HTTPException(status_code=404, detail="Image not found")
@@ -641,3 +645,7 @@ def create_bot_login_ticket(ticket_create: schemas.BotLoginTicketCreate):
             purpose=issued.record.purpose,
             qq_number=issued.record.qq_number,
         )
+
+
+from .bot_search import router as search_router  # noqa: E402
+router.include_router(search_router)

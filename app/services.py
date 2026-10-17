@@ -1733,6 +1733,8 @@ class ImageService:
         max_age_rating: Optional[str] = None,
         feature_tag_ids: Optional[List[int]] = None,
         exact_age_rating: Optional[str] = None,
+        exclude_character_id: Optional[int] = None,
+        exclude_feature_tag_id: Optional[int] = None,
     ) -> Optional[dict]:
         """Return a random image while avoiding recent repeats in the same filter scope."""
         query = db.query(models.Image).filter(models.Image.file_status == ImageService.AVAILABLE)
@@ -1758,6 +1760,14 @@ class ImageService:
 
         if exclude_group_id:
             query = query.filter(~models.Image.groups.any(models.Group.id == exclude_group_id))
+            query = query.filter(~models.Image.characters.any(models.Character.group_id == exclude_group_id))
+        if exclude_character_id:
+            query = query.filter(~models.Image.characters.any(models.Character.id == exclude_character_id))
+        if exclude_feature_tag_id:
+            query = query.filter(~models.Image.feature_tags.any(models.FeatureTag.id == exclude_feature_tag_id))
+            query = query.filter(~models.Image.characters.any(
+                models.Character.feature_tags.any(models.FeatureTag.id == exclude_feature_tag_id)
+            ))
 
         candidate_ids = [row[0] for row in query.with_entities(models.Image.image_id).distinct().all()]
         if not candidate_ids:
@@ -1771,6 +1781,8 @@ class ImageService:
             str(max_age_rating or ""),
             tuple(normalized_feature_ids),
             str(exact_age_rating or ""),
+            int(exclude_character_id) if exclude_character_id else None,
+            int(exclude_feature_tag_id) if exclude_feature_tag_id else None,
         )
         recent_ids = ImageService._random_recent_image_ids[scope_key]
         missing_found = False

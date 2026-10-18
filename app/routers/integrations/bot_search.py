@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 import tempfile
 import threading
+import unicodedata
+from difflib import SequenceMatcher
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -136,16 +138,47 @@ def pid_search(
     return _remote_result(work_id, page, audience, audience_id)
 
 
+def _registered_artists(db):
+    """Only artists registered on available library images are searchable."""
+    return db.query(models.PixivArtist.id, models.PixivArtist.name).join(
+        models.PixivImageMetadata
+    ).join(models.Image).filter(
+        models.Image.file_status == ImageService.AVAILABLE,
+        models.PixivImageMetadata.status == "verified",
+    ).distinct()
+
+
+def _artist_name(value: str) -> str:
+    return "".join(char for char in unicodedata.normalize("NFKC", value).casefold() if char.isalnum())
+
+
 def _local_artists(db, name: str):
-    query = db.query(models.PixivArtist).filter(models.PixivArtist.name.contains(name, autoescape=True))
-    artists = query.order_by(models.PixivArtist.name, models.PixivArtist.id).limit(30).all()
-    exact = [artist for artist in artists if artist.name.casefold() == name.casefold()]
-    return exact or artists
+    target = _artist_name(name)
+    if not target:
+        return []
+    artists = _registered_artists(db).order_by(models.PixivArtist.name, models.PixivArtist.id).all()
+    exact = [artist for artist in artists if _artist_name(artist.name) == target]
+    if exact:
+        return exact[:8]
+    partial = [artist for artist in artists if target in _artist_name(artist.name)]
+    if partial:
+        return sorted(partial, key=lambda artist: (len(_artist_name(artist.name)), artist.id))[:8]
+    if len(target) < 2:
+        return []
+    threshold = .75 if len(target) == 2 else .6
+    ranked = sorted(
+        ((SequenceMatcher(None, target, _artist_name(artist.name)).ratio(), artist) for artist in artists),
+        key=lambda item: (-item[0], item[1].id),
+    )
+    if not ranked or ranked[0][0] < threshold:
+        return []
+    return [artist for score, artist in ranked if score >= max(threshold, ranked[0][0] - .1)][:8]
 
 
 def _artist_image(db, artist_id: str, audience: str, audience_id: str):
     candidates = db.query(models.Image.image_id).join(models.PixivImageMetadata).filter(
         models.PixivImageMetadata.artist_id == artist_id,
+        models.PixivImageMetadata.status == "verified",
         models.Image.file_status == ImageService.AVAILABLE,
         models.Image.age_rating.in_(ImageService.allowed_age_ratings(_ceiling(db, audience, audience_id))),
     ).order_by(func.random()).limit(8).all()
@@ -156,47 +189,8 @@ def _artist_image(db, artist_id: str, audience: str, audience_id: str):
     return None
 
 
-def _remote_artist(name: str, artist_id: str | None, audience: str, audience_id: str):
-    with get_db_context() as db:
-        account = _pixiv_account(db)
-        actor_id, revision = account.owner_id, account.revision
-    try:
-        client = pixiv_service.client_for_job(actor_id, revision)
-        try:
-            if not artist_id:
-                results = client.call("search_user", word=name).get("user_previews") or []
-                users = [item.get("user") or {} for item in results[:30]]
-                exact = [user for user in users if str(user.get("name") or "").casefold() == name.casefold()]
-                if not users:
-                    raise HTTPException(404, "Artist not found")
-                if not exact or len(exact) > 1:
-                    users = exact or users
-                    return {"candidates": [{"id": str(user["id"]), "name": user.get("name")}
-                                           for user in users[:8]]}
-                artist_id = str(exact[0]["id"])
-            works = client.call("user_illusts", user_id=int(artist_id), type="illust").get("illusts") or []
-        finally:
-            client.close()
-        for raw in works[:30]:
-            art = pixiv_service.normalize_artwork(raw)
-            if not art or str(art.get("author_id")) != artist_id:
-                continue
-            with get_db_context() as db:
-                account = _pixiv_account(db)
-                if not pixiv_allowed(art, account.preferences):
-                    continue
-                rating = "r18" if art.get("x_restrict") else "r12"
-                if not _permitted(db, rating, audience, audience_id):
-                    continue
-            _save_remote(raw, actor_id, revision)
-            return _remote_result(art["pid"], 0, audience, audience_id)
-    except PixivError as exc:
-        raise HTTPException(503, f"Pixiv artist search failed: {exc.code}") from None
-    raise HTTPException(404, "Artist has no permitted artwork")
-
-
 @router.get("/artist-search")
-def artist_search(name: str = "", uid: str = "", audience: str = "group", audience_id: str = "", local_only: bool = False):
+def artist_search(name: str = "", uid: str = "", audience: str = "group", audience_id: str = ""):
     name = name.strip()[:100]
     uid = uid.strip()
     if uid and not re.fullmatch(r"[0-9]{1,30}", uid):
@@ -204,20 +198,14 @@ def artist_search(name: str = "", uid: str = "", audience: str = "group", audien
     if not name and not uid:
         raise HTTPException(422, "Artist name or ID required")
     with get_db_context() as db:
-        artists = [db.get(models.PixivArtist, uid)] if uid else _local_artists(db, name)
-        artists = [artist for artist in artists if artist]
-        if local_only:
-            return {"candidates": [
-                {"id": artist.id, "name": artist.name}
-                for artist in artists if uid or artist.name.casefold() == name.casefold()
-            ][:8]}
-        if len(artists) > 1 or (artists and not uid and artists[0].name.casefold() != name.casefold()):
+        artists = _registered_artists(db).filter(models.PixivArtist.id == uid).all() if uid else _local_artists(db, name)
+        if len(artists) > 1:
             return {"candidates": [{"id": artist.id, "name": artist.name} for artist in artists[:8]]}
         if artists:
             found = _artist_image(db, artists[0].id, audience, audience_id)
             if found:
                 return found
-    return _remote_artist(name, uid or (artists[0].id if artists else None), audience, audience_id)
+    raise HTTPException(404, "No matching library artist or permitted library artwork")
 
 
 @router.get("/pixiv-media/{pid}/{page}")

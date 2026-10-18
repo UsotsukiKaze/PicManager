@@ -247,6 +247,7 @@ def get_bot_random_image(
     assertion_timestamp: int | None = None,
     assertion_nonce: str | None = None,
     assertion_signature: str | None = None,
+    single_character: bool = False,
 ):
     """Return a random image using bot-oriented target resolution."""
     resolved = None
@@ -306,6 +307,7 @@ def get_bot_random_image(
             exact_age_rating=requested_age_rating if exact_age_rating else None,
             exclude_character_id=exclude_character_id,
             exclude_feature_tag_id=exclude_feature_tag_id,
+            single_character=single_character,
         )
         if not image:
             raise HTTPException(status_code=404, detail="Image not found")

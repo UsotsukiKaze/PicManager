@@ -99,59 +99,74 @@ def test_artist_ambiguity_returns_uids_without_drawing(monkeypatch):
     assert result == {"candidates": [{"id": "1", "name": "artist"}, {"id": "2", "name": "artist"}]}
 
 
-def test_artist_exact_catalog_check_does_not_contact_pixiv(monkeypatch):
-    monkeypatch.setattr(bot_search, "get_db_context", fake_database)
-    monkeypatch.setattr(bot_search, "_local_artists", lambda db, name: [SimpleNamespace(id="9", name="Artist")])
-    monkeypatch.setattr(bot_search, "_remote_artist", lambda *args: pytest.fail("Catalog check must stay local"))
-
-    result = bot_search.artist_search(name="artist", audience="group", audience_id="42", local_only=True)
-
-    assert result == {"candidates": [{"id": "9", "name": "Artist"}]}
-
-
 def test_artist_search_prefers_library_image(monkeypatch):
     monkeypatch.setattr(bot_search, "get_db_context", fake_database)
     monkeypatch.setattr(bot_search, "_local_artists", lambda db, name: [SimpleNamespace(id="9", name="Artist")])
     monkeypatch.setattr(bot_search, "_artist_image", lambda *args: {"source": "library", "pid": "123_p0"})
-    monkeypatch.setattr(bot_search, "_remote_artist", lambda *args: pytest.fail("Pixiv must not be called for a library hit"))
+    monkeypatch.setattr(bot_search, "_pixiv_account", lambda *args: pytest.fail("Artist search must stay local"))
 
     result = bot_search.artist_search(name="Artist", audience="group", audience_id="42")
 
     assert result == {"source": "library", "pid": "123_p0"}
 
 
-def test_remote_artist_search_uses_resolved_artist_and_filters_artwork(monkeypatch):
-    class FakeClient:
-        def __init__(self):
-            self.calls = []
+@pytest.fixture
+def artist_db(monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    models.Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        for artist_id, name, status in [
+            ("1", "米山舞", "available"), ("2", "山田舞", "available"),
+            ("3", "Lack / Ａｒｔ", "available"), ("4", "Missing Artist", "missing"),
+        ]:
+            image = models.Image(image_id=f"ART{artist_id}", file_path=f"{artist_id}.png",
+                                 file_extension="png", file_status=status, age_rating="all")
+            artist = models.PixivArtist(id=artist_id, name=name)
+            image.pixiv_metadata = models.PixivImageMetadata(
+                work_id=f"100{artist_id}", page_index=0, page_count=1, artist=artist,
+            )
+            db.add(image)
+        db.commit()
+        db.execute(models.PixivArtist.__table__.insert().values(id="5", name="Orphan Artist"))
+        db.commit()
 
-        def call(self, method, **kwargs):
-            self.calls.append((method, kwargs))
-            if method == "search_user":
-                return {"user_previews": [{"user": {"id": 9, "name": "artist"}}]}
-            return {"illusts": [{"id": 123}]}
+        @contextmanager
+        def database():
+            yield db
 
-        def close(self):
-            pass
+        monkeypatch.setattr(bot_search, "get_db_context", database)
+        monkeypatch.setattr(bot_search, "_pixiv_account", lambda *args: pytest.fail("Artist search must stay local"))
+        yield db
+    engine.dispose()
 
-    client = FakeClient()
-    monkeypatch.setattr(bot_search, "get_db_context", fake_database)
-    monkeypatch.setattr(bot_search, "_pixiv_account", lambda db: SimpleNamespace(owner_id=7, revision="revision", preferences={}))
-    monkeypatch.setattr(bot_search.pixiv_service, "client_for_job", lambda actor, revision: client)
-    monkeypatch.setattr(bot_search.pixiv_service, "normalize_artwork", lambda raw: {
-        "pid": "123", "author_id": "9", "x_restrict": 0
+
+@pytest.mark.parametrize("name,expected", [
+    ("米山", ["1"]), ("米山误", ["1"]), ("lack art", ["3"]),
+    ("舞", ["1", "2"]), ("unrelated", []), ("Missing Artist", []), ("Orphan Artist", []),
+])
+def test_fuzzy_artist_search_only_matches_registered_library_artists(artist_db, name, expected):
+    assert [artist.id for artist in bot_search._local_artists(artist_db, name)] == expected
+
+
+@pytest.mark.parametrize("name,uid", [("unknown", ""), ("", "4"), ("", "5"), ("", "999")])
+def test_missing_library_artist_never_uses_pixiv(artist_db, name, uid):
+    with pytest.raises(HTTPException) as error:
+        bot_search.artist_search(name=name, uid=uid, audience="group", audience_id="42")
+    assert error.value.status_code == 404
+
+
+def test_fuzzy_artist_search_draws_matched_library_artist(artist_db, monkeypatch):
+    monkeypatch.setattr(bot_search, "_artist_image", lambda db, artist_id, *args: {
+        "source": "library", "artist_id": artist_id
     })
-    monkeypatch.setattr(bot_search, "_permitted", lambda *args: True)
-    monkeypatch.setattr(bot_search, "_save_remote", lambda *args: None)
-    monkeypatch.setattr(bot_search, "_remote_result", lambda *args: {"source": "pixiv", "pid": "123_p0"})
+    assert bot_search.artist_search(name="米山误", audience_id="42")["artist_id"] == "1"
 
-    result = bot_search._remote_artist("artist", None, "group", "42")
 
-    assert result["pid"] == "123_p0"
-    assert client.calls == [
-        ("search_user", {"word": "artist"}),
-        ("user_illusts", {"user_id": 9, "type": "illust"}),
-    ]
+def test_artist_without_permitted_library_image_never_uses_pixiv(artist_db):
+    artist_db.query(models.Image).filter_by(image_id="ART1").update({"age_rating": "r18"})
+    with pytest.raises(HTTPException) as error:
+        bot_search.artist_search(name="米山舞", audience_id="42")
+    assert error.value.status_code == 404
 
 
 class EmptyQuery:

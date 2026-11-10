@@ -26,7 +26,7 @@ async function activate() {
   catch (reason) { if (token === generation) error.value = (reason as Error).message; }
   finally { if (token === generation) loading.value = false; }
 }
-watch(() => route.fullPath, activate, { immediate: true });
+watch(() => route.path === '/pixiv' ? route.path : route.fullPath, activate, { immediate: true });
 onBeforeRouteLeave(() => { generation++; motion?.dispose(); motion = undefined; });
 onUnmounted(() => { generation++; motion?.dispose(); suspendFeatures(); });
 </script>

@@ -98,6 +98,62 @@ test('Pixiv search shares a page for keywords and PID and restores the showcase 
   expect(errors).toEqual([]);
 });
 
+test('Pixiv search keeps the panel and floating tools fixed while loading and searching by a reader tag', async ({ page }) => {
+  await fixture(page);
+  const tags = Array.from({ length: 15 }, (_, i) => ({ name: `原始タグ${i}`, translated_name: `翻译标签${i}` }));
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const queries: URL[] = [];
+  let accountReads = 0;
+  page.on('request', request => { if (new URL(request.url()).pathname === '/api/pixiv-ol/account') accountReads++; });
+  await page.route('**/api/pixiv-ol/search?*', async route => {
+    queries.push(new URL(route.request().url()));
+    await gate;
+    const items = Array.from({ length: 20 }, (_, i) => ({
+      pid: String(4000 + i), title: `搜索作品 ${i}`, author: '画师', author_id: '9', page_count: 1,
+      preview_url: '/static/icon/Pic.png', tags, imported_pages: [],
+      match: { group_ids: [], character_ids: [], feature_tag_ids: [], conflicts: [] },
+    }));
+    await route.fulfill({ json: { items, next_offset: null, ranking: 'latest' } });
+  });
+  await page.goto('/#/pixiv');
+  await expect(page.locator('.px-card')).toHaveCount(20);
+  await settle(page);
+  const oldTool = await page.getByRole('button', { name: '搜索作品' }).boundingBox();
+  await page.getByRole('button', { name: '搜索作品' }).click();
+  const back = page.getByRole('button', { name: '返回展柜' });
+  const newTool = await back.boundingBox();
+  expect(newTool?.x).toBeCloseTo(oldTool!.x, 0);
+  expect(newTool?.y).toBeCloseTo(oldTool!.y, 0);
+  const keyword = page.getByRole('searchbox', { name: '关键词' });
+  await keyword.fill('白髪');
+  await keyword.press('Enter');
+  await expect(page.getByText('正在加载画作…')).toBeVisible();
+  await page.getByRole('button', { name: '最新发布' }).click();
+  await expect(page.getByRole('button', { name: '最新发布' })).toHaveAttribute('aria-pressed', 'true');
+  expect(accountReads).toBe(1);
+  release();
+  await expect(page.locator('.px-card')).toHaveCount(20);
+  const initialTop = await keyword.evaluate(input => input.getBoundingClientRect().top);
+  const results = page.locator('.px-search-results');
+  await results.evaluate(element => { element.scrollTop = 320; });
+  expect(await results.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+  expect(await keyword.evaluate(input => input.getBoundingClientRect().top)).toBeCloseTo(initialTop, 0);
+  await page.getByRole('button', { name: '回到顶部' }).click();
+  await expect.poll(() => results.evaluate(element => element.scrollTop)).toBe(0);
+  await page.getByRole('button', { name: '查看 搜索作品 0', exact: true }).click();
+  await expect(page.locator('.px-reader-search-tags button')).toHaveCount(tags.length);
+  await page.getByRole('button', { name: '翻译标签14' }).click();
+  await expect(page.locator('dialog[open]')).toHaveCount(0);
+  await expect(keyword).toHaveValue('原始タグ14');
+  await expect.poll(() => queries.at(-1)?.searchParams.get('tag')).toBe('true');
+  expect(accountReads).toBe(1);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(back).toBeInViewport();
+  await expect(keyword).toBeInViewport();
+  await expect.poll(() => results.evaluate(element => element.clientHeight)).toBeGreaterThan(220);
+});
+
 test('reader opens and loads preview before library status finishes', async ({ page }) => {
   const mock = await fixture(page);
   await page.goto('/#/pixiv');

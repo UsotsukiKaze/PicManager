@@ -1,6 +1,5 @@
 """Persistent jobs. Claim, external work and final writes use separate transactions."""
 
-import hashlib
 import shutil
 import threading
 import time
@@ -163,12 +162,12 @@ def import_pages(provider, job_id, revision, actor_id, draft):
                 continue
         stage = Path(settings.DATA_PATH) / "pixiv_ol_staging" / f"{job_id}-{page}.img"
         stage.parent.mkdir(parents=True, exist_ok=True)
-        expected_digest = None
+        cache_info = None
         if draft.get("cart_id"):
             with get_db_context() as db:
                 item = cart.require_item(db, draft["cart_id"], revision, actor_id)
-                cached = cart.cached_path(item, page)
-                expected_digest = item.cache[str(page)]["sha256"]
+                cache_info = item.cache.get(str(page))
+            cached = cart.verified_original(draft["cart_id"], page, cache_info)
             shutil.copyfile(cached, stage)
         else:
             download(art["originals"][page], stage)
@@ -180,8 +179,8 @@ def import_pages(provider, job_id, revision, actor_id, draft):
                 extension = {"JPEG": "jpg", "PNG": "png", "WEBP": "webp", "GIF": "gif", "BMP": "bmp"}.get(image.format)
             if not extension:
                 raise PixivError("invalid_image")
-            digest = hashlib.sha256(stage.read_bytes()).hexdigest()
-            if expected_digest and digest != expected_digest:
+            digest = cart.file_digest(stage)
+            if cache_info and digest != cache_info["sha256"]:
                 raise PixivError("cache_changed")
             perceptual = ImageService.compute_dhash(str(stage))
             with get_db_context() as db:
@@ -240,7 +239,27 @@ def import_pages(provider, job_id, revision, actor_id, draft):
                 job = db.get(models.PixivJob, job_id)
                 job.result = {"done": done, "publishing_key": key}
             stored = backend.put_file(stage, key, move=False)
+            derivatives = {}
             try:
+                if cache_info:
+                    try:
+                        paths = cart.prepare_derivatives(draft["cart_id"], page, cache_info)
+                    except (OSError, ValueError, PixivError):
+                        paths = ()
+                    for kind, source, folder in zip(
+                        ("thumbnail", "preview"), paths, (settings.THUMB_PATH, settings.PREVIEW_PATH),
+                    ):
+                        target = Path(folder) / f"{image_id}.webp"
+                        temporary = target.with_suffix(".part")
+                        try:
+                            target.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copyfile(source, temporary)
+                            temporary.replace(target)
+                            derivatives[kind] = target
+                        except OSError:
+                            pass  # The normal image job can generate this derivative.
+                        finally:
+                            temporary.unlink(missing_ok=True)
                 with get_db_context() as db:
                     service.require_account(db, revision)
                     validate_draft(db, tags)
@@ -263,8 +282,8 @@ def import_pages(provider, job_id, revision, actor_id, draft):
                         file_checked_at=datetime.utcnow(),
                         perceptual_hash=perceptual,
                         pixiv_checked_at=datetime.utcnow(),
-                        thumb_status="pending",
-                        preview_status="pending",
+                        thumb_status="ready" if "thumbnail" in derivatives else "pending",
+                        preview_status="ready" if "preview" in derivatives else "pending",
                     )
                     ImageService._apply_tag_relationships(
                         db, image, tags.get("character_ids", []), tags["group_ids"], feature_ids
@@ -296,10 +315,13 @@ def import_pages(provider, job_id, revision, actor_id, draft):
                             )
                         )
                     for kind in ("thumbnail", "preview"):
-                        ImageJobQueue.enqueue(db, kind, image_id=image_id, dedupe_key=f"{kind}:{image_id}")
+                        if kind not in derivatives:
+                            ImageJobQueue.enqueue(db, kind, image_id=image_id, dedupe_key=f"{kind}:{image_id}")
                     done.append({"page": page, "image_id": image_id, "existing": False})
                     db.get(models.PixivJob, job_id).result = {"done": done}
             except Exception:
+                for derivative in derivatives.values():
+                    derivative.unlink(missing_ok=True)
                 backend.delete(key)
                 raise
             if merge_new:
@@ -335,6 +357,7 @@ class Worker:
         self.last_schedule = 0.0
         self.recommendation_thread = None
         self.wakeup = threading.Event()
+        self.preview_backlog = iter(())
 
     def run_once(self, lane=None):
         with QUEUE_LOCKS['recommendations' if lane == 'recommendations' else 'background']:
@@ -376,6 +399,10 @@ class Worker:
                         published = db.get(models.Image, Path(publishing).stem)
                     if not published:
                         backend.delete(publishing)
+                        for folder in (settings.THUMB_PATH, settings.PREVIEW_PATH):
+                            target = Path(folder) / f"{Path(publishing).stem}.webp"
+                            target.unlink(missing_ok=True)
+                            target.with_suffix(".part").unlink(missing_ok=True)
                 stale_refill = False
                 if kind == 'stock_refill':
                     with get_db_context() as db:
@@ -502,9 +529,10 @@ class Worker:
             return True
 
     def schedule(self):
-        from .cart import cleanup_orphans
+        from .cart import cleanup_orphans, pending_derivatives
 
         cleanup_orphans()
+        self.preview_backlog = pending_derivatives()
         with get_db_context() as db:
             account = db.get(models.PixivAccount, 1)
             if not account or account.status != "connected":
@@ -541,6 +569,11 @@ class Worker:
                     from .bookmarks import run_outbox_once
                     if run_outbox_once():
                         continue
+                    pending = next(self.preview_backlog, None)
+                    if pending:
+                        from .cart import prepare_derivatives
+
+                        prepare_derivatives(*pending)
             except Exception:
                 # Never log exception bodies: third-party errors can contain credentials.
                 pass

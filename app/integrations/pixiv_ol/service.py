@@ -65,7 +65,7 @@ def normalize_artwork(raw):
         "ai_type": raw.get("illust_ai_type"),
         "tags": [
             {"name": str(t.get("name", ""))[:255], "translated_name": t.get("translated_name")}
-            for t in raw.get("tags", [])[:100]
+            for t in raw.get("tags", [])
             if t.get("name")
         ],
         "bookmarks": metric_count(raw.get("total_bookmarks")),

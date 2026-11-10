@@ -2,7 +2,7 @@ import { reducedMotion } from '../state/appearance';
 import '../styles/pol-motion.css';
 
 type Group = 'title' | 'surface' | 'feedback' | 'bridge' | 'mode' | 'tools';
-type Track = { animation: Animation; dispose: () => void };
+type Track = { element: Element; animation: Animation; dispose: () => void };
 const ease = 'cubic-bezier(.2,.8,.2,1)';
 const clock = () => Number(document.timeline.currentTime ?? performance.now());
 const smooth = (value: number) => { const t = Math.max(0, Math.min(1, value)); return t * t * (3 - 2 * t); };
@@ -17,7 +17,7 @@ export function createPolMotion() {
     const animation = element.animate(frames, { easing: ease, fill: 'both', ...options });
     animation.id = `pol-${name}`;
     let disposed = false;
-    const track: Track = { animation, dispose() {
+    const track: Track = { element, animation, dispose() {
       if (disposed) return;
       disposed = true; tracks[group].delete(track); cleanup?.(); animation.cancel();
     } };
@@ -104,12 +104,13 @@ export function createPolMotion() {
   }
   function animateRail(rail: HTMLElement, indicator: HTMLElement, from: number, to: number, duration: number, full: boolean, epoch: number) {
     const width = indicator.getBoundingClientRect().width;
+    const buttons = [...rail.querySelectorAll<HTMLElement>('button')], count = buttons.length;
     const track = document.createElement('span'); track.className = 'pol-mode-track'; track.setAttribute('aria-hidden', 'true');
-    Object.assign(track.style, { left: `${indicator.offsetLeft}px`, top: `${indicator.offsetTop}px`, width: `${width * 3}px`, height: `${indicator.offsetHeight}px` });
+    Object.assign(track.style, { left: `${indicator.offsetLeft}px`, top: `${indicator.offsetTop}px`, width: `${width * count}px`, height: `${indicator.offsetHeight}px` });
+    track.style.setProperty('--pol-rail-count', String(count));
     const echo = indicator.cloneNode() as HTMLElement; echo.classList.add('pol-mode-echo');
     rail.append(track); track.append(indicator, echo);
     rail.classList.add('pol-mode-moving'); rail.classList.toggle('pol-mode-running', full);
-    const buttons = [...rail.querySelectorAll<HTMLElement>('button')];
     const main: Keyframe[] = [], wrap: Keyframe[] = [], labels: Keyframe[][] = buttons.map(() => []);
     const times = [...new Set([...Array.from({ length: 121 }, (_, i) => i / 120), .78, .88, .95])].sort((a, b) => a - b);
     const direction = Math.sign(to - from);
@@ -121,10 +122,10 @@ export function createPolMotion() {
       const x = position * width + direction * seat;
       const stretch = 1 + (t <= .78 ? .035 * Math.sin(Math.PI * travel) : .02 * Math.sin(Math.PI * (t - .78) / .22));
       main.push({ offset: t, transform: `translateX(${x}px) scaleX(${stretch})` });
-      wrap.push({ offset: t, transform: `translateX(${x - width * 3}px) scaleX(${stretch})` });
-      const center = ((position + .5) % 3 + 3) % 3;
+      wrap.push({ offset: t, transform: `translateX(${x - width * count}px) scaleX(${stretch})` });
+      const center = ((position + .5) % count + count) % count;
       buttons.forEach((_button, i) => {
-        const distance = Math.abs(i + .5 - center), proximity = Math.min(distance, 3 - distance);
+        const distance = Math.abs(i + .5 - center), proximity = Math.min(distance, count - distance);
         const lit = smooth(1 - proximity / .8);
         labels[i]!.push({ offset: t, opacity: .65 + lit * .35, color: `color-mix(in srgb,var(--primary-color) ${lit * 100}%,var(--text-secondary))` });
       });
@@ -146,6 +147,19 @@ export function createPolMotion() {
     if (root !== activeRoot || reducedMotion() || !tracks.mode.size) return;
     captureMode(root); clear('mode');
     mode(root, current, current, false, clock()); modeHandoff = undefined;
+  }
+  function searchOptions(root: HTMLElement, entered: boolean, previous: number[]) {
+    if (root !== activeRoot || reducedMotion()) return;
+    const rails = [...root.querySelectorAll<HTMLElement>('.px-search-choices')];
+    const epoch = clock();
+    rails.forEach((rail, i) => {
+      const current = [...rail.querySelectorAll('button')].findIndex(button => button.getAttribute('aria-pressed') === 'true');
+      const indicator = rail.querySelector<HTMLElement>('.px-mode-indicator');
+      if (!indicator || !indicator.offsetWidth || (!entered && previous[i] === current)) return;
+      for (const track of [...tracks.mode]) if (rail.contains(track.element)) track.dispose();
+      animateRail(rail, indicator, entered ? current : previous[i] ?? current,
+        entered ? current + 2 : current, entered ? 680 : 300, entered, epoch);
+    });
   }
   function tools(root: HTMLElement, epoch: number) {
     const group = root.querySelector<HTMLElement>('.px-floating-actions'), cart = root.querySelector<HTMLElement>('.px-floating-cart');
@@ -314,7 +328,7 @@ export function createPolMotion() {
     const icon = button?.querySelector('svg');
     if (icon && !reducedMotion()) play(icon, [{ transform: 'translateY(0)' }, { transform: 'translateY(-3px)', offset: .4 }, { transform: 'translateY(0)' }], { duration: 260 }, 'feedback', 'top');
   }
-  const api = { prepare, depart, cancel, enter, surface, selectMode, cards, ready, imageReady, leaveContent, added, count, liked, closeReader, top, dispose() { cancel(); if (window.PicManagerPolMotion === api) delete window.PicManagerPolMotion; } };
+  const api = { prepare, depart, cancel, enter, surface, selectMode, searchOptions, cards, ready, imageReady, leaveContent, added, count, liked, closeReader, top, dispose() { cancel(); if (window.PicManagerPolMotion === api) delete window.PicManagerPolMotion; } };
   window.PicManagerPolMotion = api;
   return api;
 }

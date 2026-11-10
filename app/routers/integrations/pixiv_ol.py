@@ -4,6 +4,8 @@ import secrets
 import hashlib
 import json
 import threading
+from datetime import datetime, timezone
+from math import log, log1p, log2
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
@@ -268,7 +270,7 @@ def cancel_login(session_id: str, actor_id=Depends(require_root_user_id)):
     return {"cancelled": True}
 
 
-def cart_json(db, item, index=None):
+def cart_json(db, item, index=None, *, liked_pids=None, jobs_by_id=None):
     art = {
         k: v
         for k, v in item.metadata_json.items()
@@ -276,16 +278,13 @@ def cart_json(db, item, index=None):
     }
     art["reader_preview_url"] = f"/api/pixiv-ol/cart/{item.id}/reader-preview"
     art["author_avatar_url"] = f"/api/pixiv-ol/artworks/{item.pid}/avatar"
-    art["liked"] = bool(
+    art["liked"] = item.pid in liked_pids if liked_pids is not None else bool(
         db.query(models.PixivFeedback)
         .filter_by(account_revision=item.account_revision, actor_id=item.actor_id, pid=item.pid, value="like")
         .first()
     )
-    job = (
-        db.get(models.PixivJob, item.import_job_id or item.cache_job_id)
-        if (item.import_job_id or item.cache_job_id)
-        else None
-    )
+    job_id = item.import_job_id or item.cache_job_id
+    job = (jobs_by_id.get(job_id) if jobs_by_id is not None else db.get(models.PixivJob, job_id)) if job_id else None
     return {
         "id": item.id,
         "artwork": {**art, "match": (index or TagIndex(db)).match(art["tags"])},
@@ -321,12 +320,22 @@ def cart_contents(actor_id, *, refresh=False):
             .all()
         )
         items = [item for item in items if allowed(item.metadata_json, account.preferences)]
+        if not items:
+            return {"items": [], "total": 0}
         index = TagIndex(db)
         if refresh:
             from ...integrations.pixiv_ol.cart_tags import refresh_item
             for item in items:
                 refresh_item(index, item)
-        return {"items": [cart_json(db, item, index) for item in items], "total": len(items)}
+        liked_pids = {pid for (pid,) in db.query(models.PixivFeedback.pid).filter_by(
+            account_revision=account.revision, actor_id=actor_id, value="like",
+        ).filter(models.PixivFeedback.pid.in_([item.pid for item in items]))}
+        job_ids = {item.import_job_id or item.cache_job_id for item in items} - {None}
+        jobs_by_id = {job.id: job for job in db.query(models.PixivJob).filter(models.PixivJob.id.in_(job_ids))} if job_ids else {}
+        return {
+            "items": [cart_json(db, item, index, liked_pids=liked_pids, jobs_by_id=jobs_by_id) for item in items],
+            "total": len(items),
+        }
 
 
 @router.post("/cart", status_code=202, dependencies=[Depends(write_guard)])
@@ -518,8 +527,8 @@ def cart_import(body: CartImportBody, actor_id=Depends(require_admin_user_id)):
 
 
 @router.get("/cart/{cart_id}/preview")
-def cart_preview(cart_id: str, page: int | None = Query(None, ge=0, le=999), actor_id=Depends(require_admin_user_id)):
-    from ...integrations.pixiv_ol.cart import require_item, directory, cached_path
+def cart_preview(cart_id: str, request: Request, page: int | None = Query(None, ge=0, le=999), actor_id=Depends(require_admin_user_id)):
+    from ...integrations.pixiv_ol.cart import require_item, directory, derivative_paths, prepare_derivatives
 
     with get_db_context() as db:
         account = service.require_account(db)
@@ -528,25 +537,23 @@ def cart_preview(cart_id: str, page: int | None = Query(None, ge=0, le=999), act
             raise HTTPException(404, "预览不可用")
         if page is not None and page not in item.pages:
             raise HTTPException(404, "该页未加入暂存")
-        path = directory(cart_id) / ("preview.webp" if page is None else f"preview-{page}.webp")
-        if page is not None and not path.is_file():
-            from PIL import Image as PILImage
-
-            try:
-                original = cached_path(item, page)
-            except PixivError:
-                raise HTTPException(404, "预览准备中") from None
-            stage = path.with_name(f"preview-{page}-{secrets.token_hex(4)}.part")
-            try:
-                with PILImage.open(original) as image:
-                    image.thumbnail((400, 400))
-                    image.convert("RGB").save(stage, format="WEBP", quality=80)
-                stage.replace(path)
-            finally:
-                stage.unlink(missing_ok=True)
-    if not path.is_file():
+        revision = account.revision
+        selected = page if page is not None else next((p for p in item.pages if str(p) in item.cache), None)
+        info = item.cache.get(str(selected))
+    if not info:
         raise HTTPException(404, "预览准备中")
-    return FileResponse(path, media_type="image/webp", headers={"Cache-Control": "private, no-store"})
+    thumb, _ = derivative_paths(cart_id, selected, info)
+    if thumb.is_file():
+        return private_media(thumb, "image/webp", request, revision)
+    legacy = directory(cart_id) / ("preview.webp" if page is None else f"preview-{page}.webp")
+    if legacy.is_file():
+        return private_media(legacy, "image/webp", request, revision)
+    try:
+        thumb, _ = prepare_derivatives(cart_id, selected, info)
+        recheck_cart_preview(cart_id, selected, revision, actor_id, info)
+    except (OSError, ValueError, PixivError):
+        raise HTTPException(404, "预览准备中") from None
+    return private_media(thumb, "image/webp", request, revision)
 
 
 @router.get("/account")
@@ -837,16 +844,37 @@ def artwork(pid: str, actor_id=Depends(require_admin_user_id)):
         return public_art(db, row, actor_id=actor_id)
 
 
+def _search_popularity(row, now):
+    """Combine established popularity with age-adjusted and sample-weighted engagement."""
+    art = row.metadata_json
+    bookmarks = art.get("bookmarks")
+    if bookmarks is None:
+        return -1.0
+    age_days = max(0, (now - row.published_at).total_seconds() / 86400)
+    recent_bookmarks = bookmarks / (1 + age_days / 14)
+    score = 0.65 * log1p(bookmarks) + 0.35 * log1p(recent_bookmarks)
+    views = art.get("views")
+    if views and views >= bookmarks:
+        # Use a 5% prior over 500 views and limit the influence of noisy conversion rates.
+        rate = (bookmarks + 25) / (views + 500)
+        conversion = max(-1, min(1, log(rate / 0.05)))
+        score += 0.45 * conversion * bookmarks / (bookmarks + 50)
+    return score
+
+
 @router.get("/search", dependencies=[Depends(write_guard)])
 def search_artworks(
-    q: str = Query(min_length=1, max_length=120),
+    q: str = Query(min_length=1, max_length=255),
     sort: Literal["popular", "latest"] = "popular",
     offset: int = Query(0, ge=0),
+    tag: bool = False,
     actor_id=Depends(require_admin_user_id),
 ):
     word = q.strip()
     if not word:
         raise HTTPException(422, "请输入关键词")
+    if not tag and len(word) > 120:
+        raise HTTPException(422, "关键词不能超过 120 个字符")
     try:
         with get_db_context() as db:
             revision = service.require_account(db).revision
@@ -856,7 +884,8 @@ def search_artworks(
         try:
             def fetch_page(position, order):
                 page = client.call("search_illust", word=word, sort=order,
-                                   search_target="partial_match_for_tags", offset=position)
+                                   search_target="exact_match_for_tags" if tag else "partial_match_for_tags",
+                                   offset=position)
                 cursor = client.cursor(page.get("next_url")) or {}
                 value = str(cursor.get("offset", ""))
                 following = int(value) if len(value) <= 10 and value.isascii() and value.isdigit() else position
@@ -895,8 +924,16 @@ def search_artworks(
                 models.PixivArtwork.pid.in_(candidates),
             )}
             selected = [rows[pid] for pid in candidates if pid in rows and allowed(rows[pid].metadata_json, account.preferences)]
-            if fallback:
-                selected.sort(key=lambda row: (row.metadata_json.get("bookmarks") or 0, row.published_at, int(row.pid)), reverse=True)
+            if sort == "popular":
+                now = datetime.now(timezone.utc).replace(tzinfo=None)
+                if fallback:
+                    selected.sort(key=lambda row: (_search_popularity(row, now), row.published_at, int(row.pid)),
+                                  reverse=True)
+                else:
+                    # Keep Pixiv's page boundaries and give its order a small advantage within each page.
+                    scores = {row.pid: _search_popularity(row, now) + 0.4 / log2(position + 2)
+                              for position, row in enumerate(selected)}
+                    selected.sort(key=lambda row: scores[row.pid], reverse=True)
             index = TagIndex(db)
             library = library_pixiv_pages(db, [row.pid for row in selected])
             return {
@@ -1002,7 +1039,7 @@ def reader_preview(pid: str, request: Request, page: int = Query(0, ge=0, le=999
 
 @router.get("/cart/{cart_id}/reader-preview")
 def cart_reader_preview(cart_id: str, request: Request, page: int = Query(0, ge=0, le=999), actor_id=Depends(require_admin_user_id)):
-    from ...integrations.pixiv_ol.cart import require_item
+    from ...integrations.pixiv_ol.cart import require_item, derivative_paths, prepare_derivatives
     from ...integrations.pixiv_ol.viewer import clear_preview
 
     with get_db_context() as db:
@@ -1013,17 +1050,39 @@ def cart_reader_preview(cart_id: str, request: Request, page: int = Query(0, ge=
             raise HTTPException(404, "暂存作品不存在") from None
         if not allowed(item.metadata_json, account.preferences) or page not in item.pages:
             raise HTTPException(404, "该页未加入暂存")
-        art, revision = dict(item.metadata_json), account.revision
+        art, revision, info = dict(item.metadata_json), account.revision, item.cache.get(str(page))
+    if info:
+        _, path = derivative_paths(cart_id, page, info)
+        if path.is_file():
+            return private_media(path, "image/webp", request, revision)
+        try:
+            _, path = prepare_derivatives(cart_id, page, info)
+        except (OSError, ValueError, PixivError):
+            # A missing or invalid local derivative can fall back to the remote reader.
+            pass
+        else:
+            recheck_cart_preview(cart_id, page, revision, actor_id, info)
+            return private_media(path, "image/webp", request, revision)
     try:
         path, kind = clear_preview(art, revision, page)
-        with get_db_context() as db:
-            account = service.require_account(db, revision)
-            item = require_item(db, cart_id, revision, actor_id)
-            if page not in item.pages or not allowed(item.metadata_json, account.preferences):
-                raise HTTPException(404, "作品不可用")
+        recheck_cart_preview(cart_id, page, revision, actor_id)
     except PixivError as exc:
         handle_error(exc)
     return private_media(path, kind, request, revision)
+
+
+def recheck_cart_preview(cart_id, page, revision, actor_id, info=None):
+    from ...integrations.pixiv_ol.cart import require_item
+
+    with get_db_context() as db:
+        try:
+            item = require_item(db, cart_id, revision, actor_id)
+            account = service.require_account(db, revision)
+        except PixivError:
+            raise HTTPException(404, "作品不可用") from None
+        if (page not in item.pages or not allowed(item.metadata_json, account.preferences)
+                or (info is not None and item.cache.get(str(page)) != info)):
+            raise HTTPException(404, "作品不可用")
 
 
 @router.get("/artworks/{pid}/avatar")
@@ -1095,7 +1154,7 @@ def artwork_avatar(pid: str, request: Request, actor_id=Depends(require_admin_us
 
 @router.get("/cart/{cart_id}/original")
 def cart_original(cart_id: str, page: int = Query(0, ge=0, le=999), actor_id=Depends(require_admin_user_id)):
-    from ...integrations.pixiv_ol.cart import require_item, cached_path
+    from ...integrations.pixiv_ol.cart import require_item, verified_original
     from ...integrations.pixiv_ol.viewer import image_type
 
     with get_db_context() as db:
@@ -1104,13 +1163,15 @@ def cart_original(cart_id: str, page: int = Query(0, ge=0, le=999), actor_id=Dep
             item = require_item(db, cart_id, account.revision, actor_id)
         except PixivError:
             raise HTTPException(404, "暂存作品不存在") from None
-        if not allowed(item.metadata_json, account.preferences):
+        if page not in item.pages or not allowed(item.metadata_json, account.preferences):
             raise HTTPException(404, "作品不可用")
-        try:
-            path = cached_path(item, page)
-            kind = image_type(path)
-        except (PixivError, OSError):
-            raise HTTPException(404, "该页原图尚未缓存") from None
+        revision, info = account.revision, item.cache.get(str(page))
+    try:
+        path = verified_original(cart_id, page, info)
+        kind = image_type(path)
+    except (PixivError, OSError):
+        raise HTTPException(404, "该页原图尚未缓存") from None
+    recheck_cart_preview(cart_id, page, revision, actor_id, info)
     return FileResponse(path, media_type=kind, headers={"Cache-Control": "private, no-store"})
 
 

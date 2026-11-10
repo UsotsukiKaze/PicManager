@@ -2,9 +2,13 @@
 
 import hashlib
 import re
+import secrets
 import shutil
+from base64 import urlsafe_b64encode
 from datetime import datetime
 from pathlib import Path
+
+from PIL import Image, ImageOps
 
 from ... import models
 from ...config import settings
@@ -59,7 +63,7 @@ def inspect_image(path):
         if not extension:
             raise PixivError("invalid_image")
         return {
-            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "sha256": file_digest(path),
             "bytes": path.stat().st_size,
             "extension": extension,
             "width": image.width,
@@ -69,15 +73,92 @@ def inspect_image(path):
 
 def cached_path(item, page):
     info = item.cache.get(str(page))
-    path = directory(item.id) / f"{page}.img"
+    return verified_original(item.id, page, info)
+
+
+def file_digest(path):
+    with path.open("rb") as source:
+        return hashlib.file_digest(source, "sha256").hexdigest()
+
+
+def verified_original(cart_id, page, info):
+    path = directory(cart_id) / f"{page}.img"
     if not info or not path.is_file():
         raise PixivError("cache_missing")
-    if hashlib.sha256(path.read_bytes()).hexdigest() != info["sha256"]:
+    if file_digest(path) != info["sha256"]:
         raise PixivError("cache_changed")
     return path
 
 
+def derivative_paths(cart_id, page, info):
+    folder = directory(cart_id)
+    digest = info.get("sha256", "")
+    if not re.fullmatch(r"[a-f0-9]{64}", digest):
+        raise PixivError("cache_changed")
+    key = urlsafe_b64encode(bytes.fromhex(digest)).decode("ascii").rstrip("=")
+    return (folder / f"thumb-{page}-{key}.webp", folder / f"reader-{page}-{key}.webp")
+
+
+def prepare_derivatives(cart_id, page, info, *, verified=False):
+    """Generate both library-compatible WebPs from a single local decode."""
+    from .viewer import ENCODE_SLOTS, file_lock
+
+    thumb, preview = derivative_paths(cart_id, page, info)
+    if thumb.is_file() and preview.is_file():
+        return thumb, preview
+    original = thumb.parent / f"{page}.img"
+    with file_lock(original):
+        if thumb.is_file() and preview.is_file():
+            return thumb, preview
+        if not verified:
+            verified_original(cart_id, page, info)
+        with ENCODE_SLOTS, open_image(original) as source:
+            size = max(settings.PREVIEW_SIZE, settings.THUMBNAIL_SIZE)
+            source.draft("RGB", (size, size))
+            ImageOps.exif_transpose(source, in_place=True)
+            source.thumbnail((size, size), Image.Resampling.LANCZOS)
+            image = source if source.mode in ("RGB", "RGBA") else source.convert(
+                "RGBA" if "transparency" in source.info else "RGB"
+            )
+            for target, dimension, quality, method in (
+                (preview, settings.PREVIEW_SIZE, settings.PREVIEW_QUALITY, 4),
+                (thumb, settings.THUMBNAIL_SIZE, settings.THUMBNAIL_QUALITY, settings.THUMBNAIL_WEBP_METHOD),
+            ):
+                if target.is_file():
+                    continue
+                scaled = image.copy() if max(image.size) > dimension else image
+                scaled.thumbnail((dimension, dimension), Image.Resampling.LANCZOS)
+                stage = target.parent / f"preview-{secrets.token_hex(8)}.part"
+                try:
+                    scaled.save(stage, "WEBP", quality=quality, method=method)
+                    stage.replace(target)
+                finally:
+                    stage.unlink(missing_ok=True)
+    return thumb, preview
+
+
+def pending_derivatives():
+    """Snapshot only ready pages so idle backfill never holds a database session while encoding."""
+    with get_db_context() as db:
+        rows = db.query(models.PixivCartItem.id, models.PixivCartItem.pages, models.PixivCartItem.cache).filter_by(
+            status="ready"
+        ).order_by(models.PixivCartItem.created_at.desc()).all()
+    for cart_id, pages, cache in rows:
+        for page in pages:
+            info = cache.get(str(page))
+            if not info:
+                continue
+            try:
+                paths = derivative_paths(cart_id, page, info)
+            except PixivError:
+                continue
+            if not all(path.is_file() for path in paths):
+                yield cart_id, page, info
+
+
 def cache_pages(provider, job_id, revision, actor_id, payload):
+    from .viewer import file_lock
+
     cart_id = payload["cart_id"]
     try:
         with get_db_context() as db:
@@ -118,20 +199,19 @@ def cache_pages(provider, job_id, revision, actor_id, payload):
                     limit=min(remaining, settings.MAX_FILE_SIZE, settings.PIXIV_MAX_DOWNLOAD_BYTES),
                 )
                 info = inspect_image(stage)
-                stage.replace(final)
+                with file_lock(final):
+                    stage.replace(final)
                 with get_db_context() as db:
                     item = require_item(db, cart_id, revision, actor_id)
                     item.cache = {**item.cache, str(page): info}
                     item.metadata_json = art
+                try:
+                    prepare_derivatives(cart_id, page, info, verified=True)
+                except (OSError, ValueError, PixivError):
+                    # A derivative can be retried independently of the verified original.
+                    pass
             finally:
                 stage.unlink(missing_ok=True)
-        if pages:
-            from .viewer import ENCODE_SLOTS
-
-            with ENCODE_SLOTS, open_image(folder / f"{pages[0]}.img") as image:
-                image.draft("RGB", (800, 800))
-                image.thumbnail((800, 800))
-                image.convert("RGB").save(folder / "preview.webp", format="WEBP", quality=85)
         with get_db_context() as db:
             item = require_item(db, cart_id, revision, actor_id)
             item.status = "ready"

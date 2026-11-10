@@ -40,13 +40,14 @@ const stopBefore = router.beforeEach(async (to, from) => {
   pageTransitions.set(to, token);
   const scroll = document.getElementById('workspace-scroll');
   if (scroll && to.fullPath !== from.fullPath) scrollPositions.set(from.fullPath, scroll.scrollTop);
+  if (to.path === '/pixiv' && from.path === '/pixiv') return;
   if (to.path === '/pixiv' && from.path !== '/pixiv') {
     polMotion.prepare(from.path);
     try {
       // Warm repository assets while the current page stays visible, then hand over once.
       const bridge = await import('./compat/bridge');
       await bridge.ensureLegacy();
-      await Promise.all([window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261110-work-search'), window.auth.loadFeature('pixiv'), import('./views/FeatureView.vue')]);
+      await Promise.all([window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261110-cart-preview'), window.auth.loadFeature('pixiv'), import('./views/FeatureView.vue')]);
       if (token !== pageMotionToken) return false;
       await polMotion.depart();
       if (token !== pageMotionToken) return false;
@@ -63,8 +64,12 @@ const stopBefore = router.beforeEach(async (to, from) => {
     bridge.suspendFeatures();
   }
 });
-const stopAfter = router.afterEach(async (to, _from, failure) => {
+const stopAfter = router.afterEach(async (to, from, failure) => {
   if (failure) { if (to.path === '/pixiv' && pageTransitions.get(to) === pageMotionToken) polMotion.cancel(); return; }
+  if (to.path === '/pixiv' && from.path === '/pixiv') {
+    window.pixivOL?.applySearchLocation();
+    return;
+  }
   await nextTick();
   document.getElementById('workspace-scroll')?.scrollTo({ top: scrollPositions.get(to.fullPath) || 0, behavior: 'instant' });
   if (scrollPositions.size > 100) scrollPositions.delete(scrollPositions.keys().next().value!);

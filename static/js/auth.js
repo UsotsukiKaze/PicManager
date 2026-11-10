@@ -7,7 +7,7 @@ class AuthManager {
         this.featureLoadPromises = {};
         this.featureAssets = {
             pixiv: {
-                src: '/static/js/pixiv-ol.js?v=20261016-pol-performance',
+                src: '/static/js/pixiv-ol.js?v=20261110-work-search',
                 resolve: () => window.pixivOL,
             },
             upload: {
@@ -141,7 +141,7 @@ class AuthManager {
                 '/static/js/image-list.js?v=20261007a',
                 '/static/js/modal.js?v=20261004q',
                 '/static/js/workspace-shell.js?v=20261014-bookmark-scope',
-                '/static/js/ui.js?v=20261015-ranking-filter',
+                '/static/js/ui.js?v=20261110-work-search',
                 '/static/js/main.js?v=20261004f',
             ];
 

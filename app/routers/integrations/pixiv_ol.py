@@ -837,6 +837,77 @@ def artwork(pid: str, actor_id=Depends(require_admin_user_id)):
         return public_art(db, row, actor_id=actor_id)
 
 
+@router.get("/search", dependencies=[Depends(write_guard)])
+def search_artworks(
+    q: str = Query(min_length=1, max_length=120),
+    sort: Literal["popular", "latest"] = "popular",
+    offset: int = Query(0, ge=0),
+    actor_id=Depends(require_admin_user_id),
+):
+    word = q.strip()
+    if not word:
+        raise HTTPException(422, "请输入关键词")
+    try:
+        with get_db_context() as db:
+            revision = service.require_account(db).revision
+        client = service.client_for_job(actor_id, revision)
+        upstream_sort = "popular_desc" if sort == "popular" else "date_desc"
+        fallback = False
+        try:
+            def fetch_page(position, order):
+                page = client.call("search_illust", word=word, sort=order,
+                                   search_target="partial_match_for_tags", offset=position)
+                cursor = client.cursor(page.get("next_url")) or {}
+                value = str(cursor.get("offset", ""))
+                following = int(value) if len(value) <= 10 and value.isascii() and value.isdigit() else position
+                return list(page.get("illusts") or []), following if following > position else None
+
+            try:
+                raws, next_offset = fetch_page(offset, upstream_sort)
+            except PixivError as exc:
+                if sort != "popular" or offset or exc.code != "access_denied":
+                    raise
+                fallback = True
+                raws, next_offset = fetch_page(0, "date_desc")
+                for _ in range(2):
+                    if next_offset is None:
+                        break
+                    more, next_offset = fetch_page(next_offset, "date_desc")
+                    raws.extend(more)
+                next_offset = None
+        finally:
+            client.close()
+
+        with METADATA_LOCK:
+            with get_db_context() as db:
+                preferences = service.require_account(db, revision).preferences
+            candidates = {}
+            for raw in raws:
+                art = service.normalize_artwork(raw)
+                if art and allowed(art, preferences):
+                    candidates.setdefault(art["pid"], raw)
+            if candidates:
+                service.save_artworks(revision, list(candidates.values()), "keyword_search", actor_id)
+        with get_db_context() as db:
+            account = service.require_account(db, revision)
+            rows = {row.pid: row for row in db.query(models.PixivArtwork).filter(
+                models.PixivArtwork.account_revision == revision,
+                models.PixivArtwork.pid.in_(candidates),
+            )}
+            selected = [rows[pid] for pid in candidates if pid in rows and allowed(rows[pid].metadata_json, account.preferences)]
+            if fallback:
+                selected.sort(key=lambda row: (row.metadata_json.get("bookmarks") or 0, row.published_at, int(row.pid)), reverse=True)
+            index = TagIndex(db)
+            library = library_pixiv_pages(db, [row.pid for row in selected])
+            return {
+                "items": [public_art(db, row, index, actor_id, library) for row in selected],
+                "next_offset": next_offset,
+                "ranking": "candidate_popular" if fallback else sort,
+            }
+    except PixivError as exc:
+        handle_error(exc)
+
+
 @router.post("/lookup", dependencies=[Depends(write_guard)])
 def lookup(body: LookupBody, actor_id=Depends(require_admin_user_id)):
     try:

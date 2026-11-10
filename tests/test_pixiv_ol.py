@@ -113,6 +113,39 @@ class FakeProvider:
         pass
 
 
+def test_keyword_search_preserves_upstream_cursor_and_ranks_filtered_fallback(environment, monkeypatch):
+    _, client, _ = environment
+    calls = []
+
+    class SearchProvider(FakeProvider):
+        def call(self, method, **params):
+            assert method == "search_illust"
+            assert params["word"] == "白髪"
+            calls.append((params["sort"], params["offset"]))
+            if params["sort"] == "popular_desc":
+                raise provider.PixivError("access_denied")
+            if not params["offset"]:
+                return {
+                    "illusts": [dict(artwork("110"), total_bookmarks=2),
+                                dict(artwork("111"), total_bookmarks=1000, x_restrict=1)],
+                    "next_url": "https://app-api.pixiv.net/v1/search/illust?offset=30",
+                }
+            return {"illusts": [dict(artwork("112"), total_bookmarks=42)]}
+
+    monkeypatch.setattr(service, "Provider", SearchProvider)
+    url = "/api/pixiv-ol/search"
+    newest = client.get(url, params={"q": "白髪", "sort": "latest"}).json()
+    assert [item["pid"] for item in newest["items"]] == ["110"]
+    assert newest["next_offset"] == 30
+    next_page = client.get(url, params={"q": "白髪", "sort": "latest", "offset": 30}).json()
+    assert [item["pid"] for item in next_page["items"]] == ["112"]
+    popular = client.get(url, params={"q": "白髪", "sort": "popular"}).json()
+    assert [item["pid"] for item in popular["items"]] == ["112", "110"]
+    assert popular["next_offset"] is None
+    assert popular["ranking"] == "candidate_popular"
+    assert calls[-3:] == [("popular_desc", 0), ("date_desc", 0), ("date_desc", 30)]
+
+
 def install_fake(monkeypatch):
     monkeypatch.setattr(service, "Provider", FakeProvider)
 

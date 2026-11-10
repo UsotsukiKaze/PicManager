@@ -46,7 +46,7 @@ const stopBefore = router.beforeEach(async (to, from) => {
       // Warm repository assets while the current page stays visible, then hand over once.
       const bridge = await import('./compat/bridge');
       await bridge.ensureLegacy();
-      await Promise.all([window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261014-bookmark-scope'), window.auth.loadFeature('pixiv'), import('./views/FeatureView.vue')]);
+      await Promise.all([window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261110-work-search'), window.auth.loadFeature('pixiv'), import('./views/FeatureView.vue')]);
       if (token !== pageMotionToken) return false;
       await polMotion.depart();
       if (token !== pageMotionToken) return false;

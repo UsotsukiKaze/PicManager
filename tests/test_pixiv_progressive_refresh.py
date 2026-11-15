@@ -56,6 +56,26 @@ def test_progressive_native_refresh_has_one_page_and_no_local_search(environment
     assert remote.calls == [('illust_recommended', 0), ('illust_recommended', 30)]
 
 
+@pytest.mark.parametrize('mode', ['personal', 'stock'])
+def test_locally_ranked_round_retrieves_two_upstream_pages_before_ranking(environment, monkeypatch, mode):
+    remote = Pages('test')
+    native_call = remote.call
+    monkeypatch.setattr(remote, 'call', lambda method, **params: (
+        native_call(method, **params) if method == 'illust_recommended' else {'illusts': [], 'next_url': None}
+    ))
+    original_rank = service.rank_candidates
+    calls_at_ranking = []
+
+    def rank(*args, **kwargs):
+        calls_at_ranking.extend(remote.calls)
+        return original_rank(*args, **kwargs)
+
+    monkeypatch.setattr(service, 'rank_candidates', rank)
+    result = service.refresh_candidates(remote, 'rev', 1, mode, progressive=True)
+    assert result['batch_id']
+    assert calls_at_ranking == [('illust_recommended', 0), ('illust_recommended', 30)]
+
+
 def test_progressive_following_sync_completes_first_page_and_resumes_history(environment):
     context, client, _ = environment
     remote = Pages('test')

@@ -128,10 +128,11 @@ def test_page_features_are_lazy_loaded_and_deduplicated():
 
     assert core_script_block is not None
     core_scripts = core_script_block.group(1)
+    assert "/static/js/dialogs.js" in core_scripts
     assert "/static/js/upload.js" not in core_scripts
     assert "/static/js/emoji-library.js" not in core_scripts
-    assert "/static/js/upload.js?v=20261004s" in auth_source
-    assert "/static/js/emoji-library.js?v=20260927a" in auth_source
+    assert "/static/js/upload.js?v=20261115-dialogs" in auth_source
+    assert "/static/js/emoji-library.js?v=20261115-dialogs" in auth_source
     assert "if (this.featureLoadPromises[name])" in auth_source
     assert "this.featureLoadPromises[name] = loadPromise" in auth_source
     assert "delete this.featureLoadPromises[name]" in auth_source

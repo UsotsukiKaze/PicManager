@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+    <script src="/static/js/dialogs.js?v=20261115"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>个人中心 - PicManager</title>
@@ -1669,7 +1670,7 @@
         }
 
         async function cancelMyRequest(requestId) {
-            if (!confirm('确定要撤销该申请吗？')) {
+            if (!(await window.PicManagerDialogs.confirm('确定要撤销该申请吗？'))) {
                 return;
             }
 
@@ -2178,7 +2179,7 @@
             } else if (action === 'reject' && type === 'add') {
                 warning = '本次上传的待审核文件将被删除。';
             }
-            if (warning && !confirm(`确认${action === 'approve' ? '批准' : '拒绝'}审核 #${requestId}？\n${warning}`)) return;
+            if (warning && !(await window.PicManagerDialogs.confirm(`确认${action === 'approve' ? '批准' : '拒绝'}审核 #${requestId}？\n${warning}`))) return;
             if (card) { card.dataset.reviewing = 'true'; card.querySelectorAll('.request-actions button').forEach(button => { button.disabled = true; }); }
             try {
                 let reason = null;
@@ -2287,7 +2288,7 @@
 
         // 移除管理员
         async function removeAdmin(qq) {
-            if (!confirm(`确定要移除管理员 ${qq} 吗？`)) {
+            if (!(await window.PicManagerDialogs.confirm(`确定要移除管理员 ${qq} 吗？`))) {
                 return;
             }
 

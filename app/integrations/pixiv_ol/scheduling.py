@@ -23,6 +23,8 @@ def take(pool, chosen, authors, *, role_cap=False, tag_sets=None):
     role_counts = Counter(r for old in window for r in set(old['match']['character_ids'])) if role_cap else {}
     allowed = [n for n, i in enumerate(pool[:60]) if authors[i["author_id"]] < 2]
     choices = allowed or list(range(min(60, len(pool))))
+    # Reserve the age quotas for established candidates when both tiers are available.
+    choices = [n for n in choices if not pool[n].get("_emerging")] or choices
     temporal = Counter(i.get("age_bucket", "recent") for i in chosen)
     weights = {"recent": 0.70, "middle": 0.20, "historical": 0.10}
     available = {pool[n].get("age_bucket", "recent") for n in choices}
@@ -64,7 +66,7 @@ def stock_schedule(items, profile, index):
     for item in items:
         kind, g, r = stock_identity(item, profile, index)
         threshold = 0.50 if kind == "known" else 0.60 if kind == "new_character" else 0.65
-        if item.get("bookmarks") is not None and item["_quality"] < threshold:
+        if item.get("bookmarks") is not None and item["_quality"] < threshold and not item.get("_emerging"):
             continue
         key = (kind, g, r)
         if key not in weights:
@@ -96,6 +98,7 @@ def stock_schedule(items, profile, index):
         item = take(pools[key], chosen, authors, tag_sets=tag_sets)
         item.pop("_score", None)
         item.pop("_quality", None)
+        item.pop("_emerging", None)
         chosen.append(item)
         counts[key] += 1
         authors[item["author_id"]] += 1

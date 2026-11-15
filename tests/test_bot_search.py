@@ -33,6 +33,31 @@ def fake_database():
     yield SimpleNamespace()
 
 
+def test_bot_feature_tags_resolve_past_the_internal_page_limit(monkeypatch):
+    engine = create_engine("sqlite://")
+    models.Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        db.add_all([models.FeatureTag(name=f"tag-{i:03}") for i in range(118)])
+        tag = models.FeatureTag(name="裤袜", aliases=[models.FeatureTagAlias(alias="タイツ")])
+        db.add(tag)
+        db.commit()
+
+        @contextmanager
+        def test_database():
+            yield db
+
+        monkeypatch.setattr(bot, "get_db_context", test_database)
+        monkeypatch.setattr(bot.settings, "MAX_PAGE_SIZE", 100)
+        catalog = bot.get_bot_feature_tags(skip=0, limit=200)
+        assert len(catalog) == 119
+        assert catalog[-1]["id"] == tag.id
+        assert [item["id"] for item in bot.get_bot_feature_tags(skip=100, limit=200)] == [
+            item["id"] for item in catalog[100:]
+        ]
+        for name in ("裤袜", "タイツ"):
+            assert bot.resolve_bot_target(name)["item"]["id"] == tag.id
+
+
 def test_pid_search_prefers_exact_library_page(monkeypatch):
     calls = []
     monkeypatch.setattr(bot_search, "get_db_context", fake_database)

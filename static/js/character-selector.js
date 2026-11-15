@@ -121,9 +121,9 @@ class CharacterSelector {
         }
     }
     
-    removeCharacter(characterId) {
+    async removeCharacter(characterId) {
         const character = this.selectedCharacters.find(c => c.id === characterId);
-        if (!character || !confirm(`确认从当前图片移除角色“${character.name}”？\n不会删除角色资料。`)) return;
+        if (!character || !(await window.PicManagerDialogs.confirm(`确认从当前图片移除角色“${character.name}”？\n不会删除角色资料。`))) return;
         this.selectedCharacters = this.selectedCharacters.filter(c => c.id !== characterId);
         this.renderTags();
         this.updateDropdown();

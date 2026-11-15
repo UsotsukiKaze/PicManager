@@ -5,7 +5,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, update, or_
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import aliased
 
@@ -31,11 +31,11 @@ def review_query(db, actor_id, revision):
         models.PixivCheckReview.resolved.is_(None),
         models.PixivCheckReview.expires_at > datetime.utcnow(),
         models.Image.file_status == "available",
-        pixiv_check.needs_check(),
+        or_(pixiv_check.needs_check(), models.Image.pixiv_quality_checked_at.is_(None)),
     )
 
 
-def start(actor_id):
+def start(actor_id, mode="metadata", limit=100, auto_upgrade=False):
     with START_LOCK:
         try:
             with get_db_context() as db:
@@ -59,7 +59,8 @@ def start(actor_id):
                         unchanged = False
                     if unchanged:
                         held.add(image.image_id)
-                        image.pixiv_checked_at = None
+                        if not review.artwork.get("quality_review"):
+                            image.pixiv_checked_at = None
                     else:
                         review.expires_at = datetime.utcnow()
                 run = models.PixivCheckRun(
@@ -69,10 +70,17 @@ def start(actor_id):
                 db.add(run)
                 db.flush()
                 # Fingerprints use one background task, independent from PID network checks.
-                db.add(models.PixivCheckItem(run_id=run.id, kind="prepare"))
-                for image in pixiv_check.pending(db):
+                if mode == 'quality':
+                    rows = db.query(models.Image).filter(models.Image.file_status == 'available').order_by(
+                        models.Image.created_at.desc(), models.Image.image_id.desc()).limit(limit).all()
+                    rows = [image for image in rows if pixiv_check.split_pid(image.pid)]
+                else:
+                    db.add(models.PixivCheckItem(run_id=run.id, kind="prepare"))
+                    rows = pixiv_check.pending(db)
+                for image in rows:
                     if image.image_id not in held:
-                        db.add(models.PixivCheckItem(run_id=run.id, image_id=image.image_id))
+                        db.add(models.PixivCheckItem(run_id=run.id, image_id=image.image_id,
+                            kind=("quality-auto" if auto_upgrade else "quality") if mode == "quality" else ("pixiv-auto" if auto_upgrade else "pixiv")))
                 return {"id": run.id}
         except IntegrityError:
             # The unique active key also prevents duplicate runs across server processes.
@@ -262,11 +270,17 @@ class PixivCheckWorker:
             else:
                 for refresh in range(2):
                     try:
-                        result = pixiv_check.scan_image(
+                        scanner = pixiv_check.scan_quality_image if task['kind'].startswith('quality') else pixiv_check.scan_image
+                        options = {'auto_upgrade': task['kind'] == 'quality-auto'} if task['kind'].startswith('quality') else {}
+                        result = scanner(
                             task["actor_id"], task["image_id"], revision=task["revision"], client=self.client(task),
                             guard=lambda db: self.check_guard(db, task),
-                            denial=task["denial"],
+                            denial=task["denial"], **options,
                         )
+                        if task['kind'] == 'pixiv-auto' and result['status'] == 'validated':
+                            result = pixiv_check.scan_quality_image(task['actor_id'], task['image_id'],
+                                revision=task['revision'], client=self.client(task),
+                                guard=lambda db: self.check_guard(db, task), auto_upgrade=True)
                         break
                     except PixivError as exc:
                         if exc.code != "reauth_required" or refresh:

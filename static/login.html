@@ -289,6 +289,18 @@
     </main>
 
     <script>
+        function loginDestination(fallback = '/') {
+            const params = new URLSearchParams(window.location.search);
+            let saved = '';
+            try { saved = sessionStorage.getItem('picmanager-return-to') || ''; } catch {}
+            const value = params.get('redirect') || saved || fallback;
+            try {
+                const target = new URL(value, window.location.origin);
+                if (!value.startsWith('/') || value.startsWith('//') || target.origin !== window.location.origin || target.pathname === '/login') return '/';
+                try { sessionStorage.removeItem('picmanager-return-to'); } catch {}
+                return target.pathname + target.search + target.hash;
+            } catch { return '/'; }
+        }
         document.querySelectorAll('.login-tab').forEach(tab => {
             tab.addEventListener('click', () => {
                 document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
@@ -322,7 +334,7 @@
                 });
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.detail || '游客进入失败');
-                window.location.href = '/';
+                window.location.href = loginDestination();
             } catch (error) {
                 showError(error.message);
                 btn.disabled = false;
@@ -345,8 +357,7 @@
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.detail || '登录链接无效');
 
-                const redirect = params.get('redirect') || data.redirect_path || '/';
-                window.location.href = redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/';
+                window.location.href = loginDestination(data.redirect_path || '/');
                 return true;
             } catch (error) {
                 showError(error.message);
@@ -358,7 +369,7 @@
         async function checkAuth() {
             try {
                 const response = await fetch('/auth/me');
-                if (response.ok) window.location.href = '/';
+                if (response.ok) window.location.href = loginDestination();
             } catch (e) {}
         }
 

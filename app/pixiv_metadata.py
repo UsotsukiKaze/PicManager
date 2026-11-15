@@ -113,6 +113,8 @@ def apply_metadata(db, image, art, page, *, apply_tag_matches=False):
     metadata.page_count, metadata.tags = int(art["page_count"]), art.get("tags", [])
     metadata.validated_at = datetime.utcnow()
     metadata.status = "verified"
+    from .artist_avatars import schedule_avatar
+    schedule_avatar(dict(art))
     from .tag_mappings import check_image_tags
     check_image_tags(db, image, art, apply_matches=apply_tag_matches)
     image.pid = canonical_pid(art["pid"], page)
@@ -204,14 +206,19 @@ def backfill_checked_tags(db, *, images=None):
 
 def public_metadata(image):
     meta = image.pixiv_metadata
+    matched = bool(image.pixiv_checked_at and meta and meta.status == 'verified')
+    state = 'complete' if matched and image.pixiv_quality_checked_at else 'matched' if matched else 'unchecked'
     return {
         "artist": (
-            {"id": meta.artist.id, "name": meta.artist.name, "url": f"https://www.pixiv.net/users/{meta.artist.id}"}
+            {"id": meta.artist.id, "name": meta.artist.name, "url": f"https://www.pixiv.net/users/{meta.artist.id}",
+             "avatar_url": f"/resource/avatars/pixiv-{meta.artist.id}.webp"}
             if meta and meta.artist
             else None
         ),
         "pixiv_tags": meta.tags if meta else [],
-        "pixiv_verified": bool(image.pixiv_checked_at and (not meta or meta.status == "verified")),
+        "pixiv_verified": matched,
+        "pixiv_status": state,
+        "pixiv_quality_verified": state == "complete",
         "local_verified": bool(image.local_checked_at),
         "pixiv_page": meta.page_index if meta else None,
         "pixiv_page_count": meta.page_count if meta else None,

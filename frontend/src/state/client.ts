@@ -11,6 +11,10 @@ export const queryClient = new QueryClient({
 });
 
 export function invalidateDomain(path: string) {
+  // Temp inspection uses POST for session control, but does not mutate the
+  // library or labels. Invalidating active catalogs here cancels the promises
+  // shared with the temp detail editor (TanStack CancelledError).
+  if (/^\/(?:api\/)?upload\/(?:temp-pixiv\/(?:start|check|stop)|temp-duplicates\/scan)(?:\?|$)/.test(path)) return;
   if (/\/emojis|\/emotion-tags/.test(path)) {
     void queryClient.invalidateQueries({ queryKey: ['emojis'] });
     void queryClient.invalidateQueries({ queryKey: ['dashboard'] });

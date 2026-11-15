@@ -108,6 +108,22 @@ def test_temp_scan_can_merge_with_archived_or_stored_image(tmp_path, monkeypatch
     assert match["stored"]["file_status"] == "archived"
     assert match["stored"]["feature_tag_names"] == ["tag"]
 
+    # A repeat scan must reuse both decoding and comparison work.
+    with monkeypatch.context() as cached:
+        def unexpected(*_args, **_kwargs):
+            raise AssertionError("unchanged temp image was rescanned")
+        cached.setattr(ImageService, 'compute_dhash', unexpected)
+        cached.setattr(ImageService, 'dhash_distance', unexpected)
+        again = client.post("/upload/temp-duplicates/scan?limit=1")
+        assert again.status_code == 200
+        assert again.json()['matches'][0]['filename'] == first_temp.name
+    assert ImageService.temp_scan_state(str(first_temp)) == 'duplicate'
+    # Changing a source must invalidate the displayed marker.
+    stat = first_temp.stat()
+    import os
+    os.utime(first_temp, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
+    assert ImageService.temp_scan_state(str(first_temp)) is None
+
     keep_existing = client.post(
         "/upload/temp-duplicates/resolve",
         json={

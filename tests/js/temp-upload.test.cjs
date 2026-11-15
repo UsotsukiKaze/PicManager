@@ -7,7 +7,7 @@ function harness(){
         api:{request:async()=>({run_id:'run'}),uploadTempImage:async()=>({status:'success'})},fetch:async(url,options)=>{calls.push({url,body:JSON.parse(options.body)});return {};}};
     const source=fs.readFileSync(path.join(__dirname,'../../static/js/upload.js'),'utf8').replace('window.upload = new UploadManager();','window.UploadManager = UploadManager;');
     vm.runInNewContext(source,context);window.UploadManager.prototype.initializeEventListeners=()=>{};
-    const upload=new window.UploadManager();upload.updateTempCard=()=>{};upload.tempActive=true;upload.tempNames=['a','b'];
+    const upload=new window.UploadManager();upload.updateTempCard=()=>{};upload.tempActive=true;upload.tempNames=['a','b'];upload.tempEligible=new Set(upload.tempNames);
     vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../../static/js/temp-upload.js'),'utf8'),context);
     return {upload,context,calls,status,button,workbench:new window.TempUploadWorkbench(upload)};
 }
@@ -50,7 +50,7 @@ test('old file list cannot render after navigation',async()=>{
 
 test('preflight preserves list order and publishes each result before the remaining queue completes',async()=>{
     const {upload,context}=harness(),pending=deferred(),checked=[],published=[];
-    upload.tempNames=['ordinary.png','12345678_p0.png'];
+    upload.tempNames=['ordinary.png','12345678_p0.png'];upload.tempEligible=new Set(upload.tempNames);
     upload.updateTempCard=name=>published.push(name);
     context.api.request=async(url,options)=>{
         if(url.endsWith('/start'))return {run_id:'ordered'};
@@ -91,4 +91,35 @@ test('manual confirmation is required when changing a verified Pixiv page',()=>{
     workbench.confirm();assert.equal(upload.tempSelection.size,0);
     workbench.values=()=>({group_ids:[1],character_ids:[1],pid:'12345678_p1',identity_confirmed:true});
     workbench.confirm();assert(upload.tempSelection.has('a'));assert.equal(upload.tempDrafts.get('a').pixiv_token,'proof');
+});
+
+
+test('preflight checks only visible cards in list order and resumes without rechecking completed cards',async()=>{
+    const {upload,context}=harness(),checked=[];
+    upload.tempNames=['a','b','c','d'];upload.tempEligible=new Set(['c','a']);
+    context.api.request=async(url,options)=>{
+        if(url.endsWith('/start'))return {run_id:'lazy'};
+        const name=JSON.parse(options.body).filename;checked.push(name);
+        return {filename:name,status:'ordinary'};
+    };
+    await upload.precheckTemp(upload.tempGeneration,new AbortController());
+    assert.deepEqual(checked,['a','c']);
+    upload.tempEligible.add('d');
+    await upload.precheckTemp(upload.tempGeneration,new AbortController());
+    assert.deepEqual(checked,['a','c','d']);
+});
+
+
+test('expired proof keeps manual labels but requires reconfirmation instead of repeating a failed upload',async()=>{
+    const {upload,context}=harness(),updates=[];
+    const draft={filename:'a',confirmed:true,character_ids:[1],pixiv_token:'old'};
+    upload.tempDrafts.set('a',draft);upload.tempSelection.add('a');
+    context.window.uploadQueue={add:()=>1,update:(_id,value)=>updates.push(value)};
+    context.api.uploadTempImage=async()=>{throw new Error('temp_precheck_expired');};
+    await upload.processTempDraft('a',draft);
+    assert.equal(upload.tempDrafts.get('a').confirmed,false);
+    assert.deepEqual(upload.tempDrafts.get('a').character_ids,[1]);
+    assert(!upload.tempSelection.has('a'));
+    let opened;upload.uploadTempImage=name=>opened=name;
+    updates.find(value=>value.status==='failed').retry();assert.equal(opened,'a');
 });

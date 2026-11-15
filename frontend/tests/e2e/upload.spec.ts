@@ -196,3 +196,26 @@ test('unknown response requires checking results, and temporary intake uses the 
   await expect(page.locator('#page-upload .upload-tab-header')).toBeHidden();
   expect(mock.errors).toEqual([]);
 });
+
+test('temporary intake can confirm labels and submit after a Pixiv connection failure', async ({ page }) => {
+  const mock = await fixture(page);
+  let imported: any;
+  await page.route('**/api/upload/temp-images', route => route.fulfill({json:{images:['manual.png'],items:[{filename:'manual.png',version:'1'}]}}));
+  await page.route('**/api/upload/temp-pixiv/check', route => route.fulfill({status:502,json:{detail:'ConnectError'}}));
+  await page.route('**/api/upload/temp', route => {
+    imported = route.request().postDataJSON();
+    return route.fulfill({json:{status:'success',message:'入库完成'}});
+  });
+  await page.goto('/#/upload?tab=temp');
+  await expect(page.locator('.temp-pixiv-state')).toHaveText('可手动处理');
+  await page.locator('.temp-cover').click();
+  await expect(page.locator('#temp-upload-form')).toBeVisible();
+  await expect(page.locator('.temp-check-note')).toContainText('Pixiv 连接失败');
+  await page.evaluate(() => (window as any).upload.tempWorkbench.editor.selector.setSelected({group_ids:[1],character_ids:[1],feature_tag_ids:[]}));
+  await page.getByRole('button',{name:'确定信息',exact:true}).click();
+  await expect(page.locator('#temp-import-selected')).toBeEnabled();
+  await page.locator('#temp-import-selected').click();
+  await expect.poll(() => imported?.filename).toBe('manual.png');
+  expect(imported.character_ids).toEqual([1]);
+  expect(mock.errors).toEqual([]);
+});

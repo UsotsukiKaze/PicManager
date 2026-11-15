@@ -10,6 +10,7 @@ export interface ImageCardRecord {
 export interface ImageRecord extends ImageCardRecord {
   description?: string; file_extension: string; file_size?: number;
   feature_tags: Entity[]; pixiv_tags: Array<{ name: string; translated_name?: string }>;
+  pixiv_status?: 'unchecked' | 'matched' | 'complete'; pixiv_quality_verified?: boolean;
   pixiv_verified: boolean; local_verified: boolean; pixiv_page?: number; pixiv_page_count?: number;
 }
 export interface ImageSearchResult { images: ImageCardRecord[]; total: number; offset: number; limit: number }

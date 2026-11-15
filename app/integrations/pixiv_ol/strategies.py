@@ -12,8 +12,9 @@ from ...pixiv_metadata import library_pixiv_pages, split_pid
 from .recommendations import allowed, normalize, recommendation_match
 
 MODES = ('personal', 'stock', 'discovery')
-POLICY_VERSION = 'conditional-quality-v4'
-STOCK_POLICY_VERSION = 'stock-conditional-quality-v2'
+POLICY_VERSION = 'conditional-quality-v5'
+STOCK_POLICY_VERSION = 'stock-conditional-quality-v3'
+RECOMMENDATION_BOOKMARK_FLOOR = 300
 SPARSE_CHARACTER_LIMIT = 20
 STOCK_POPULARITY_FLOOR = .45
 STOCK_DISCOVERY_QUALITY_FLOOR = .40
@@ -267,6 +268,8 @@ def recent_popularity(item, now):
 
 
 def _candidates(db, index, account, mode, actor_id, seen_pids, *, source_batch=None):
+    from .learning import qualifies_for_popular_stream
+
     excluded = set(library_pixiv_pages(db)) | set(seen_pids)
     excluded.update(row[0] for row in db.query(models.PixivCartItem.pid).filter_by(
         account_revision=account.revision, actor_id=actor_id).all())
@@ -280,9 +283,13 @@ def _candidates(db, index, account, mode, actor_id, seen_pids, *, source_batch=N
         origins = func.json_each(models.PixivArtwork.origins).table_valued('key', 'value')
         query = query.filter(exists(select(1).select_from(origins).where(
             func.json_extract(origins.c.value, '$.batch') == batch)))
+    now = datetime.utcnow()
     for row in query.order_by(models.PixivArtwork.fetched_at.desc(), models.PixivArtwork.id.desc()).yield_per(200):
         art = row.metadata_json
         if row.pid in excluded or not allowed(art, account.preferences):
+            continue
+        if (mode in ('personal', 'stock') and art.get('bookmarks') is not None
+                and not qualifies_for_popular_stream(art, now, established=RECOMMENDATION_BOOKMARK_FLOOR)):
             continue
         origins = [origin for origin in row.origins if origin.get('batch') == batch] if batch else row.origins
         native = [o.get('rank') if o.get('rank') is not None else 100 for o in origins if o.get('source') == source]
@@ -344,12 +351,20 @@ def rank(db, index, account, mode, actor_id, seen_pids=(), *, profile=None):
         item['ranking_signals'] = {'affinity':round(a,4),'quality':round(q,4),'native':round(native,4),
                                   'policy':policy_version(mode)}
         item['_quality'] = q
+        # Any measured candidate below the floor passed the recent-conversion gate.
+        bookmarks = item.get('bookmarks')
+        item['_emerging'] = bookmarks is not None and bookmarks < RECOMMENDATION_BOOKMARK_FLOOR
         days=age(item,now)
         item['age_bucket']='recent' if days<=30 else 'middle' if days<=180 else 'historical'
         item['_score'] = .45*a+.35*q+.20*native if mode == 'personal' else .60*q+.25*a+.15*native
     if mode == 'personal':
         from .scheduling import take
-        pool, chosen, authors = sorted([item for item, _ in candidates if item.get('bookmarks') is None or item['_quality']>=.50], key=lambda item:(-item['_score'], item['pid'])), [], Counter()
+        pool = sorted(
+            (item for item, _ in candidates if item.get('bookmarks') is None
+             or item['_quality'] >= .50 or item['_emerging']),
+            key=lambda item: (-item['_score'], item['pid']),
+        )
+        chosen, authors = [], Counter()
         tag_sets = {}
         while pool and len(chosen) < 180:
             if len(chosen) % 20 == 0:
@@ -358,6 +373,7 @@ def rank(db, index, account, mode, actor_id, seen_pids=(), *, profile=None):
             authors[item['author_id']] += 1
             item.pop('_score')
             item.pop('_quality',None)
+            item.pop('_emerging')
             chosen.append(item)
         return chosen, profile
     return stock_schedule([item for item, _ in candidates], profile, index), profile

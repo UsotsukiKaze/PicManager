@@ -384,6 +384,8 @@ def apply_migrations():
             conn.execute(text("ALTER TABLE images ADD COLUMN preview_status VARCHAR(20) NOT NULL DEFAULT 'pending'"))
         if "perceptual_hash" not in image_columns:
             conn.execute(text("ALTER TABLE images ADD COLUMN perceptual_hash VARCHAR(16)"))
+        if "pixiv_quality_checked_at" not in image_columns:
+            conn.execute(text("ALTER TABLE images ADD COLUMN pixiv_quality_checked_at DATETIME"))
         if "pixiv_checked_at" not in image_columns:
             conn.execute(text("ALTER TABLE images ADD COLUMN pixiv_checked_at DATETIME"))
         if "local_checked_at" not in image_columns:

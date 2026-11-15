@@ -11,7 +11,7 @@ import time
 from ... import schemas
 from ...config import settings
 from ...database import get_db_context
-from ...models import AgeAssertionNonce, AgeAuthorizationRequest, GroupAgeSetting, User, UserRole
+from ...models import AgeAssertionNonce, AgeAuthorizationRequest, FeatureTag, FeatureTagAlias, GroupAgeSetting, User, UserRole
 from ...security.api_key import require_bot_api_key
 from ...security.image_tokens import sign_bot_image
 from ...security.tickets import build_lan_login_url, build_login_url, create_login_ticket, normalize_qq_number
@@ -142,13 +142,16 @@ def _find_group_by_alias(db, name: str):
 
 
 def _find_feature_tag_by_alias(db, name: str):
-    tags = FeatureTagService.get_feature_tags(db, limit=5000)
-    for tag in tags:
-        if tag.get("name") == name:
-            return tag
-        if name in _normalize_aliases(tag.get("aliases")):
-            return tag
-    return None
+    tag = db.query(FeatureTag).filter_by(name=name).first()
+    if tag is None:
+        tag = (
+            db.query(FeatureTag)
+            .join(FeatureTag.aliases)
+            .filter(FeatureTagAlias.alias == name)
+            .order_by(FeatureTag.name)
+            .first()
+        )
+    return FeatureTagService.tag_to_dict(tag) if tag else None
 
 
 def _find_emotion_by_alias(db, name: str):
@@ -204,7 +207,14 @@ def get_bot_characters(group_id: int | None = None, skip: int = 0, limit: int = 
 def get_bot_feature_tags(skip: int = 0, limit: int = 5000):
     """Return feature tags for bot-side caching and alias matching."""
     with get_db_context() as db:
-        return FeatureTagService.get_feature_tags(db, skip, limit)
+        start = max(0, skip)
+        # Existing bot clients request 200 and treat a shorter page as the end.
+        # Fill that page even when the internal service is capped at 100.
+        page_limit = min(max(1, limit), max(200, settings.MAX_PAGE_SIZE), 5000)
+        return _all_pages(
+            lambda offset, size: FeatureTagService.get_feature_tags(db, start + offset, size),
+            limit=page_limit,
+        )
 
 
 @router.get("/emotion-tags")
@@ -651,3 +661,6 @@ def create_bot_login_ticket(ticket_create: schemas.BotLoginTicketCreate):
 
 from .bot_search import router as search_router  # noqa: E402
 router.include_router(search_router)
+
+from .bot_cards import router as cards_router  # noqa: E402
+router.include_router(cards_router)

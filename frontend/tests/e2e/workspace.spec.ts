@@ -627,12 +627,9 @@ test('library detail restores colored tag bubbles and compact edit download dele
   await expect(actions.getByRole('button', { name: '删除图片' })).toHaveText('');
   const deletions: string[] = [];
   page.on('request', request => { if (request.method() === 'DELETE') deletions.push(request.url()); });
-  page.once('dialog', async confirmation => {
-    expect(confirmation.type()).toBe('confirm');
-    expect(confirmation.message()).toContain('10000_p0');
-    await confirmation.dismiss();
-  });
   await actions.getByRole('button', { name: '删除图片' }).click();
+  await expect(page.locator('.pm-confirm-dialog')).toContainText('10000_p0');
+  await page.locator('.pm-confirm-dialog [data-cancel]').click();
   await expect(dialog).toBeVisible();
   expect(deletions).toEqual([]);
   await dialog.locator('.pm-tag-feature_tag').click();
@@ -654,16 +651,13 @@ for (const role of ['root', 'user']) {
     await page.getByRole('button', { name: '查看图片 10000_p0', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: '图片详情' });
     const button = dialog.getByRole('button', { name: role === 'root' ? '删除图片' : '请求删除图片', exact: true });
-    page.once('dialog', async confirmation => { await confirmation.dismiss(); });
     await button.click();
+    await page.locator('.pm-confirm-dialog [data-cancel]').click();
     await expect(dialog).toBeVisible();
     expect(deletions).toBe(0);
-    page.once('dialog', async confirmation => {
-      expect(confirmation.type()).toBe('confirm');
-      expect(confirmation.message()).toContain(role === 'root' ? '无法恢复' : '删除申请');
-      await confirmation.accept();
-    });
     await button.click();
+    await expect(page.locator('.pm-confirm-dialog')).toContainText(role === 'root' ? '无法恢复' : '删除申请');
+    await page.locator('.pm-confirm-dialog [data-accept]').click();
     await expect(dialog).toHaveCount(0);
     expect(deletions).toBe(1);
   });
@@ -861,11 +855,11 @@ test('bookmark preferences confirm union, default to private and expose retry st
   await expect(page.locator('[data-bookmark-status]')).toContainText('待同步 2');
   const save = page.locator('[data-action="save-settings"]');
   await page.locator('#pixiv-bookmark-sync').check();
-  page.once('dialog', dialog => dialog.dismiss());
   await save.click();
+  await page.locator('.pm-confirm-dialog [data-cancel]').click();
   expect(saves).toBe(0);
-  page.once('dialog', dialog => dialog.accept());
   await save.click();
+  await page.locator('.pm-confirm-dialog [data-accept]').click();
   await expect.poll(() => saves).toBe(1);
   expect(preferences.bookmark_sync).toBe(true);
   expect(preferences.bookmark_visibility).toBe('private');

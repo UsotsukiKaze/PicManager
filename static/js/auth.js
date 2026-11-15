@@ -7,15 +7,15 @@ class AuthManager {
         this.featureLoadPromises = {};
         this.featureAssets = {
             pixiv: {
-                src: '/static/js/pixiv-ol.js?v=20261016-pol-performance',
+                src: '/static/js/pixiv-ol.js?v=20261115-dialogs',
                 resolve: () => window.pixivOL,
             },
             upload: {
-                src: '/static/js/upload.js?v=20261008-confirm',
+                src: '/static/js/upload.js?v=20261115-dialogs',
                 resolve: () => window.upload,
             },
             emoji: {
-                src: '/static/js/emoji-library.js?v=20261014-emoji-unified',
+                src: '/static/js/emoji-library.js?v=20261115-dialogs',
                 resolve: () => window.emojiLibrary,
             },
         };
@@ -128,20 +128,21 @@ class AuthManager {
                 this.loadStyle('/static/css/workspace-shell.css?v=20261004l'),
             ]);
             const scripts = [
+                '/static/js/dialogs.js?v=20261115',
                 '/static/js/security.js?v=20260820a',
                 '/static/vendor/pinyin-pro-3.29.2.min.js?v=3.29.2',
                 '/static/js/pinyin-search.js?v=20260820c',
-                '/static/js/character-selector.js?v=20261008-confirm',
-                '/static/js/tag-selector.js?v=20261008-confirm',
-                '/static/js/api.js?v=20261015-ranking-filter',
-                '/static/js/upload-queue.js?v=20261008-confirm',
+                '/static/js/character-selector.js?v=20261115-dialogs',
+                '/static/js/tag-selector.js?v=20261115-dialogs',
+                '/static/js/api.js?v=20261102-quality',
+                '/static/js/upload-queue.js?v=20261115-dialogs',
                 '/static/js/query-panel.js?v=20260820d',
                 '/static/js/entity-cache.js?v=20260820a',
                 '/static/js/search-selector.js?v=20260820d',
                 '/static/js/image-list.js?v=20261007a',
                 '/static/js/modal.js?v=20261004q',
-                '/static/js/workspace-shell.js?v=20261014-bookmark-scope',
-                '/static/js/ui.js?v=20261015-ranking-filter',
+                '/static/js/workspace-shell.js?v=20261115-dialogs',
+                '/static/js/ui.js?v=20261115-dialogs',
                 '/static/js/main.js?v=20261004f',
             ];
 

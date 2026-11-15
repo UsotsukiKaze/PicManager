@@ -65,7 +65,7 @@ def normalize_artwork(raw):
         "ai_type": raw.get("illust_ai_type"),
         "tags": [
             {"name": str(t.get("name", ""))[:255], "translated_name": t.get("translated_name")}
-            for t in raw.get("tags", [])[:100]
+            for t in raw.get("tags", [])
             if t.get("name")
         ],
         "bookmarks": metric_count(raw.get("total_bookmarks")),
@@ -436,7 +436,11 @@ def refresh_candidates(provider, revision, actor_id, mode="combined", *, continu
     request_counts=dict(stream.get('source_requests',{})) if continuation else {}
     try:
         cursor = (stream.get("cursor") or {}) if continuation else {}
-        pages = 1 if progressive else (4 if mode in ("native", "discovery") else 3)
+        # Locally ranked modes compare more than one upstream page before publishing a round.
+        if progressive:
+            pages = 2 if mode in ("personal", "stock") else 1
+        else:
+            pages = 4 if mode in ("native", "discovery") else 3
         for _ in range(0 if exhausted or replenish_batch is not None else pages):
             response = provider.call("illust_recommended", include_ranking_illusts="false", **cursor)
             request_counts['native']=request_counts.get('native',0)+1

@@ -14,6 +14,8 @@ class UploadManager {
         this.batchOptions = null;
         this.duplicateChoiceQueue = Promise.resolve();
         this.tempResults = new Map();
+        this.tempEligible = new Set();
+        this.tempPrecheckTask = null;
         this.tempLabels = new Map();
         this.tempDrafts = new Map();
         this.tempSelection = new Set();
@@ -279,11 +281,13 @@ class UploadManager {
         return document.querySelector(`.batch-item[data-batch-id="${itemId}"]`);
     }
 
-    removeBatchItem(itemId, confirmed = false) {
+    async removeBatchItem(itemId, confirmed = false) {
         if (this.batchSubmitting) return;
-        const index = this.batchFiles.findIndex(item => item.id === Number(itemId));
+        let index = this.batchFiles.findIndex(item => item.id === Number(itemId));
         if (index < 0) return;
-        if (!confirmed && !confirm(`确认从上传列表移除“${this.batchFiles[index].file.name}”？\n已入库的图片和原文件不会被删除。`)) return;
+        if (!confirmed && !(await window.PicManagerDialogs.confirm(`确认从上传列表移除“${this.batchFiles[index].file.name}”？\n已入库的图片和原文件不会被删除。`))) return;
+        index = this.batchFiles.findIndex(item => item.id === Number(itemId));
+        if (this.batchSubmitting || index < 0) return;
         const [item] = this.batchFiles.splice(index, 1);
         if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
         delete window.imageTagSelectors[`batch-tag-selector-${item.id}`];
@@ -306,12 +310,12 @@ class UploadManager {
         this.processBatchUpload([item.id]);
     }
 
-    clearSuccessfulBatchItems() {
+    async clearSuccessfulBatchItems() {
         if (this.batchSubmitting) return;
         const completed = this.batchFiles
             .filter(item => item.status === 'success' || item.status === 'pending-review')
             .map(item => item.id);
-        if (!completed.length || !confirm(`确认清理 ${completed.length} 条已提交的上传记录？\n已入库图片及待审核申请不会被删除。`)) return;
+        if (!completed.length || !(await window.PicManagerDialogs.confirm(`确认清理 ${completed.length} 条已提交的上传记录？\n已入库图片及待审核申请不会被删除。`))) return;
         completed.forEach(itemId => this.removeBatchItem(itemId, true));
     }
 
@@ -477,10 +481,10 @@ class UploadManager {
             layer.querySelectorAll('[data-merge-field]').forEach(select=>select.onchange=render);
             layer.querySelector('[data-duplicate-action="later"]').onclick=()=>finish({action:'later'});
             layer.querySelector('[data-duplicate-action="distinct"]').onclick=()=>finish({action:'distinct',otherImageId:items.find(item=>item.image_id!=='new')?.image_id});
-            layer.querySelector('[data-duplicate-action="confirm-merge"]').onclick=()=>{
+            layer.querySelector('[data-duplicate-action="confirm-merge"]').onclick=async ()=>{
                 const keep=layer.querySelector('input[name="duplicate-file-keep"]:checked').value,metadataSources={};
                 const discarded=items.find(item=>item.image_id!==keep);
-                if(!confirm(`确认合并并删除另一份图片“${discarded?.image_id==='new'?'本次上传图片':discarded?.image_id||'重复图片'}”？\n只保留选定的文件，此操作无法恢复。`))return;
+                if(!(await window.PicManagerDialogs.confirm(`确认合并并删除另一份图片“${discarded?.image_id==='new'?'本次上传图片':discarded?.image_id||'重复图片'}”？\n只保留选定的文件，此操作无法恢复。`)))return;
                 layer.querySelectorAll('[data-merge-field]').forEach(select=>metadataSources[select.dataset.mergeField]=select.value);
                 finish({action:'merge',keep,otherImageId:items.find(item=>item.image_id!=='new')?.image_id,metadataSources});
             };
@@ -754,8 +758,8 @@ class UploadManager {
         }
     }
 
-    clearSingleUpload(confirmed = false) {
-        if (!confirmed && !confirm('确认清空当前上传文件和标签草稿？\n原文件及已提交的后台任务不会被删除。')) return;
+    async clearSingleUpload(confirmed = false) {
+        if (!confirmed && !(await window.PicManagerDialogs.confirm('确认清空当前上传文件和标签草稿？\n原文件及已提交的后台任务不会被删除。'))) return;
         // 清空文件输入
         const fileInput = document.getElementById('single-file-input');
         if (fileInput) fileInput.value = '';
@@ -815,6 +819,7 @@ class UploadManager {
 
     suspendTemp() {
         this.tempActive = false;
+        this.tempObserver?.disconnect();
         this.tempGeneration++;
         this.tempAbort?.abort();
         this.stopTempRun(this.tempRun);
@@ -830,22 +835,51 @@ class UploadManager {
         try {
             const result=await api.request('/upload/temp-images',{signal:controller.signal});
             if(generation!==this.tempGeneration||!this.tempVisible())return;
+            const previousLabels=this.tempLabels;
             this.tempNames=result.images||[];
+            for(const item of result.items||[]) {
+                if(previousLabels.get(item.filename)?.version!==item.version)this.tempResults.delete(item.filename);
+            }
             this.tempLabels=new Map((result.items||[]).map(item=>[item.filename,item]));
             const present=new Set(this.tempNames);
             for(const name of this.tempSelection)if(!present.has(name))this.tempSelection.delete(name);
             for(const name of this.tempDrafts.keys())if(!present.has(name))this.tempDrafts.delete(name);
             this.renderTempImages(this.tempNames);
             document.getElementById('temp-image-count').textContent=this.tempNames.length;
-            this.precheckTemp(generation,controller).catch(()=>{});
+            this.queueTempPrecheck();
         } catch(error) {
             if(error.name!=='AbortError'&&generation===this.tempGeneration)ui.showToast('加载待处理图片失败','error');
         }
     }
 
+    queueTempPrecheck() {
+        if(this.tempPrecheckTask||!this.tempVisible())return;
+        const generation=this.tempGeneration,controller=this.tempAbort;
+        if(!this.tempNames.some(name=>this.tempEligible.has(name)&&!this.tempResults.has(name)&&!this.tempUploading.has(name)))return;
+        const task=this.precheckTemp(generation,controller);
+        this.tempPrecheckTask=task;
+        task.finally(()=>{
+            if(this.tempPrecheckTask===task)this.tempPrecheckTask=null;
+            if(generation!==this.tempGeneration)this.queueTempPrecheck();
+        });
+    }
+
+    observeTempCards() {
+        this.tempObserver?.disconnect();this.tempEligible.clear();
+        this.tempObserver=new IntersectionObserver(entries=>{
+            for(const entry of entries) {
+                const name=decodeURIComponent(entry.target.dataset.imageName);
+                if(entry.isIntersecting&&!entry.target.hidden)this.tempEligible.add(name);
+                else this.tempEligible.delete(name);
+            }
+            this.queueTempPrecheck();
+        },{rootMargin:'0px'});
+        for(const card of this.tempCards.values())this.tempObserver.observe(card);
+    }
+
     async precheckTemp(generation,controller) {
         const status=document.getElementById('temp-precheck-status');
-        if(status)status.textContent='准备 Pixiv 预校验…';
+        if(status)status.textContent='正在预校验当前可见图片…';
         let runId;
         try {
             // Let a late start return its ID so it can still be stopped after navigation.
@@ -854,26 +888,35 @@ class UploadManager {
             if(generation!==this.tempGeneration||!this.tempVisible()){this.stopTempRun(runId);return;}
             this.tempRun=runId;
             let done=0;
-            const names=[...this.tempNames];
-            for(const name of names) {
+            const names=this.tempNames;
+            while(true) {
+                const name=names.find(item=>this.tempEligible.has(item)&&!this.tempResults.has(item)&&!this.tempUploading.has(item));
+                if(!name)break;
                 if(generation!==this.tempGeneration||!this.tempVisible())break;
                 if(this.tempUploading.has(name)){done++;continue;}
                 if(status)status.textContent=`按列表顺序预校验 ${done} / ${names.length} · 已完成的可立即编辑`;
                 try {
                     const result=await api.request('/upload/temp-pixiv/check',{method:'POST',headers:{'Content-Type':'application/json','X-Pixiv-OL':'1'},signal:controller.signal,body:JSON.stringify({run_id:runId,filename:name})});
                     if(generation!==this.tempGeneration||!this.tempVisible())break;
-                    this.tempResults.set(name,result);this.updateTempCard(name);
+                    this.tempResults.set(name,{...result,expiresAt:Date.now()+(result.expires_in??1800)*1000});this.updateTempCard(name);
                     this.tempResultChanged?.(name,result);
                 } catch(error) {
                     if(error.name==='AbortError'||generation!==this.tempGeneration)break;
                     if(['account_changed','auth_required','permission_revoked','temp_precheck_stopped'].includes(error.message))throw error;
-                    this.tempResults.set(name,{filename:name,status:'unavailable',error:error.message});this.updateTempCard(name);
+                    const result={filename:name,status:'unavailable',error:error.message};
+                    this.tempResults.set(name,result);this.updateTempCard(name);this.tempResultChanged?.(name,result);
                 }
                 done++;
             }
-            if(generation===this.tempGeneration&&this.tempVisible()&&status)status.textContent=`预校验完成 · ${done} 张`;
+            if(generation===this.tempGeneration&&this.tempVisible()&&status)status.textContent=`当前可见图片预校验完成 · 滚动后继续`;
         } catch(error) {
-            if(generation===this.tempGeneration&&this.tempVisible()&&status)status.textContent='Pixiv 未连接或暂时不可用，可继续手动确认标签';
+            if(generation===this.tempGeneration&&this.tempVisible()) {
+                if(status)status.textContent='Pixiv 连接失败，可手动处理；重新打开图片可重试';
+                for(const name of this.tempEligible)if(!this.tempResults.has(name)) {
+                    const result={filename:name,status:'unavailable',error:error.message};
+                    this.tempResults.set(name,result);this.updateTempCard(name);this.tempResultChanged?.(name,result);
+                }
+            }
         } finally {
             this.stopTempRun(runId);
             if(this.tempRun===runId)this.tempRun=null;
@@ -900,7 +943,7 @@ class UploadManager {
             };
             this.updateTempCard(name);
         });
-        this.bindTempBrowse();this.applyTempFilter();this.updateTempSelection();
+        this.bindTempBrowse();this.applyTempFilter();this.updateTempSelection();this.observeTempCards();
     }
 
     bindTempBrowse() {
@@ -926,7 +969,8 @@ class UploadManager {
         if(!card)return;
         const result=this.tempResults.get(name),draft=this.tempDrafts.get(name);
         const importing=this.tempUploading.has(name),selected=this.tempSelection.has(name);
-        card.querySelector('.temp-pixiv-state').textContent=importing?'后台入库中':selected?'已选 · 待入库':draft?.confirmed?'标签已确认':({verified:'Pixiv 已核对 · 可编辑',review:'对应页待确认',ordinary:'手动选择标签',unavailable:'可手动处理'}[result?.status]||'等待预校验');
+        const duplicateState=this.tempLabels.get(name)?.duplicate_scan;
+        card.querySelector('.temp-pixiv-state').textContent=(duplicateState==='clear'?'已查重 · ':duplicateState==='duplicate'?'发现重复 · ':'')+(importing?'后台入库中':selected?'已选 · 待入库':draft?.confirmed?'标签已确认':({verified:'Pixiv 已核对 · 可编辑',review:'对应页待确认',ordinary:'手动选择标签',unavailable:'可手动处理'}[result?.status]||'滚动到此处后预校验'))+(result?.quality?.status==='upgrade'?' · 将下载高清原图':result?.quality?.status==='complete'?' · 清晰度已核对':'');
         card.querySelector('input').checked=selected;card.querySelector('input').disabled=importing;
         card.classList.toggle('is-importing',importing);card.classList.toggle('is-selected',selected);card.classList.toggle('is-ready',!!draft?.confirmed);
         card.dataset.state=importing?'importing':draft?.confirmed?'ready':result?.status||'pending';
@@ -1074,14 +1118,20 @@ class UploadManager {
                 button.disabled = true;
                 button.textContent = '扫描中…';
             }
-            const [groups, characters, featureTags] = await Promise.all([
-                api.getGroups(), api.getCharacters(), api.getFeatureTags(),
-            ]);
-            const catalogs = { groups, characters, featureTags };
+            let catalogs;
             while (true) {
                 const scan = await api.scanTempDuplicates(1);
                 const match = (scan.matches || [])[0];
                 if (!match) break;
+                if(match.auto_resolve) {
+                    const saved=await api.autoResolveTempDuplicate(match.duplicate_token);
+                    handled++;ui.showToast(saved.message,'success');
+                    await this.loadTempImages();await ui.updateTempCount();continue;
+                }
+                if(!catalogs) {
+                    const [groups,characters,featureTags]=await Promise.all([api.getGroups(),api.getCharacters(),api.getFeatureTags()]);
+                    catalogs={groups,characters,featureTags};
+                }
                 const decision = await this.showTempDuplicateEditor(match, catalogs);
                 if (!decision) {
                     ui.showToast(`已停止扫描；本次合并 ${handled} 张`, 'info');
@@ -1109,6 +1159,7 @@ class UploadManager {
                 button.disabled = false;
                 button.textContent = '扫描重复';
             }
+            if(this.tempVisible())await this.loadTempImages();
         }
     }
 
@@ -1119,7 +1170,10 @@ class UploadManager {
         const source={rect:sourceImage?.getBoundingClientRect(),url:sourceImage?.currentSrc||sourceImage?.src,ratio:sourceImage?.naturalWidth&&sourceImage?.naturalHeight?sourceImage.naturalWidth/sourceImage.naturalHeight:1};
         this.tempOpening=true;
         try {
-            if(!window.TempUploadWorkbench)await window.auth.loadScript('/static/js/temp-upload.js?v=20261008-compound');
+            const name=decodeURIComponent(imageNameEncoded),previous=this.tempResults.get(name);
+            if(previous?.status==='unavailable'||previous?.token&&Date.now()>(previous.expiresAt||0)-60000)this.tempResults.delete(name);
+            this.tempEligible.add(name);this.queueTempPrecheck();
+            if(!window.TempUploadWorkbench)await window.auth.loadScript('/static/js/temp-upload.js?v=20261102-quality');
             this.tempWorkbench ||= new window.TempUploadWorkbench(this);
             await this.tempWorkbench.open(imageNameEncoded,source);
         } catch(error) {ui.showToast(error.message||'加载表单失败','error');}
@@ -1164,15 +1218,20 @@ class UploadManager {
                 const card=Array.from(document.querySelectorAll('#temp-image-grid [data-image-name]')).find(node=>node.dataset.imageName===encodeURIComponent(name));card?.remove();
             }
         } catch(error) {
-            this.tempSelection.add(name);
-            window.uploadQueue?.update(taskId,{status:'failed',message:error.message,retry:()=>this.processTempDraft(name,data,taskId)});
+            const stale=['temp_precheck_expired','temp_file_changed','account_changed'].includes(error.message);
+            if(stale) {
+                this.tempResults.delete(name);this.tempSelection.delete(name);
+                this.tempDrafts.set(name,{...data,confirmed:false});
+            } else this.tempSelection.add(name);
+            window.uploadQueue?.update(taskId,{status:'failed',message:stale?'校验已失效，请重新确认图片':error.message,
+                retry:stale?()=>this.uploadTempImage(encodeURIComponent(name)):()=>this.processTempDraft(name,data,taskId)});
             ui.showToast('入库失败：'+(error.message==='temp_precheck_expired'?'预校验已过期，请重新打开图片确认':error.message),'error');
         } finally {this.tempUploading.delete(name);this.updateTempCard(name);this.updateTempSelection();}
     }
 
     async deleteTempFile(imageNameEncoded) {
         const imageName = decodeURIComponent(imageNameEncoded);
-        if (!confirm(`确定要删除 ${imageName} 吗？`)) {
+        if (!(await window.PicManagerDialogs.confirm(`确定要删除 ${imageName} 吗？`))) {
             return;
         }
         
@@ -1195,7 +1254,7 @@ class UploadManager {
         const imageName = decodeURIComponent(imageNameEncoded);
         const button=this.tempWorkbench?.name===imageName?this.tempWorkbench.form?.querySelector('#temp-upload-delete'):null;
         if(button?.disabled)return;
-        if (!confirm(`确定要删除 ${imageName} 吗？`)) {
+        if (!(await window.PicManagerDialogs.confirm(`确定要删除 ${imageName} 吗？`))) {
             return;
         }
         if(button)button.disabled=true;

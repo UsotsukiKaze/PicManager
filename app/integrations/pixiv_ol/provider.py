@@ -237,6 +237,10 @@ class BoundedAPI(AppPixivAPI):
             raise PixivError("reauth_required")
         if response.status_code == 403:
             raise PixivError("access_denied")
+        if response.status_code == 400 and parsed.path == "/v1/search/illust":
+            sort = parse_qs(urlparse(response.url).query).get("sort")
+            if sort == ["popular_desc"]:
+                raise PixivError("access_denied")
         if response.status_code == 404 and method == "GET" and parsed.path == "/v1/illust/detail":
             raise PixivError("artwork_unavailable")
         if response.status_code >= 300:
@@ -312,10 +316,13 @@ class Provider:
             raise
         except Exception:
             raise PixivError("external_error") from None
-        if isinstance(response, dict) and method == "illust_detail":
+        if isinstance(response, dict):
             error = response.get("error")
             if isinstance(error, dict) and error.get("reason") in {"access_deny", "access_denied"}:
-                raise PixivError("access_deny")
+                if method == "illust_detail":
+                    raise PixivError("access_deny")
+                if method == "search_illust" and kwargs.get("sort") == "popular_desc":
+                    raise PixivError("access_denied")
         if not isinstance(response, dict) or response.get("error"):
             raise PixivError("external_error")
         return response

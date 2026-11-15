@@ -459,6 +459,10 @@ class API {
         });
     }
 
+    async autoResolveTempDuplicate(token) {
+        return this.request('/upload/temp-duplicates/auto', {method:'POST', body:JSON.stringify({token})});
+    }
+
     async resolveTempDuplicate(token, keep, metadata) {
         return this.request('/upload/temp-duplicates/resolve', {
             method: 'POST',
@@ -545,8 +549,9 @@ class API {
         });
     }
 
-    async startPixivCheckQueue() {
-        return this.request('/system/pixiv-check/queue', {method:'POST',headers:{'Content-Type':'application/json','X-Pixiv-OL':'1'}});
+    async startPixivCheckQueue(mode='metadata', limit=100, autoUpgrade=false) {
+        const query=new URLSearchParams({mode,limit,auto_upgrade:String(autoUpgrade)});
+        return this.request(`/system/pixiv-check/queue?${query}`, {method:'POST',headers:{'Content-Type':'application/json','X-Pixiv-OL':'1'}});
     }
 
     async getPixivCheckQueue(runId=null, offset=0) {

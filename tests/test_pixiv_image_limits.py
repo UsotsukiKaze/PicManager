@@ -37,8 +37,11 @@ def test_55_megapixel_original_survives_cache_read_and_offline_import(environmen
         assert item.cache['0']['width'] == 6180 and item.cache['0']['height'] == 9000
         assert viewer.image_type(path) == 'image/jpeg'
         assert path.read_bytes() == large_original.read_bytes()
-        with Image.open(cart.directory(item_id) / 'preview.webp') as image:
-            assert max(image.size) <= 800
+        thumb, preview = cart.derivative_paths(item_id, 0, item.cache['0'])
+        with Image.open(thumb) as image:
+            assert max(image.size) == settings.THUMBNAIL_SIZE
+        with Image.open(preview) as image:
+            assert max(image.size) == settings.PREVIEW_SIZE
     monkeypatch.setattr(service, 'client_for_job', lambda *a: pytest.fail('Cached import must stay offline'))
     assert client.post('/api/pixiv-ol/cart/imports', json={'item_ids': [item_id]}).status_code == 202
     assert jobs.Worker().run_once()

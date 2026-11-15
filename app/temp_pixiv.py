@@ -46,7 +46,10 @@ def files():
     if root.is_dir():
         for path in sorted(root.iterdir(), key=lambda item: item.name.casefold()):
             if path.is_file() and path.suffix.lower().lstrip('.') in allowed and path.resolve().is_relative_to(root):
-                items.append({'filename': path.name, 'display_name': path.name})
+                stat = path.stat()
+                items.append({'filename': path.name, 'display_name': path.name,
+                              'version': f'{stat.st_size}:{stat.st_mtime_ns}',
+                              'duplicate_scan': ImageService.temp_scan_state(str(path))})
     return items
 
 
@@ -131,6 +134,8 @@ def guard(run, path=None, before=None):
 def public_result(result, actor):
     from .routers.integrations.pixiv_ol import public_art
     output = {key: copy.deepcopy(result[key]) for key in ('status', 'filename', 'pid', 'page', 'distance', 'token')}
+    output['quality'] = copy.deepcopy(result.get('quality', {'status': 'unknown'}))
+    output['expires_in'] = max(0, result['expires'] - time.monotonic())
     with get_db_context() as db:
         service.require_actor(db, actor)
         service.require_account(db, result['revision'])
@@ -186,11 +191,15 @@ def check(run_id, filename, actor, owner):
             if page is None and art['page_count'] == 1:
                 page = 0
             distance = None
+            quality = {'status': 'unknown'}
             if page is not None and 0 <= page < art['page_count']:
                 try:
                     guard(run, path, before)
                     remote, _ = viewer.clear_preview(art, run['revision'], page)
                     distance = ImageService.dhash_distance(ImageService.compute_dhash(str(path)), ImageService.compute_dhash(str(remote)))
+                    from .pixiv_quality import assess
+                    quality, _ = assess(path, art, run['revision'], page)
+                    quality['status'] = 'upgrade' if quality['replace'] else 'complete' if quality['sufficient'] else 'review'
                 except (PixivError, OSError, ValueError):
                     # CDN failures and ambiguous identity remain manual reviews.
                     guard(run, path, before)
@@ -201,7 +210,7 @@ def check(run_id, filename, actor, owner):
             SLOTS.release()
         result = dict(filename=filename, art=art, revision=run['revision'], actor=actor,
                       snapshot=before, page=page, pid=canonical_pid(work, page) if page is not None else work,
-                      distance=distance, status='verified' if distance is not None and distance <= settings.PIXIV_UPGRADE_DHASH_DISTANCE else 'review',
+                      quality=quality, distance=distance, status='verified' if distance is not None and distance <= settings.PIXIV_UPGRADE_DHASH_DISTANCE else 'review',
                       token=secrets.token_hex(24), expires=time.monotonic() + CACHE_SECONDS)
         with LOCK:
             guard(run, path, before)
@@ -235,6 +244,10 @@ def proof(db, token, filename, actor, pid, identity_confirmed=False):
     if (result['status'] != 'verified' or parsed[1] != result['page']) and not identity_confirmed:
         raise PixivError('temp_identity_unconfirmed')
     result['page'] = parsed[1]
+    from .pixiv_quality import assess
+    result['assessment'] = assess(safe_path(filename), result['art'], result['revision'], result['page'])
+    if snapshot(safe_path(filename)) != result['snapshot']:
+        raise PixivError('temp_file_changed')
     return result
 
 
@@ -243,6 +256,8 @@ def attach(db, image, evidence):
         return
     # User confirms per-file labels. Never add the work's other characters.
     apply_metadata(db, image, evidence['art'], evidence['page'], apply_tag_matches=False)
+    from .pixiv_quality import ensure
+    ensure(db, image, evidence['art'], evidence['revision'], evidence['page'], assessment=evidence.get('assessment'))
 
 
 def shutdown():

@@ -293,7 +293,7 @@ def test_frontend_exposes_review_before_pixiv_replace():
     assert "/system/pixiv-upgrades/resolve" in api_source
     assert "await reviewPixivCheck(result,choice=>api.resolvePixivCheck(choice))" in ui_source
     assert "updatePixivUpgradeProgress" in ui_source
-    assert "api.startPixivCheckQueue()" in ui_source
+    assert "api.startPixivCheckQueue(mode,limit," in ui_source
     assert "api.getPixivCheckQueue" in ui_source
     assert "data-start-reviews" in ui_source
     assert 'data-pixiv-action="replace"' in ui_source

@@ -37,15 +37,16 @@ const ids = Object.fromEntries([
 ].map(id => [id, element()]));
 
 let accepted = true;
+(async () => {
 let confirmations = 0;
 const context = vm.createContext({
     console,
-    confirm() { confirmations++; return accepted; },
     document: {
         getElementById(id) { return ids[id] || null; },
         createElement() { return element(); },
     },
     window: {
+        PicManagerDialogs: { confirm: async () => { confirmations++; return accepted; } },
         addEventListener() {},
         PicManagerSecurity: { escapeHTML(value) { return String(value ?? ''); } },
     },
@@ -85,25 +86,25 @@ queue.update(id, { status: 'uploading', progress: 48 });
 assert.equal(queue.get(id).progress, 48);
 queue.update(id, { status: 'success', progress: 100 });
 accepted = false;
-queue.clearFinished();
+await queue.clearFinished();
 assert.equal(queue.tasks.length, 1);
-queue.remove(id);
+await queue.remove(id);
 assert.equal(queue.tasks.length, 1);
 accepted = true;
-queue.clearFinished();
+await queue.clearFinished();
 assert.equal(queue.tasks.length, 0);
 const activeId = queue.add({ name: 'active.png', status: 'uploading' });
 const countBeforeActive = confirmations;
-queue.remove(activeId);
+await queue.remove(activeId);
 assert.equal(confirmations, countBeforeActive);
 assert(queue.get(activeId));
 queue.add({ name: 'done.png', status: 'success' });
 queue.add({ name: 'cancelled.png', status: 'cancelled' });
-queue.clearFinished();
+await queue.clearFinished();
 assert.equal(confirmations, countBeforeActive + 1);
 assert.equal(queue.tasks.length, 1);
 const removableId = queue.add({ name: 'failed.png', status: 'failed' });
-queue.remove(removableId);
+await queue.remove(removableId);
 assert.equal(queue.get(removableId), null);
 
 let retried = 0;
@@ -115,3 +116,5 @@ queue.retry(failedId).then(() => {
     console.error(error);
     process.exitCode = 1;
 });
+
+})().catch(error => { console.error(error); process.exitCode = 1; });

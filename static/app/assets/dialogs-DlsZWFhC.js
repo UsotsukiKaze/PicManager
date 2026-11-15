@@ -1,0 +1,1 @@
+import{n as e}from"./scripts-DKS1RmvS.js";async function t(t){return window.PicManagerDialogs||await e(`/static/js/dialogs.js?v=20261115`),window.PicManagerDialogs.confirm(t)}export{t};

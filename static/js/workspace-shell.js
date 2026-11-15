@@ -26,8 +26,8 @@ window.PicManagerShell={
   form.querySelectorAll('input[id$="aliases"],input[id$="nicknames"]').forEach(original=>{
    const values=[...new Set(original.value.split(/[,，\n]/).map(value=>value.trim()).filter(Boolean))];original.type='hidden';
    const box=document.createElement('div');box.className='tag-editor-alias-box pm-tag-box';const tokens=document.createElement('span');tokens.className='tag-editor-alias-tokens';const entry=document.createElement('input');entry.type='text';entry.id=`${original.id}-entry`;entry.placeholder='输入别称，按 Enter 添加';entry.maxLength=255;entry.autocomplete='off';box.append(tokens,entry);original.after(box);original.closest('.form-group').querySelector('label').htmlFor=entry.id;
-   const render=()=>{original.value=values.join(', ');tokens.innerHTML=values.map((value,index)=>`<button type="button" class="pm-tag" data-alias-index="${index}" aria-label="移除别称 ${safe(value)}"><span>${safe(value)}</span><b aria-hidden="true">×</b></button>`).join('');tokens.querySelectorAll('button').forEach(button=>{button.onpointerdown=event=>event.preventDefault();button.onclick=()=>{const index=Number(button.dataset.aliasIndex);if(!confirm(`确认移除别称“${values[index]}”？`))return;commit();values.splice(index,1);render();};});};
-   const commit=()=>{if(!entry.value.trim())return;for(const value of entry.value.split(/[,，\n]/).map(value=>value.trim()).filter(Boolean)){if(!values.includes(value))values.push(value);}entry.value='';render();};commits.push(commit);render();entry.onblur=commit;entry.onkeydown=event=>{if(event.isComposing)return;if(['Enter',',','，'].includes(event.key)){event.preventDefault();commit();}else if(event.key==='Backspace'&&!entry.value&&values.length){event.preventDefault();if(!confirm(`确认移除别称“${values.at(-1)}”？`))return;values.pop();render();}};
+   const render=()=>{original.value=values.join(', ');tokens.innerHTML=values.map((value,index)=>`<button type="button" class="pm-tag" data-alias-index="${index}" aria-label="移除别称 ${safe(value)}"><span>${safe(value)}</span><b aria-hidden="true">×</b></button>`).join('');tokens.querySelectorAll('button').forEach(button=>{button.onpointerdown=event=>event.preventDefault();button.onclick=async ()=>{const index=Number(button.dataset.aliasIndex);if(!(await window.PicManagerDialogs.confirm(`确认移除别称“${values[index]}”？`)))return;commit();values.splice(index,1);render();};});};
+   const commit=()=>{if(!entry.value.trim())return;for(const value of entry.value.split(/[,，\n]/).map(value=>value.trim()).filter(Boolean)){if(!values.includes(value))values.push(value);}entry.value='';render();};commits.push(commit);render();entry.onblur=commit;entry.onkeydown=async event=>{if(event.isComposing)return;if(['Enter',',','，'].includes(event.key)){event.preventDefault();commit();}else if(event.key==='Backspace'&&!entry.value&&values.length){event.preventDefault();if(!(await window.PicManagerDialogs.confirm(`确认移除别称“${values.at(-1)}”？`)))return;values.pop();render();}};
    const help=document.createElement('small');help.className='tag-editor-field-help';help.textContent='支持逗号分隔多个别称，点击标签可移除。';box.after(help);
   });
   form.addEventListener('submit',()=>commits.forEach(commit=>commit()),true);
@@ -50,7 +50,7 @@ window.managePixivMappings=async(kind,id)=>{try{await auth.loadStyle('/static/cs
 window.runLocalValidation=async()=>{
  if(!auth.isAdmin())return;
  const button=document.getElementById('local-check-button'),stop=document.getElementById('local-check-stop'),status=document.getElementById('local-check-status');if(button.disabled)return;
- if(!confirm('确认开始本地校验？\n缺失原图的档案将被归档，孤立文件移至待处理目录；疑似重复图片仍需逐张确认。'))return;
+ if(!(await window.PicManagerDialogs.confirm('确认开始本地校验？\n缺失原图的档案将被归档，孤立文件移至待处理目录；疑似重复图片仍需逐张确认。')))return;
  button.disabled=true;stop.hidden=false;window.localValidationStop=false;
  let cursor='',processed=0,failed=0,archived=0,moved=0,tagUpdated=0,tagLinks=0,tagMappings=0,tagPending=0;
  try{

@@ -67,6 +67,24 @@ test('entering the preferred collection refreshes tags once while background rea
     await pol.loadCart();
     assert.deepEqual(requests[1],{url:'/api/pixiv-ol/cart',method:'GET'});
 });
+test('cart opens from the cached list while refreshing and a late refresh cannot switch views',async()=>{
+    const {pol,context}=harness(),views=[];
+    pol.cartItems=[row()];pol.saveReading=()=>{};pol.root.closest=()=>null;
+    pol.render=async()=>{views.push(pol.view);};
+    pol.renderCart=()=>assert.fail('A late refresh must not redraw the cart after leaving');
+    let finish;
+    context.fetch=async()=>new Promise(resolve=>{finish=()=>resolve({ok:true,json:async()=>({items:[row('new')]})});});
+    const select=view=>pol.click({target:{closest:()=>({dataset:{view}})}});
+    await select('cart');
+    assert.deepEqual(views,['cart']);
+    const refresh=pol.cartRefresh;
+    await select('feed');
+    assert.deepEqual(views,['cart','feed']);
+    finish();
+    await refresh;
+    assert.equal(pol.view,'feed');
+    assert.equal(pol.cartItems[0].id,'new');
+});
 test('split selection waits for all selected pages and rejects empty group confirmation',()=>{
     const {pol}=harness(),item=row();item.draft={import_mode:'split',pages:[0,2],confirmed_pages:[0],page_drafts:{0:{group_ids:[1]},2:{group_ids:[2]}}};
     pol.selectTaggedCartItem(item);assert.equal(pol.selection.size,0);

@@ -91,13 +91,16 @@ test('cart and library exclusions update active and saved recommendation cards w
     assert.equal(h.pol.visibleGalleryCount(h.flow),1);
 });
 
-test('prepares a successor at two remaining pages without rendering extra cards',async()=>{
+test('locally ranked recommendations prepare a successor and append it automatically',async()=>{
     const h=harness();h.flow.mode='personal';
     const batch='a'.repeat(32);
     h.context.fetch=async(url,options={})=>{
         h.calls.push({url,options});
-        return {ok:true,json:async()=>url.endsWith('/browse')?{id:42}:{batch_id:batch,total:40,remaining_count:20,has_more:true,
-            items:Array.from({length:20},(_,i)=>({pid:String(i),title:'Artwork',page_count:1,preview_url:'/preview'}))}};
+        const successor=url.includes('batch_id='+('b'.repeat(32)));
+        return {ok:true,json:async()=>url.endsWith('/browse')?{id:42}:{
+            batch_id:successor?'b'.repeat(32):batch,total:40,remaining_count:successor?0:20,has_more:!successor,
+            items:Array.from({length:20},(_,i)=>({pid:String(i+(successor?20:0)),title:'Artwork',page_count:1,preview_url:'/preview'}))
+        }};
     };
     await h.pol.loadMore(h.flow);await new Promise(resolve=>setImmediate(resolve));
     assert.equal(h.pol.items.length,20);assert.equal(h.calls.length,2);
@@ -107,10 +110,29 @@ test('prepares a successor at two remaining pages without rendering extra cards'
     assert.equal(h.flow.batch,batch);assert.equal(h.flow.prepared.batch_id,'b'.repeat(32));
     assert.equal(h.pol.items.length,20);
     h.flow.more=false;
-    h.context.fetch=async(url)=>{h.calls.push({url});return {ok:true,json:async()=>({batch_id:'b'.repeat(32),total:1,has_more:false,
-        items:[{pid:'1000',title:'New',page_count:1,preview_url:'/preview'}]})};};
     await h.pol.loadMore(h.flow);
-    assert.equal(h.pol.items.length,21);assert.match(h.calls.at(-1).url,/batch_id=bbbb/);
+    assert.equal(h.pol.items.length,40);
+    assert.equal(h.pol.items[0].pid,'0');
+    assert.equal(h.pol.items[20].pid,'20');
+    assert.equal(h.flow.batch,'b'.repeat(32));
+    assert.match(h.calls[2].url,/batch_id=b{32}/);
+    assert.doesNotMatch(h.sentinel.innerHTML,/button/);
+});
+
+test('Pixiv discovery keeps appending the original upstream order across batches',async()=>{
+    const h=harness();h.flow.mode='discovery';
+    await h.pol.loadMore(h.flow);
+    h.flow.more=false;
+    h.flow.prepared={batch_id:'d'.repeat(32),count:1,more:false};
+    h.context.fetch=async url=>{
+        h.calls.push({url});
+        return {ok:true,json:async()=>({batch_id:'d'.repeat(32),total:1,has_more:false,
+            items:[{pid:'1000',title:'New',page_count:1,preview_url:'/preview'}]})};
+    };
+    await h.pol.loadMore(h.flow);
+    assert.equal(h.pol.items.length,21);
+    assert.equal(h.pol.items.at(-1).pid,'1000');
+    assert.match(h.calls.at(-1).url,/batch_id=dddd/);
 });
 
 test('refresh consumes the prepared batch without another remote refresh job',async()=>{

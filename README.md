@@ -3,6 +3,12 @@
 
 # PicManager
 
+### 机器人图库卡片
+
+`/api/bot/card-info/{image_id}` 提供带签名的卡片唯一编号，`POST /api/bot/card-original` 从上传卡片的二维码定位库内原图，两者均要求 Bot Token，且取图继续检查会话分级。部署时使用更新后的 `pyproject.toml` 和 `uv.lock` 安装二维码识别依赖。
+
+导入或校验 Pixiv 图片时自动异步下载作者头像到 `resource/avatars/pixiv-<UID>.webp`，与临时预览缓存分开保存。旧库可运行 `python scripts/backfill_artist_avatars.py` 补取；机器人首次请求作者头像也会补取并缓存。
+
 一个用于保存、整理和检索喜欢的图片，并为 [Ubot](https://github.com/UsotsukiKaze/Ubot) 提供图库能力的图片管理系统。
 
 [在线站点](https://pic.usotsuki-kaze.com/) · [Ubot](https://github.com/UsotsukiKaze/Ubot) · [快速开始](#快速开始)

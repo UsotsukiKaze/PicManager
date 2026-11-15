@@ -3,8 +3,8 @@
     "file": "assets/EntityAvatar-BAY-R0pc.css",
     "src": "_EntityAvatar-BAY-R0pc.css"
   },
-  "_EntityAvatar-_y2kaBLS.js": {
-    "file": "assets/EntityAvatar-_y2kaBLS.js",
+  "_EntityAvatar-CrX2hWYu.js": {
+    "file": "assets/EntityAvatar-CrX2hWYu.js",
     "name": "EntityAvatar",
     "imports": [
       "_pinia-BfC4E69E.js",
@@ -14,21 +14,21 @@
       "assets/EntityAvatar-BAY-R0pc.css"
     ]
   },
-  "_EntityPicker-BN-OXYxo.js": {
-    "file": "assets/EntityPicker-BN-OXYxo.js",
+  "_EntityPicker-DTVaET9q.js": {
+    "file": "assets/EntityPicker-DTVaET9q.js",
     "name": "EntityPicker",
     "imports": [
       "_pinia-BfC4E69E.js",
       "index.html",
-      "_scripts-ijQ4VFrc.js"
+      "_scripts-DKS1RmvS.js"
     ]
   },
   "_accountMotion-CgKE-uPr.css": {
     "file": "assets/accountMotion-CgKE-uPr.css",
     "src": "_accountMotion-CgKE-uPr.css"
   },
-  "_accountMotion-FcBmO0VV.js": {
-    "file": "assets/accountMotion-FcBmO0VV.js",
+  "_accountMotion-CmGofDvf.js": {
+    "file": "assets/accountMotion-CmGofDvf.js",
     "name": "accountMotion",
     "imports": [
       "index.html"
@@ -37,12 +37,12 @@
       "assets/accountMotion-CgKE-uPr.css"
     ]
   },
-  "_bridge-Ck8Cy2f_.js": {
-    "file": "assets/bridge-Ck8Cy2f_.js",
+  "_bridge-CEGZrsBj.js": {
+    "file": "assets/bridge-CEGZrsBj.js",
     "name": "bridge",
     "imports": [
       "index.html",
-      "_scripts-ijQ4VFrc.js"
+      "_scripts-DKS1RmvS.js"
     ]
   },
   "_devtools-EWN81iOl-B5MW2_Xv.js": {
@@ -52,19 +52,30 @@
       "_pinia-BfC4E69E.js"
     ]
   },
+  "_dialogs-DlsZWFhC.js": {
+    "file": "assets/dialogs-DlsZWFhC.js",
+    "name": "dialogs",
+    "imports": [
+      "_scripts-DKS1RmvS.js"
+    ]
+  },
   "_pinia-BfC4E69E.js": {
     "file": "assets/pinia-BfC4E69E.js",
     "name": "pinia"
   },
-  "_scripts-ijQ4VFrc.js": {
-    "file": "assets/scripts-ijQ4VFrc.js",
+  "_scripts-DKS1RmvS.js": {
+    "file": "assets/scripts-DKS1RmvS.js",
     "name": "scripts",
     "imports": [
       "index.html"
     ]
   },
-  "_slidingTabs-B9OQImKk.js": {
-    "file": "assets/slidingTabs-B9OQImKk.js",
+  "_slidingTabs-Byi0_ayD.css": {
+    "file": "assets/slidingTabs-Byi0_ayD.css",
+    "src": "_slidingTabs-Byi0_ayD.css"
+  },
+  "_slidingTabs-D_hL1lBX.js": {
+    "file": "assets/slidingTabs-D_hL1lBX.js",
     "name": "slidingTabs",
     "imports": [
       "_pinia-BfC4E69E.js",
@@ -74,12 +85,8 @@
       "assets/slidingTabs-Byi0_ayD.css"
     ]
   },
-  "_slidingTabs-Byi0_ayD.css": {
-    "file": "assets/slidingTabs-Byi0_ayD.css",
-    "src": "_slidingTabs-Byi0_ayD.css"
-  },
-  "_useQuery-D8iwSUIF.js": {
-    "file": "assets/useQuery-D8iwSUIF.js",
+  "_useQuery-8yEH1ddh.js": {
+    "file": "assets/useQuery-8yEH1ddh.js",
     "name": "useQuery",
     "imports": [
       "_pinia-BfC4E69E.js",
@@ -87,7 +94,7 @@
     ]
   },
   "index.html": {
-    "file": "assets/index-rjhmlufk.js",
+    "file": "assets/index-BUZcIjcE.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -103,10 +110,10 @@
       "src/views/ProfileView.vue",
       "src/views/RankingsView.vue",
       "src/views/FeatureView.vue",
-      "_bridge-Ck8Cy2f_.js"
+      "_bridge-CEGZrsBj.js"
     ],
     "css": [
-      "assets/index-DKhJ4l3O.css"
+      "assets/index-3V6GgGzN.css"
     ]
   },
   "node_modules/@noble/hashes/sha2.js": {
@@ -116,46 +123,49 @@
     "isDynamicEntry": true
   },
   "src/components/EmojiDetail.vue": {
-    "file": "assets/EmojiDetail-Dct8sNj0.js",
+    "file": "assets/EmojiDetail-VixmxGX_.js",
     "name": "EmojiDetail",
     "src": "src/components/EmojiDetail.vue",
     "isDynamicEntry": true,
     "imports": [
       "_pinia-BfC4E69E.js",
-      "_useQuery-D8iwSUIF.js",
+      "_useQuery-8yEH1ddh.js",
       "index.html",
+      "_dialogs-DlsZWFhC.js",
       "src/views/EmojiView.vue"
     ]
   },
   "src/components/ImageDetail.vue": {
-    "file": "assets/ImageDetail-C2bXASV8.js",
+    "file": "assets/ImageDetail-DI08hxKU.js",
     "name": "ImageDetail",
     "src": "src/components/ImageDetail.vue",
     "isDynamicEntry": true,
     "imports": [
       "_pinia-BfC4E69E.js",
-      "_useQuery-D8iwSUIF.js",
+      "_useQuery-8yEH1ddh.js",
       "index.html",
-      "_scripts-ijQ4VFrc.js",
-      "_EntityAvatar-_y2kaBLS.js"
+      "_scripts-DKS1RmvS.js",
+      "_dialogs-DlsZWFhC.js",
+      "_EntityAvatar-CrX2hWYu.js"
     ]
   },
   "src/views/EmojiView.vue": {
-    "file": "assets/EmojiView-Dm5cKojR.js",
+    "file": "assets/EmojiView-Bk7PZ48i.js",
     "name": "EmojiView",
     "src": "src/views/EmojiView.vue",
     "isDynamicEntry": true,
     "imports": [
       "_pinia-BfC4E69E.js",
-      "_useQuery-D8iwSUIF.js",
+      "_useQuery-8yEH1ddh.js",
       "index.html",
-      "_scripts-ijQ4VFrc.js",
-      "_EntityAvatar-_y2kaBLS.js",
-      "_slidingTabs-B9OQImKk.js",
-      "_EntityPicker-BN-OXYxo.js"
+      "_scripts-DKS1RmvS.js",
+      "_dialogs-DlsZWFhC.js",
+      "_EntityAvatar-CrX2hWYu.js",
+      "_slidingTabs-D_hL1lBX.js",
+      "_EntityPicker-DTVaET9q.js"
     ],
     "dynamicImports": [
-      "_bridge-Ck8Cy2f_.js",
+      "_bridge-CEGZrsBj.js",
       "src/components/EmojiDetail.vue"
     ],
     "css": [
@@ -163,7 +173,7 @@
     ]
   },
   "src/views/FeatureView.vue": {
-    "file": "assets/FeatureView-B10rJGu_.js",
+    "file": "assets/FeatureView-ppKUw0f_.js",
     "name": "FeatureView",
     "src": "src/views/FeatureView.vue",
     "isDynamicEntry": true,
@@ -171,46 +181,46 @@
       "_pinia-BfC4E69E.js",
       "_devtools-EWN81iOl-B5MW2_Xv.js",
       "index.html",
-      "_bridge-Ck8Cy2f_.js",
-      "_accountMotion-FcBmO0VV.js"
+      "_bridge-CEGZrsBj.js",
+      "_accountMotion-CmGofDvf.js"
     ]
   },
   "src/views/GalleryView.vue": {
-    "file": "assets/GalleryView-C-P-0qvn.js",
+    "file": "assets/GalleryView-0PlGxsSV.js",
     "name": "GalleryView",
     "src": "src/views/GalleryView.vue",
     "isDynamicEntry": true,
     "imports": [
       "_pinia-BfC4E69E.js",
-      "_useQuery-D8iwSUIF.js",
+      "_useQuery-8yEH1ddh.js",
       "index.html",
-      "_scripts-ijQ4VFrc.js",
-      "_EntityAvatar-_y2kaBLS.js",
-      "_slidingTabs-B9OQImKk.js",
-      "_EntityPicker-BN-OXYxo.js"
+      "_scripts-DKS1RmvS.js",
+      "_EntityAvatar-CrX2hWYu.js",
+      "_slidingTabs-D_hL1lBX.js",
+      "_EntityPicker-DTVaET9q.js"
     ],
     "dynamicImports": [
       "src/components/ImageDetail.vue",
-      "_bridge-Ck8Cy2f_.js"
+      "_bridge-CEGZrsBj.js"
     ]
   },
   "src/views/HomeView.vue": {
-    "file": "assets/HomeView-Vl0zdnNg.js",
+    "file": "assets/HomeView-Ce5nf4Ey.js",
     "name": "HomeView",
     "src": "src/views/HomeView.vue",
     "isDynamicEntry": true,
     "imports": [
       "_pinia-BfC4E69E.js",
-      "_useQuery-D8iwSUIF.js",
+      "_useQuery-8yEH1ddh.js",
       "index.html",
-      "_EntityAvatar-_y2kaBLS.js"
+      "_EntityAvatar-CrX2hWYu.js"
     ],
     "css": [
-      "assets/HomeView-CcNdDHIV.css"
+      "assets/HomeView-TwgI7nY7.css"
     ]
   },
   "src/views/ProfileView.vue": {
-    "file": "assets/ProfileView-BFJH9FAx.js",
+    "file": "assets/ProfileView-Dihtliqi.js",
     "name": "ProfileView",
     "src": "src/views/ProfileView.vue",
     "isDynamicEntry": true,
@@ -218,41 +228,41 @@
       "_pinia-BfC4E69E.js",
       "_devtools-EWN81iOl-B5MW2_Xv.js",
       "index.html",
-      "_accountMotion-FcBmO0VV.js"
+      "_accountMotion-CmGofDvf.js"
     ]
   },
   "src/views/RankingsView.vue": {
-    "file": "assets/RankingsView-Cy02ymJO.js",
+    "file": "assets/RankingsView-DeH3rDOA.js",
     "name": "RankingsView",
     "src": "src/views/RankingsView.vue",
     "isDynamicEntry": true,
     "imports": [
       "_pinia-BfC4E69E.js",
-      "_useQuery-D8iwSUIF.js",
+      "_useQuery-8yEH1ddh.js",
       "index.html",
-      "_scripts-ijQ4VFrc.js",
-      "_EntityAvatar-_y2kaBLS.js",
-      "_EntityPicker-BN-OXYxo.js"
+      "_scripts-DKS1RmvS.js",
+      "_EntityAvatar-CrX2hWYu.js",
+      "_EntityPicker-DTVaET9q.js"
     ],
     "css": [
       "assets/RankingsView-DAJdpnmK.css"
     ]
   },
   "src/views/UploadView.vue": {
-    "file": "assets/UploadView-BTnOXpFx.js",
+    "file": "assets/UploadView-CNN5cKV0.js",
     "name": "UploadView",
     "src": "src/views/UploadView.vue",
     "isDynamicEntry": true,
     "imports": [
       "_pinia-BfC4E69E.js",
-      "_useQuery-D8iwSUIF.js",
+      "_useQuery-8yEH1ddh.js",
       "index.html",
-      "_scripts-ijQ4VFrc.js",
-      "_EntityPicker-BN-OXYxo.js"
+      "_scripts-DKS1RmvS.js",
+      "_EntityPicker-DTVaET9q.js"
     ],
     "dynamicImports": [
       "node_modules/@noble/hashes/sha2.js",
-      "_bridge-Ck8Cy2f_.js",
+      "_bridge-CEGZrsBj.js",
       "index.html"
     ],
     "css": [

@@ -126,20 +126,23 @@
             }
         }
 
-        remove(taskId) {
-            const index = this.tasks.findIndex(task => task.id === Number(taskId));
+        async remove(taskId) {
+            let index = this.tasks.findIndex(task => task.id === Number(taskId));
             if (index < 0 || ACTIVE_STATES.has(this.tasks[index].status)) return;
-            if (!confirm(`确认移除“${this.tasks[index].name}”的上传记录？\n已入库的图片不会被删除。`)) return;
+            if (!(await window.PicManagerDialogs.confirm(`确认移除“${this.tasks[index].name}”的上传记录？\n已入库的图片不会被删除。`))) return;
+            index = this.tasks.findIndex(task => task.id === Number(taskId));
+            if (index < 0 || ACTIVE_STATES.has(this.tasks[index].status)) return;
             const [task] = this.tasks.splice(index, 1);
             if (typeof task.dispose === 'function') task.dispose();
             this.render();
         }
 
-        clearFinished() {
+        async clearFinished() {
             const removed = this.tasks.filter(task => FINISHED_STATES.has(task.status));
-            if (!removed.length || !confirm(`确认清理 ${removed.length} 条已完成的上传记录？\n已入库的图片不会被删除。`)) return;
-            this.tasks = this.tasks.filter(task => !FINISHED_STATES.has(task.status));
-            removed.forEach(task => {
+            if (!removed.length || !(await window.PicManagerDialogs.confirm(`确认清理 ${removed.length} 条已完成的上传记录？\n已入库的图片不会被删除。`))) return;
+            const confirmed = new Set(removed.filter(task => FINISHED_STATES.has(task.status)));
+            this.tasks = this.tasks.filter(task => !confirmed.has(task));
+            confirmed.forEach(task => {
                 if (typeof task.dispose === 'function') task.dispose();
             });
             this.render();

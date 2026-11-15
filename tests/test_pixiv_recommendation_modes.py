@@ -120,11 +120,18 @@ def test_rank_prefers_recent_popular_work_within_same_interest_or_role(environme
     with context() as db:
         roles(db)
     raws = []
-    for pid, age, bookmarks in [('800', 180, 10000), ('801', 3, 120), ('802', 1, 1)]:
+    for pid, age, bookmarks, views in [
+        ('800', 180, 10000, 100000),
+        ('801', 3, 120, 300),
+        ('802', 1, 1, 10),
+        ('803', 3, 180, 1000),
+        ('804', 3, 250, 20000),
+    ]:
         raw = artwork(pid, [{'name':'GameNative'}, {'name':'RareNative'}, {'name':'WhiteNative'}])
         raw['user']['id'] = int(pid)
         raw['create_date'] = (datetime.utcnow() - timedelta(days=age)).isoformat() + 'Z'
         raw['total_bookmarks'] = bookmarks
+        raw['total_view'] = views
         raws.append(raw)
     source = strategies.source_key('recommended', mode, 1)
     service.save_artworks('rev', raws, source, 1, ranks=True, source_batch='quality')
@@ -132,8 +139,7 @@ def test_rank_prefers_recent_popular_work_within_same_interest_or_role(environme
         account = db.get(models.PixivAccount, 1)
         account.sync_state = {source:{'batch':'quality'}}
         items, _ = strategies.rank(db, TagIndex(db), account, mode, 1)
-        # Quality gates keep an established good work; freshness alone cannot rescue poor traction.
-        assert [item['pid'] for item in items] == ['800']
+        assert [item['pid'] for item in items] == ['800', '803']
 
 
 def test_stock_popularity_outweighs_one_extra_feature_match(environment):
@@ -923,6 +929,11 @@ def test_discovery_preserves_native_order_and_modes_keep_their_own_cursor_and_ba
     remote = Remote('test')
     first = service.refresh_candidates(remote, 'rev', 1, 'discovery', progressive=True)
     service.refresh_candidates(remote, 'rev', 1, 'personal', progressive=True)
+    with context() as db:
+        state = db.get(models.PixivAccount, 1).sync_state
+        assert state['recommendation_stream_discovery_1']['native_offset'] == 2
+        assert state['recommendation_stream_personal_1']['native_offset'] == 4
+        personal_stream = dict(state['recommendation_stream_personal_1'])
     second = service.refresh_candidates(remote, 'rev', 1, 'discovery', continuation=True, progressive=True, seen_pids=['900', '901'])
     path = '/api/pixiv-ol/recommendations?mode=discovery&batch_id='
     assert [row['pid'] for row in client.get(path + first['batch_id']).json()['items']] == ['900', '901']
@@ -930,7 +941,7 @@ def test_discovery_preserves_native_order_and_modes_keep_their_own_cursor_and_ba
     with context() as db:
         state = db.get(models.PixivAccount, 1).sync_state
         assert state['recommendation_stream_discovery_1']['native_offset'] == 4
-        assert state['recommendation_stream_personal_1']['native_offset'] == 2
+        assert state['recommendation_stream_personal_1'] == personal_stream
         assert state['recommended_discovery_1']['batch'] != state['recommended_personal_1']['batch']
 
 

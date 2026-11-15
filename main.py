@@ -49,11 +49,14 @@ async def lifespan(app: FastAPI):
     init_database()
     file_operation_worker.start()
     image_job_worker.start()
+    from app.card_assets import start as start_card_assets, stop as stop_card_assets
+    start_card_assets()
     pixiv_ol_worker.start()
     pixiv_check_worker.start()
     try:
         yield
     finally:
+        stop_card_assets()
         pixiv_check_worker.stop()
         image_job_worker.stop()
         pixiv_ol_worker.stop()

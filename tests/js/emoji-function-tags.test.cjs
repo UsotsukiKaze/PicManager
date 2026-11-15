@@ -36,7 +36,7 @@ function harness() {
         async getEmotionTags() { return tags; }, async getEmojiCharacters() { return []; },
     };
     const context = {
-        window: {}, ui, api, console, confirm: () => true,
+        window: { PicManagerDialogs: { confirm: async () => true } }, ui, api, console,
         document: { getElementById: id => nodes[id] || null, querySelector: () => search },
     };
     vm.runInNewContext(source, context);
@@ -46,7 +46,7 @@ function harness() {
     return { lib, ui, api, nodes, lists };
 }
 
-test('picker retains one independent selection per category and clears either category', () => {
+test('picker retains one independent selection per category and clears either category', async () => {
     const { lib, nodes, lists } = harness();
     lib.openUploadTagPicker();
     assert.match(lists.emotion.innerHTML, /love/);
@@ -59,14 +59,14 @@ test('picker retains one independent selection per category and clears either ca
     choose('emotion', 1);
     choose('function', 3);
     choose('function', 4);
-    lib.confirmUploadTagPicker();
+    await lib.confirmUploadTagPicker();
     assert.deepEqual(plain(lib.selectedEmotionIds()), [1, 4]);
-    lib.clearUploadTag('emotion_id');
+    await lib.clearUploadTag('emotion_id');
     assert.deepEqual(plain(lib.selectedEmotionIds()), [4]);
     lib.openUploadTagPicker();
     choose('emotion', 2);
     choose('function', 0);
-    lib.confirmUploadTagPicker();
+    await lib.confirmUploadTagPicker();
     assert.deepEqual(plain(lib.selectedEmotionIds()), [2]);
 });
 

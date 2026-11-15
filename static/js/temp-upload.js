@@ -104,7 +104,9 @@
             form.querySelector('.temp-art-title').innerHTML=art?`<a href="https://www.pixiv.net/artworks/${esc(art.pid)}" target="_blank" rel="noopener">${esc(art.title||this.label)}</a>`:esc(this.label);
             form.querySelector('.temp-art-author').textContent=art?`${art.author} · ${this.label}`:this.label;
             const multiple=art?.page_count>1&&(art.match.character_ids||[]).length>1;
-            form.querySelector('.temp-check-note').textContent=result?.status==='verified'?'已核对对应页，确认标签后入库。':result?.status==='review'?'页码或画面尚需确认，请核对后勾选下方确认。':result?.status==='ordinary'?'未识别到 Pixiv PID，请手动选择标签。':result?.status==='unavailable'?'Pixiv 暂时不可用，可手动处理或刷新后重试。':'预校验进行中，结果会自动补充。';
+            form.querySelector('.temp-check-note').textContent=result?.status==='verified'?'已核对对应页，确认标签后入库。':result?.status==='review'?'页码或画面尚需确认，请核对后勾选下方确认。':result?.status==='ordinary'?'未识别到 Pixiv PID，请手动选择标签。':result?.status==='unavailable'?'Pixiv 连接失败，可继续手动处理；关闭后重新打开图片可重试。':'预校验进行中，结果会自动补充。';
+            if(result?.quality?.status==='upgrade')form.querySelector('.temp-check-note').textContent+=' 存在更清晰图源，入库时自动下载 Pixiv 原图。';
+            if(result?.quality?.status==='complete')form.querySelector('.temp-check-note').textContent+=' 已核对对应页原图清晰度。';
             if(multiple)form.querySelector('.temp-check-note').textContent+=' 多角色作品请只选择当前图片的角色。';
             form.querySelector('#temp-pid').value=draft.pid||'';
             form.querySelector('#temp-age-rating').value=draft.age_rating||'r12';

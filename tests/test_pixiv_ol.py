@@ -59,6 +59,8 @@ def environment(monkeypatch, tmp_path):
         "BASE_DIR": str(tmp_path),
         "DATA_PATH": str(tmp_path / "data"),
         "STORE_PATH": str(tmp_path / "resource/store"),
+        "THUMB_PATH": str(tmp_path / "resource/thumbs"),
+        "PREVIEW_PATH": str(tmp_path / "resource/previews"),
         "TEMP_PATH": str(tmp_path / "resource/temp"),
         "STORAGE_BACKEND": "local",
         "PIXIV_OL_ENCRYPTION_KEY": "",
@@ -111,6 +113,172 @@ class FakeProvider:
 
     def close(self):
         pass
+
+
+def test_keyword_search_preserves_upstream_cursor_and_ranks_filtered_fallback(environment, monkeypatch):
+    _, client, _ = environment
+    calls = []
+
+    class SearchProvider(FakeProvider):
+        def call(self, method, **params):
+            assert method == "search_illust"
+            assert params["word"] == "白髪"
+            calls.append((params["sort"], params["offset"]))
+            if params["sort"] == "popular_desc":
+                raise provider.PixivError("access_denied")
+            if not params["offset"]:
+                return {
+                    "illusts": [dict(artwork("110"), total_bookmarks=2),
+                                dict(artwork("111"), total_bookmarks=1000, x_restrict=1)],
+                    "next_url": "https://app-api.pixiv.net/v1/search/illust?offset=30",
+                }
+            if params["offset"] == 30:
+                return {"illusts": [dict(artwork("112"), total_bookmarks=600)],
+                        "next_url": "https://app-api.pixiv.net/v1/search/illust?offset=60"}
+            if params["offset"] == 60:
+                return {"next_url": "https://app-api.pixiv.net/v1/search/illust?offset=90"}
+            return {"illusts": [dict(artwork("113"), total_bookmarks=1200)]}
+
+    monkeypatch.setattr(service, "Provider", SearchProvider)
+    url = "/api/pixiv-ol/search"
+    newest = client.get(url, params={"q": "白髪", "sort": "latest"}).json()
+    assert [item["pid"] for item in newest["items"]] == ["110"]
+    assert newest["next_offset"] == 30
+    next_page = client.get(url, params={"q": "白髪", "sort": "latest", "offset": 30}).json()
+    assert [item["pid"] for item in next_page["items"]] == ["112"]
+    popular = client.get(url, params={"q": "白髪", "sort": "popular"}).json()
+    assert [item["pid"] for item in popular["items"]] == ["112"]
+    assert popular["next_offset"] == 90
+    assert popular["ranking"] == "candidate_popular"
+    assert calls[-4:] == [("popular_desc", 0), ("date_desc", 0), ("date_desc", 30), ("date_desc", 60)]
+    successor = client.get(url, params={"q": "白髪", "sort": "popular", "offset": 90,
+                                       "recent_candidates": True}).json()
+    assert [item["pid"] for item in successor["items"]] == ["113"]
+    assert successor["next_offset"] is None
+    assert successor["ranking"] == "candidate_popular"
+    assert successor["items"][0]["popular_score"] > popular["items"][0]["popular_score"]
+    assert calls[-1] == ("date_desc", 90)
+
+    class ExactTagProvider(SearchProvider):
+        def call(self, method, **params):
+            assert params["search_target"] == "exact_match_for_tags"
+            return super().call(method, **params)
+
+    monkeypatch.setattr(service, "Provider", ExactTagProvider)
+    assert client.get(url, params={"q": "白髪", "tag": True, "sort": "latest"}).status_code == 200
+
+
+@pytest.mark.parametrize("fallback", [False, True])
+def test_keyword_popularity_balances_established_works_and_new_engagement(environment, monkeypatch, fallback):
+    _, client, _ = environment
+    now = datetime.utcnow()
+
+    def work(pid, days, bookmarks, views):
+        return dict(artwork(pid), create_date=(now - timedelta(days=days)).isoformat(),
+                    total_bookmarks=bookmarks, total_view=views)
+
+    classic = work("200", 1100, 20_000, 250_000)
+    older = work("201", 730, 2_000, 45_000)
+    well_received = work("202", 2, 1_200, 6_000)
+    low_conversion = work("203", 2, 800, 80_000)
+    tiny_sample = work("204", 1, 2, 2)
+    new_with_fewer_bookmarks = work("205", 1, 300, 1_600)
+    fresh_low_conversion = work("206", 1, 300, 20_000)
+    older_high_conversion = work("207", 30, 300, 1_600)
+    latest = [tiny_sample, new_with_fewer_bookmarks, fresh_low_conversion, low_conversion,
+              well_received, older_high_conversion, older, classic]
+
+    class SearchProvider(FakeProvider):
+        def call(self, method, **params):
+            assert method == "search_illust"
+            if params["sort"] == "popular_desc":
+                if fallback:
+                    raise provider.PixivError("access_denied")
+                return {"illusts": list(reversed(latest)),
+                        "next_url": "https://app-api.pixiv.net/v1/search/illust?offset=30"}
+            return {"illusts": latest}
+
+    monkeypatch.setattr(service, "Provider", SearchProvider)
+    url = "/api/pixiv-ol/search"
+    newest = client.get(url, params={"q": "白髪", "sort": "latest"}).json()
+    assert [item["pid"] for item in newest["items"]] == [str(item["id"]) for item in latest]
+    popular = client.get(url, params={"q": "白髪", "sort": "popular"}).json()
+    pids = [item["pid"] for item in popular["items"]]
+    assert pids == ["200", "202", "201", "203", "205"]
+    assert popular["next_offset"] is None
+
+
+@pytest.mark.parametrize("fallback", [False, True])
+def test_keyword_popularity_uses_available_library_features_and_engagement(environment, monkeypatch, fallback):
+    context, client, _ = environment
+    with context() as db:
+        high = db.get(models.FeatureTag, 1)
+        quiet = models.FeatureTag(name="短发")
+        archived = models.FeatureTag(name="古旧主题")
+        source = models.FeatureTag(name="Pixiv")
+        db.add_all([quiet, archived, source])
+        db.flush()
+        db.add(models.PixivTagMapping(normalized_tag="short hair", target_type="feature",
+                                      target_id=quiet.id, group_context=0))
+        for i in range(20):
+            active = i < 8
+            db.add(models.Image(image_id=f"{i:010x}", file_extension="jpg", file_path=f"{i}.jpg",
+                                file_status="available" if active else "archived",
+                                feature_tags=[high, source] if active else [archived]))
+            db.add(models.ImageViewCount(image_id=f"{i:010x}", view_count=16))
+        for i in range(20, 28):
+            db.add(models.Image(image_id=f"{i:010x}", file_extension="jpg", file_path=f"{i}.jpg",
+                                feature_tags=[quiet, source]))
+
+    now = datetime.utcnow()
+
+    def work(pid, tag, age, bookmarks=500):
+        return dict(artwork(pid, tags=[{"name": tag}]), create_date=(now - timedelta(seconds=age)).isoformat(),
+                    total_bookmarks=bookmarks, total_view=bookmarks * 20)
+
+    newest = [work("301", "Pixiv", 0, 525), work("302", "古旧主题", 1),
+              work("303", "short hair", 2), work("304", "白髪", 3), work("305", "未匹配", 4, 2500)]
+
+    class SearchProvider(FakeProvider):
+        def call(self, method, **params):
+            if fallback and params["sort"] == "popular_desc":
+                raise provider.PixivError("access_denied")
+            return {"illusts": newest}
+
+    monkeypatch.setattr(service, "Provider", SearchProvider)
+    url = "/api/pixiv-ol/search"
+    latest = client.get(url, params={"q": "主题", "sort": "latest"}).json()
+    assert [item["pid"] for item in latest["items"]] == ["301", "302", "303", "304", "305"]
+    popular = client.get(url, params={"q": "主题", "sort": "popular"}).json()
+    assert [item["pid"] for item in popular["items"]] == ["305", "304", "303", "301", "302"]
+
+
+def test_keyword_popularity_ranks_across_pixiv_pages_before_exposing_the_next_window(environment, monkeypatch):
+    _, client, _ = environment
+    now = datetime.utcnow().isoformat()
+    calls = []
+
+    class SearchProvider(FakeProvider):
+        def call(self, method, **params):
+            assert method == "search_illust"
+            offset = params["offset"]
+            calls.append((params["sort"], offset))
+            works = {0: [("410", 45)], 30: [("410", 45), ("411", 1200)], 60: [("412", 500)]}
+            return {
+                "illusts": [dict(artwork(pid), total_bookmarks=count, create_date=now)
+                            for pid, count in works.get(offset, [])],
+                "next_url": f"https://app-api.pixiv.net/v1/search/illust?offset={offset + 30}",
+            }
+
+    monkeypatch.setattr(service, "Provider", SearchProvider)
+    url = "/api/pixiv-ol/search"
+    latest = client.get(url, params={"q": "白髪", "sort": "latest"}).json()
+    assert [item["pid"] for item in latest["items"]] == ["410"]
+    assert latest["next_offset"] == 30
+    popular = client.get(url, params={"q": "白髪", "sort": "popular"}).json()
+    assert [item["pid"] for item in popular["items"]] == ["411", "412"]
+    assert popular["next_offset"] == 90
+    assert calls == [("date_desc", 0), ("popular_desc", 0), ("popular_desc", 30), ("popular_desc", 60)]
 
 
 def install_fake(monkeypatch):
@@ -1295,6 +1463,8 @@ def stage_cart(client, monkeypatch, pid="100"):
 
 
 def test_cart_caches_temp_then_imports_without_pixiv_or_redownload(environment, monkeypatch):
+    from app.integrations.pixiv_ol import viewer
+
     context, client, _ = environment
     id_ = stage_cart(client, monkeypatch)
     assert (cart.directory(id_) / "0.img").is_file()
@@ -1308,6 +1478,16 @@ def test_cart_caches_temp_then_imports_without_pixiv_or_redownload(environment, 
 
     monkeypatch.setattr(service, "client_for_job", no_network)
     monkeypatch.setattr(jobs, "download", no_network)
+    monkeypatch.setattr(viewer, "clear_preview", no_network)
+    with context() as db:
+        item = db.get(models.PixivCartItem, id_)
+        thumb, preview = cart.derivative_paths(id_, 0, item.cache["0"])
+    expected_thumb, expected_preview = thumb.read_bytes(), preview.read_bytes()
+    url = row["artwork"]["reader_preview_url"] + "?page=0"
+    response = client.get(url)
+    assert response.content == expected_preview
+    assert client.get(url, headers={"If-None-Match": response.headers["etag"]}).status_code == 304
+    monkeypatch.setattr(cart, "open_image", lambda *args: pytest.fail("Already prepared derivatives must not re-encode"))
     response = client.post("/api/pixiv-ol/cart/imports", json={"item_ids": [id_]})
     assert response.status_code == 202
     submitted = response.json()["jobs"][0]
@@ -1317,9 +1497,31 @@ def test_cart_caches_temp_then_imports_without_pixiv_or_redownload(environment, 
     assert client.get("/api/pixiv-ol/cart").json()["items"] == []
     assert not cart.directory(id_).exists()
     with context() as db:
-        assert db.query(models.Image).count() == 1
+        image = db.query(models.Image).one()
+        assert image.thumb_status == image.preview_status == "ready"
+        assert Path(api.ImageService.thumb_path(image)).read_bytes() == expected_thumb
+        assert Path(api.ImageService.preview_path(image)).read_bytes() == expected_preview
+        assert db.query(models.ImageJob).filter(models.ImageJob.job_type.in_(["thumbnail", "preview"])).count() == 0
         assert db.query(models.PixivImageSource).one().work_id == "100"
         assert db.query(models.PixivJob).filter_by(kind="import").one().status == "completed"
+
+
+def test_legacy_cart_can_backfill_reader_previews_without_pixiv(environment, monkeypatch):
+    from app.integrations.pixiv_ol import viewer
+
+    context, client, _ = environment
+    cart_id = stage_cart(client, monkeypatch)
+    with context() as db:
+        info = db.get(models.PixivCartItem, cart_id).cache["0"]
+    paths = cart.derivative_paths(cart_id, 0, info)
+    for path in paths:
+        path.unlink()
+    assert list(cart.pending_derivatives()) == [(cart_id, 0, info)]
+    monkeypatch.setattr(viewer, "clear_preview", lambda *args: pytest.fail("Cached pages must stay offline"))
+    url = f"/api/pixiv-ol/cart/{cart_id}/reader-preview?page=0"
+    assert client.get(url).status_code == 200
+    assert all(path.is_file() for path in paths)
+    assert list(cart.pending_derivatives()) == []
 
 
 def test_split_cart_confirms_each_page_and_imports_independent_tags_offline(environment, monkeypatch):
@@ -1367,7 +1569,9 @@ def test_split_cart_confirms_each_page_and_imports_independent_tags_offline(envi
     preview1 = client.get(f"/api/pixiv-ol/cart/{id_}/preview?page=1")
     assert preview0.status_code == preview1.status_code == 200
     assert preview0.content != preview1.content
-    assert preview0.headers["cache-control"] == "private, no-store"
+    assert preview0.headers["cache-control"] == "private, no-cache, must-revalidate"
+    assert client.get(f"/api/pixiv-ol/cart/{id_}/preview?page=0",
+                      headers={"If-None-Match": preview0.headers["etag"]}).status_code == 304
     assert client.get(f"/api/pixiv-ol/cart/{id_}/preview?page=2").status_code == 404
     client.cookies.set("session_id", "session-2")
     assert client.get(f"/api/pixiv-ol/cart/{id_}/preview?page=1").status_code != 200

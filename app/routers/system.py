@@ -15,14 +15,15 @@ def check_queue_error(exc):
 
 
 @router.post("/pixiv-check/queue")
-def start_pixiv_check_queue(request: Request):
+def start_pixiv_check_queue(request: Request, mode: str = Query("metadata", pattern="^(metadata|quality)$"),
+                            limit: int = Query(100, ge=1, le=1000), auto_upgrade: bool = False):
     from .. import pixiv_check_queue
     from .integrations.pixiv_ol import write_guard
     from ..integrations.pixiv_ol.provider import PixivError
     actor = require_admin_user_id(request)
     write_guard(request)
     try:
-        return pixiv_check_queue.start(actor)
+        return pixiv_check_queue.start(actor, mode, limit, auto_upgrade)
     except PixivError as exc:
         check_queue_error(exc)
 

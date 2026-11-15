@@ -276,10 +276,10 @@ class EmojiLibrary {
         `;
     }
 
-    clearUploadTag(key) {
+    async clearUploadTag(key) {
         const source = key === 'group_id' ? this.groups : key === 'character_id' ? this.characters : this.emotions;
         const tag = this.getById(source, this.uploadTags[key]);
-        if (!this.uploadTags[key] || !confirm(`确认从当前表情包移除“${tag?.name || '所选标签'}”？\n不会删除标签资料。`)) return;
+        if (!this.uploadTags[key] || !(await window.PicManagerDialogs.confirm(`确认从当前表情包移除“${tag?.name || '所选标签'}”？\n不会删除标签资料。`))) return;
         this.uploadTags[key] = null;
         if (key === 'group_id') {
             const character = this.getById(this.characters, this.uploadTags.character_id);
@@ -403,7 +403,7 @@ class EmojiLibrary {
         ).join('');
     }
 
-    confirmUploadTagPicker(modalId) {
+    async confirmUploadTagPicker(modalId) {
         const draft = this.uploadPickerDraft || this.uploadTags;
         const character = this.getById(this.characters, draft.character_id);
         const selected = {
@@ -413,7 +413,7 @@ class EmojiLibrary {
             function_id: draft.function_id || null,
         };
         const removed = Object.keys(selected).filter(key => this.uploadTags[key] && !selected[key]);
-        if (removed.length && !confirm(`确认从当前表情包移除 ${removed.length} 个标签？\n不会删除标签资料。`)) return;
+        if (removed.length && !(await window.PicManagerDialogs.confirm(`确认从当前表情包移除 ${removed.length} 个标签？\n不会删除标签资料。`))) return;
         this.uploadTags = selected;
         this.uploadPickerDraft = null;
 
@@ -831,8 +831,8 @@ class EmojiLibrary {
         if (meta) meta.textContent = `${file.name.toLowerCase().endsWith('.gif') ? 'GIF 动图' : '静态图片'} · ${(file.size / 1024 / 1024).toFixed(2)} MB`;
     }
 
-    removeUploadFile() {
-        if (!this.uploadFile || !confirm(`确认移除当前选择的“${this.uploadFile.name}”？\n原文件不会被删除。`)) return;
+    async removeUploadFile() {
+        if (!this.uploadFile || !(await window.PicManagerDialogs.confirm(`确认移除当前选择的“${this.uploadFile.name}”？\n原文件不会被删除。`))) return;
         this.clearUploadFile();
     }
 
@@ -947,14 +947,14 @@ class EmojiLibrary {
     }
 
     async deleteEmotion(id) {
-        if (!confirm('确定删除这个情绪或功能标签吗？')) return;
+        if (!(await window.PicManagerDialogs.confirm('确定删除这个情绪或功能标签吗？'))) return;
         await api.deleteEmotionTag(id);
         await this.loadOptions();
         await this.load();
     }
 
     async deleteEmoji(id) {
-        if (!confirm('确定删除这个表情包吗？')) return;
+        if (!(await window.PicManagerDialogs.confirm('确定删除这个表情包吗？'))) return;
         await api.deleteEmoji(id);
         ui.closeModal();
         ui.showToast('表情包已删除', 'success');

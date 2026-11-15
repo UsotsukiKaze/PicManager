@@ -8,7 +8,7 @@
 .px-mode-switch.pol-mode-moving { overflow:hidden; }
 .px-mode-switch.pol-mode-moving .px-mode-indicator { transition:none; transform-origin:left center; }
 .pol-mode-track { position:absolute; z-index:0; overflow:hidden; isolation:isolate; pointer-events:none; border-radius:var(--radius-small); }
-.pol-mode-track>.px-mode-indicator { left:0; top:0; width:calc(100% / 3); height:100%; }
+.pol-mode-track>.px-mode-indicator { left:0; top:0; width:calc(100% / var(--pol-rail-count,3)); height:100%; }
 .px-mode-switch.pol-mode-moving>button { position:relative; z-index:1; }
 .px-floating-actions.pol-tools-unfolding { position:relative; background:transparent; border-color:transparent; box-shadow:none; backdrop-filter:none; transform-origin:50% 100%; }
 .pol-tools-shell { position:absolute; z-index:-1; right:-1px; bottom:-1px; pointer-events:none; box-sizing:border-box; border:1px solid var(--border); border-radius:var(--radius); background:var(--glass); backdrop-filter:blur(12px); box-shadow:var(--shadow-hover); }

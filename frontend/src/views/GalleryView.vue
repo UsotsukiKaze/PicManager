@@ -2,7 +2,7 @@
 import { computed, defineAsyncComponent, nextTick, onActivated, onDeactivated, ref, shallowRef, watch } from 'vue';
 import { keepPreviousData, useQuery } from '@tanstack/vue-query';
 import { useRoute, useRouter } from 'vue-router';
-import { allEntities, searchImages } from '../api/catalog';
+import { allEntities, searchImages, imageDetail } from '../api/catalog';
 import type { AgeRating, ImageCardRecord, ImageFilters } from '../api/types';
 import { useSession } from '../state/session';
 import { useWorkspace } from '../state/workspace';
@@ -22,6 +22,17 @@ const route = useRoute();
 const router = useRouter();
 const active = ref(true);
 const detail = ref<ImageCardRecord | null>(null);
+watch(() => route.query.image, async (id, _old, cleanup) => {
+  if (route.path !== '/gallery' || typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(id)) return;
+  const controller = new AbortController();
+  cleanup(() => controller.abort());
+  try {
+    const image = await imageDetail(id, controller.signal);
+    if (!controller.signal.aborted) detail.value = image;
+  } catch (reason) {
+    if (!controller.signal.aborted) workspace.notify((reason as Error).message || '图片暂时无法查看', 'error');
+  }
+}, { immediate: true });
 const closedCard = ref('');
 let origin: HTMLElement | null = null;
 const sourceRect = shallowRef<DOMRect>();

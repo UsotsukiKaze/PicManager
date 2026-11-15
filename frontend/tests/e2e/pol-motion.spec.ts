@@ -43,6 +43,11 @@ async function fixture(page: Page, options: { slowAccount?: boolean; slowRecomme
       if (options.slowRecommendations) await recommendationGate;
       const mode = url.searchParams.get('mode') || 'personal'; modes.push(mode);
       body = { batch_id: mode + '-batch', total: 20, next_offset: 20, has_more: false, items: Array.from({ length: 20 }, (_, i) => art(1000 + i, mode)) };
+    } else if (path === '/api/pixiv-ol/search') {
+      const latest = url.searchParams.get('sort') === 'latest';
+      body = { items: [art(latest ? 3001 : 3000, latest ? '最新' : '热门')], next_offset: null, ranking: latest ? 'latest' : 'candidate_popular' };
+    } else if (path === '/api/pixiv-ol/lookup') {
+      body = { ...art(3002), page_count: 3, reader_preview_url: '/api/pixiv-ol/artworks/3002/reader-preview' };
     } else if (path === '/api/pixiv-ol/jobs') body = options.activeJob ? [{ id: 1, kind: 'import', status: 'running', pid: '999', title: '后台入库' }] : [];
     else if (path === '/api/pixiv-ol/library-status' || path === '/api/pixiv-ol/similarity' || path === '/api/pixiv-ol/bookmarks/states') body = { items: [] };
     else if (path === '/api/pixiv-ol/bookmarks/status') body = { enabled: false };
@@ -58,6 +63,136 @@ async function enter(page: Page) {
   await page.getByRole('link', { name: 'Pixiv-ol', exact: true }).click();
   await expect(page.locator('.px-card')).toHaveCount(20);
 }
+
+test('Pixiv search shares a page for keywords and PID and restores the showcase on back', async ({ page }) => {
+  const { errors } = await fixture(page);
+  await page.goto('/#/pixiv');
+  await expect(page.locator('.px-card')).toHaveCount(20);
+  await settle(page);
+  await page.locator('#workspace-scroll').evaluate(element => { element.scrollTop = 250; });
+  await page.getByRole('button', { name: '搜索作品' }).click();
+  const keyword = page.getByRole('searchbox', { name: '关键词' });
+  await expect(keyword).toBeVisible();
+  await page.goBack();
+  await expect.poll(() => page.locator('#workspace-scroll').evaluate(element => element.scrollTop)).toBe(250);
+  await page.getByRole('button', { name: '搜索作品' }).click();
+  await keyword.fill('白髪');
+  await keyword.press('Enter');
+  await expect(page.getByText('热门画作3000')).toBeVisible();
+  await expect(page.getByText(/候选作品内优选排序/)).toBeVisible();
+  await page.getByRole('button', { name: '最新发布' }).click();
+  await expect(page.getByText('最新画作3001')).toBeVisible();
+  await expect(keyword).toHaveValue('白髪');
+  await page.reload();
+  await expect(page.getByText('最新画作3001')).toBeVisible();
+  await page.goBack();
+  await expect(page.getByText('热门画作3000')).toBeVisible();
+  await page.getByRole('button', { name: 'PID 查找' }).click();
+  const pid = page.getByRole('searchbox', { name: 'PID 或 Pixiv 作品链接' });
+  await pid.fill('3002_p1');
+  await pid.press('Enter');
+  await expect(page.locator('.px-pid-result img')).toHaveAttribute('src', /reader-preview\?page=1$/);
+  await expect(page.locator('dialog[open]')).toHaveCount(0);
+  await page.getByRole('button', { name: '返回展柜' }).click();
+  await expect(page.locator('.px-card')).toHaveCount(20);
+  expect(errors).toEqual([]);
+});
+
+test('Pixiv search keeps the panel and floating tools fixed while loading and searching by a reader tag', async ({ page }) => {
+  await fixture(page);
+  const tags = Array.from({ length: 15 }, (_, i) => ({ name: `原始タグ${i}`, translated_name: `翻译标签${i}` }));
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const queries: URL[] = [];
+  let accountReads = 0;
+  page.on('request', request => { if (new URL(request.url()).pathname === '/api/pixiv-ol/account') accountReads++; });
+  await page.route('**/api/pixiv-ol/search?*', async route => {
+    queries.push(new URL(route.request().url()));
+    await gate;
+    const items = Array.from({ length: 20 }, (_, i) => ({
+      pid: String(4000 + i), title: `搜索作品 ${i}`, author: '画师', author_id: '9', page_count: 1,
+      preview_url: '/static/icon/Pic.png', tags, imported_pages: [],
+      match: { group_ids: [], character_ids: [], feature_tag_ids: [], conflicts: [] },
+    }));
+    await route.fulfill({ json: { items, next_offset: null, ranking: 'latest' } });
+  });
+  await page.goto('/#/pixiv');
+  await expect(page.locator('.px-card')).toHaveCount(20);
+  await settle(page);
+  const oldTool = await page.getByRole('button', { name: '搜索作品' }).boundingBox();
+  await page.getByRole('button', { name: '搜索作品' }).click();
+  const back = page.getByRole('button', { name: '返回展柜' });
+  const newTool = await back.boundingBox();
+  expect(newTool?.x).toBeCloseTo(oldTool!.x, 0);
+  expect(newTool?.y).toBeCloseTo(oldTool!.y, 0);
+  const keyword = page.getByRole('searchbox', { name: '关键词' });
+  await keyword.fill('白髪');
+  await keyword.press('Enter');
+  await expect(page.getByText('正在加载画作…')).toBeVisible();
+  await page.getByRole('button', { name: '最新发布' }).click();
+  await expect(page.getByRole('button', { name: '最新发布' })).toHaveAttribute('aria-pressed', 'true');
+  expect(accountReads).toBe(1);
+  release();
+  await expect(page.locator('.px-card')).toHaveCount(20);
+  const initialTop = await keyword.evaluate(input => input.getBoundingClientRect().top);
+  const results = page.locator('.px-search-results');
+  await results.evaluate(element => { element.scrollTop = 320; });
+  expect(await results.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+  expect(await keyword.evaluate(input => input.getBoundingClientRect().top)).toBeCloseTo(initialTop, 0);
+  await page.getByRole('button', { name: '回到顶部' }).click();
+  await expect.poll(() => results.evaluate(element => element.scrollTop)).toBe(0);
+  await page.getByRole('button', { name: '查看 搜索作品 0', exact: true }).click();
+  await expect(page.locator('.px-reader-search-tags button')).toHaveCount(tags.length);
+  await page.getByRole('button', { name: '翻译标签14' }).click();
+  await expect(page.locator('dialog[open]')).toHaveCount(0);
+  await expect(keyword).toHaveValue('原始タグ14');
+  await expect.poll(() => queries.at(-1)?.searchParams.get('tag')).toBe('true');
+  expect(accountReads).toBe(1);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(back).toBeInViewport();
+  await expect(keyword).toBeInViewport();
+  await expect.poll(() => results.evaluate(element => element.clientHeight)).toBeGreaterThan(220);
+});
+
+test('Pixiv popular results append automatically and rank the unseen tail with prefetched works', async ({ page }) => {
+  await fixture(page);
+  const offsets: string[] = [];
+  await page.route('**/api/pixiv-ol/search?*', async route => {
+    const offset = new URL(route.request().url()).searchParams.get('offset') || '0';
+    offsets.push(offset);
+    const first = offset === '0';
+    const items = Array.from({ length: first ? 21 : 1 }, (_, i) => ({
+      pid: String((first ? 5000 : 6000) + i), title: first ? `首批作品 ${i}` : '续载高分作品',
+      author: '画师', page_count: 1, preview_url: '/static/icon/Pic.png', imported_pages: [],
+      popular_score: first ? 10 - i / 5 : 8,
+    }));
+    await route.fulfill({ json: { items, next_offset: first ? 90 : null, ranking: 'popular' } });
+  });
+  await page.goto('/#/pixiv?work_search=keyword&q=theme');
+  const cards = page.locator('.px-card');
+  await expect(cards).toHaveCount(20);
+  await expect.poll(() => offsets).toEqual(['0', '90']);
+  await page.locator('.px-search-results').evaluate(element => { element.scrollTop = element.scrollHeight; });
+  await expect(cards).toHaveCount(22);
+  await expect(cards.first()).toContainText('首批作品 0');
+  await expect(cards.nth(20)).toContainText('续载高分作品');
+  await expect(cards.nth(21)).toContainText('首批作品 20');
+  await expect(page.locator('.px-load-sentinel button')).toHaveCount(0);
+});
+
+test('Pixiv popular search stops after three empty windows without requiring a manual page turn', async ({ page }) => {
+  await fixture(page);
+  const offsets: string[] = [];
+  await page.route('**/api/pixiv-ol/search?*', async route => {
+    const offset = new URL(route.request().url()).searchParams.get('offset') || '0';
+    offsets.push(offset);
+    await route.fulfill({ json: { items: [], next_offset: Number(offset) + 90, ranking: 'popular' } });
+  });
+  await page.goto('/#/pixiv?work_search=keyword&q=empty');
+  await expect(page.getByText('没有符合条件的作品。')).toBeVisible();
+  await expect(page.locator('.px-load-sentinel button')).toHaveCount(0);
+  expect(offsets).toEqual(['0', '90', '180']);
+});
 
 test('reader opens and loads preview before library status finishes', async ({ page }) => {
   const mock = await fixture(page);

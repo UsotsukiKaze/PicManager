@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { confirmAction } from '../ui/dialogs';
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useQuery } from '@tanstack/vue-query';
 import { emojiDetail, type EmojiRecord } from '../api/emojis';
@@ -57,7 +58,7 @@ async function dismiss() {
   emit('close');
 }
 async function remove() {
-  if (deleting.value || !confirm(`确认删除表情包“${title.value}”？\n文件和标签关联也会删除，此操作无法恢复。`)) return;
+  if (deleting.value || !(await confirmAction(`确认删除表情包“${title.value}”？\n文件和标签关联也会删除，此操作无法恢复。`))) return;
   deleting.value = true;
   try { await requestJSON(`/api/emojis/${encodeURIComponent(current.value.emoji_id)}`, { method: 'DELETE' }); invalidateDomain('/emojis'); workspace.notify('表情包已删除', 'success'); emit('deleted'); emit('close'); }
   catch (reason) { workspace.notify((reason as Error).message, 'error'); }

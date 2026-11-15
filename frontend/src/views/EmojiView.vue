@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { confirmAction } from '../ui/dialogs';
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { keepPreviousData, useQuery } from '@tanstack/vue-query';
 import { useRoute, useRouter } from 'vue-router';
@@ -100,7 +101,7 @@ async function edit(kind: 'upload' | 'emoji' | 'emotion', id?: string | number) 
 }
 const filteredTags = computed(() => (emotions.data.value || []).filter(item => (tagType.value === 'all' || item.name.startsWith('#') === (tagType.value === 'function')) && [item.name, ...(item.aliases || [])].join(' ').toLowerCase().includes(tagQuery.value.toLowerCase())));
 async function removeTag(id: number, name: string) {
-  if (!confirm(`确认删除标签“${name}”？`)) return;
+  if (!(await confirmAction(`确认删除标签“${name}”？`))) return;
   try { await requestJSON(`/api/emotion-tags/${id}`, { method: 'DELETE' }); invalidateDomain('/emotion-tags'); workspace.notify('标签已删除', 'success'); }
   catch (reason) { workspace.notify((reason as Error).message, 'error'); }
 }

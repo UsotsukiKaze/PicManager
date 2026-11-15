@@ -1,12 +1,13 @@
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import and_, or_, func
 from typing import List, Optional, Tuple
 from datetime import datetime
-from collections import defaultdict, deque
+from collections import defaultdict, deque, OrderedDict
 from . import models, schemas
 from .config import settings
 from .storage import get_image_storage
 import os
+import hashlib
 import secrets
 from PIL import Image as PILImage, ImageOps
 import shutil
@@ -798,6 +799,20 @@ class ImageService:
     _random_recent_image_ids = defaultdict(lambda: deque(maxlen=ImageService.RANDOM_RECENT_LIMIT))
     AGE_RATINGS = ("all", "r12", "r16", "r18")
     DUPLICATE_WRITE_LOCK = threading.Lock()
+    TEMP_SCAN_LOCK = threading.RLock()
+    TEMP_SCAN_CACHE = OrderedDict()
+
+    @staticmethod
+    def temp_scan_state(file_path):
+        try:
+            stat = os.stat(file_path)
+        except OSError:
+            return None
+        with ImageService.TEMP_SCAN_LOCK:
+            cached = ImageService.TEMP_SCAN_CACHE.get(os.path.realpath(file_path))
+            if cached and cached['snapshot'] == (stat.st_size, stat.st_mtime_ns):
+                return 'duplicate' if cached['closest'] else 'clear'
+        return None
 
     @staticmethod
     def compute_dhash(file_path: str) -> str:
@@ -982,9 +997,9 @@ class ImageService:
             return []
 
         candidates = db.query(models.Image).options(
-            joinedload(models.Image.characters),
-            joinedload(models.Image.groups),
-            joinedload(models.Image.feature_tags),
+            selectinload(models.Image.characters),
+            selectinload(models.Image.groups),
+            selectinload(models.Image.feature_tags),
         ).filter(
             models.Image.file_status.in_([ImageService.AVAILABLE, ImageService.ARCHIVED]),
         ).order_by(models.Image.image_id).all()
@@ -999,6 +1014,11 @@ class ImageService:
             if candidate_hash:
                 indexed_candidates.append((candidate, candidate_hash))
 
+        # Cache comparisons as well as hashes. A changed library invalidates
+        # comparisons; unchanged source files still reuse their decoded hash.
+        library = hashlib.sha256(repr((str(db.get_bind().url), threshold, tuple(
+            (row.image_id, value) for row, value in indexed_candidates))).encode()).digest()
+        candidate_by_id = {row.image_id: row for row, _ in indexed_candidates}
         matches = []
         normalized_extensions = {f".{value.lower().lstrip('.')}" for value in allowed_extensions}
         for filename in sorted(os.listdir(temp_path), key=str.casefold):
@@ -1006,18 +1026,41 @@ class ImageService:
             if not os.path.isfile(file_path) or os.path.splitext(filename)[1].lower() not in normalized_extensions:
                 continue
             try:
-                upload_hash = ImageService.compute_dhash(file_path)
+                stat = os.stat(file_path)
+                before = (stat.st_size, stat.st_mtime_ns)
+                cache_key = os.path.realpath(file_path)
+                with ImageService.TEMP_SCAN_LOCK:
+                    cached = ImageService.TEMP_SCAN_CACHE.get(cache_key)
+                if cached and cached['snapshot'] == before:
+                    upload_hash = cached['hash']
+                else:
+                    cached = None
+                    upload_hash = ImageService.compute_dhash(file_path)
             except (OSError, ValueError):
                 continue
 
             closest = None
-            for candidate, candidate_hash in indexed_candidates:
+            reuse = cached is not None and cached['library'] == library
+            if reuse and cached['closest']:
+                key = cached['closest']
+                closest = (key, candidate_by_id[key[1]])
+            for candidate, candidate_hash in ([] if reuse else indexed_candidates):
                 distance = ImageService.dhash_distance(upload_hash, candidate_hash)
                 if distance > threshold:
                     continue
                 key = (distance, candidate.image_id)
                 if closest is None or key < closest[0]:
                     closest = (key, candidate)
+            after = os.stat(file_path)
+            if (after.st_size, after.st_mtime_ns) != before:
+                continue
+            with ImageService.TEMP_SCAN_LOCK:
+                ImageService.TEMP_SCAN_CACHE[cache_key] = dict(
+                    snapshot=before, hash=upload_hash, library=library,
+                    closest=closest[0] if closest else None)
+                ImageService.TEMP_SCAN_CACHE.move_to_end(cache_key)
+                while len(ImageService.TEMP_SCAN_CACHE) > 4096:
+                    ImageService.TEMP_SCAN_CACHE.popitem(last=False)
             if closest is None:
                 continue
 

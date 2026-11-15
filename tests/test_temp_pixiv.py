@@ -37,6 +37,7 @@ def temp_environment(environment, monkeypatch):
         Image.new('RGB', (80, 50), 'blue').save(path)
         return path, 'image/png'
     monkeypatch.setattr(viewer, 'clear_preview', preview)
+    monkeypatch.setattr(viewer, 'original', preview)
     with context() as db:
         db.add_all([models.Character(id=1,name='角色一',group_id=1), models.Character(id=2,name='角色二',group_id=1)])
     yield context, client, temp, calls, remote

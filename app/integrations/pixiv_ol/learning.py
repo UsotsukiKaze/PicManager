@@ -240,6 +240,25 @@ def age(item, now):
 from .provider import PixivError
 
 
+def smoothed_bookmark_rate(item):
+    bookmarks, views = item.get("bookmarks"), item.get("views")
+    if bookmarks is None or not views or views < bookmarks:
+        return None
+    # A 5% prior over 500 views tempers conversion from small samples.
+    return (bookmarks + 25) / (views + 500)
+
+
+def qualifies_for_popular_stream(item, now, *, established=500):
+    bookmarks = item.get("bookmarks")
+    if bookmarks is None:
+        return False
+    if bookmarks >= established:
+        return True
+    if bookmarks < 150 or age(item, now) > 14:
+        return False
+    return (smoothed_bookmark_rate(item) or 0.0) >= 0.08
+
+
 def age_bin(days):
     return 0 if days <= 2 else 1 if days <= 7 else 2 if days <= 30 else 3 if days <= 180 else 4
 

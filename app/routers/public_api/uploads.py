@@ -37,6 +37,18 @@ def upload_capabilities(request: Request):
     }
 
 
+def record_auto_temp_merge(db, actor, result, filename):
+    db.add(PendingRequest(request_type='edit', user_id=actor, status=RequestStatus.APPROVED.value,
+        image_id=result['image_id'], image_data=json.dumps({'temp_duplicate_filename': filename,
+        'auto_quality_merge': True, 'upgraded': result['upgraded']}),
+        reviewed_at=datetime.utcnow(), reviewed_by=actor))
+
+
+def split_temp_identity(image, evidence):
+    from ...pixiv_metadata import split_pid
+    return split_pid(image.pid) == (evidence['art']['pid'], evidence['page'])
+
+
 def _temp_pixiv_error(exc):
     raise HTTPException(409 if exc.code.startswith('temp_') or exc.code in ('account_changed', 'invalid_page', 'invalid_temp_file') else 502,
                         detail=exc.code) from None
@@ -762,6 +774,7 @@ def get_temp_images(request: Request):
 def scan_temp_duplicates(request: Request, limit: int = Query(25, ge=1, le=100)):
     """Scan temp files against stored and archived images without requiring temp metadata."""
     require_admin_user_id(request)
+    from ...pixiv_quality import temp_duplicate_can_auto
     with get_db_context() as db:
         results = ImageService.scan_temp_directory_duplicates(db, settings.TEMP_PATH, _allowed_image_extensions(), limit=limit)
         matches = []
@@ -787,8 +800,37 @@ def scan_temp_duplicates(request: Request, limit: int = Query(25, ge=1, le=100))
                 "duplicate_algorithm": "dhash64",
                 "duplicate_threshold": min(64, max(0, settings.DUPLICATE_DHASH_DISTANCE)),
                 "duplicate_token": token,
+                "auto_resolve": temp_duplicate_can_auto(
+                    db.get(models.Image, stored['image_id']), image_path),
             })
         return {"matches": matches, "count": len(matches)}
+
+
+@router.post('/upload/temp-duplicates/auto', response_model=schemas.UploadImageResponse)
+def auto_resolve_temp_duplicate(body: schemas.TempDuplicateAutoRequest, request: Request):
+    actor = require_admin_user_id(request)
+    payload = _decode_duplicate_token(body.token)
+    if payload.get('purpose') != 'temp-directory-duplicate' or payload.get('owner') != _duplicate_owner(request):
+        raise HTTPException(403, 'Invalid duplicate decision')
+    source = _safe_temp_image_path(str(payload.get('filename') or ''))
+    from ...pixiv_quality import temp_duplicate_can_auto, merge_temp_source
+    with ImageService.DUPLICATE_WRITE_LOCK, get_db_context() as db:
+        stored = db.get(models.Image, payload.get('match_id'))
+        if not stored or not ImageService.image_file_exists(stored) or not source.is_file():
+            raise HTTPException(409, 'duplicate_changed')
+        if ImageService.compute_dhash(str(source)) != payload.get('upload_hash'):
+            raise HTTPException(409, 'temp_file_changed')
+        if not temp_duplicate_can_auto(stored, source):
+            raise HTTPException(409, 'Pixiv 信息需要确认')
+        try:
+            result = merge_temp_source(db, stored, source)
+            record_auto_temp_merge(db, actor, result, source.name)
+            return result
+        except Exception as exc:
+            from ...integrations.pixiv_ol.provider import PixivError
+            if isinstance(exc, PixivError):
+                _temp_pixiv_error(exc)
+            raise
 
 
 @router.post("/upload/temp-duplicates/resolve", response_model=schemas.UploadImageResponse)
@@ -960,6 +1002,14 @@ def upload_temp_image(temp_upload: schemas.TempImageUpload, request: Request):
                 db, str(image_path), temp_upload.character_ids
             )
             if duplicate_matches:
+                from ...pixiv_quality import temp_duplicate_can_auto, merge_temp_source
+                stored = db.get(models.Image, duplicate_matches[0]['image_id'])
+                if temp_duplicate_can_auto(stored, image_path, temp_upload.pid):
+                    result = merge_temp_source(db, stored, image_path)
+                    if evidence and split_temp_identity(stored, evidence):
+                        temp_pixiv.attach(db, stored, evidence)
+                    record_auto_temp_merge(db, actor_id, result, image_path.name)
+                    return schemas.UploadImageResponse(**result)
                 metadata = temp_upload.model_dump()
                 token = _make_duplicate_token(
                     request,

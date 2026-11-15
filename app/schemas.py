@@ -444,6 +444,10 @@ class TempPixivStop(BaseModel):
     run_id: str = Field(min_length=48, max_length=48, pattern="^[0-9a-f]+$")
 
 
+class TempDuplicateAutoRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=16384)
+
+
 class TempDuplicateResolveRequest(BaseModel):
     token: str = Field(min_length=32, max_length=16384)
     keep: str = Field(pattern="^(existing|temp)$")

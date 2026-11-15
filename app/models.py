@@ -335,6 +335,7 @@ class Image(Base):
     perceptual_hash = Column(String(16), nullable=True)
     # Set only after a numeric Pixiv PID has been checked and resolved.
     pixiv_checked_at = Column(DateTime, nullable=True, index=True)
+    pixiv_quality_checked_at = Column(DateTime, nullable=True, index=True)
     local_checked_at = Column(DateTime, nullable=True, index=True)
     # 创建和更新时间
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -459,6 +460,8 @@ def _track_artist_cleanup(session, context, instances):
         attrs = inspect(image).attrs
         if any(attrs[name].history.has_changes() for name in ("file_path", "file_size", "width", "height", "characters")):
             image.local_checked_at = None
+        if any(attrs[name].history.has_changes() for name in ('pid', 'file_path', 'file_size', 'width', 'height', 'perceptual_hash')) and not attrs.pixiv_quality_checked_at.history.has_changes():
+            image.pixiv_quality_checked_at = None
         if attrs.pid.history.has_changes() and image.pixiv_metadata:
             meta = image.pixiv_metadata
             if split_pid(image.pid) != (meta.work_id, meta.page_index):

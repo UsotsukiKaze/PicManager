@@ -329,7 +329,7 @@ class UIManager {
                     return;
                 }
                 this.activateFeature('pixiv-ol-page', 'pixiv-ol', async () => {
-                    await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261014-bookmark-scope');
+                    await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261110-cart-preview');
                     const feature = await window.auth.loadFeature('pixiv');
                     await feature.init();
                 }, 'Pixiv-ol 加载失败，请重试');
@@ -341,7 +341,7 @@ class UIManager {
                 this.loadSystemStatus();
                 if (window.auth.isAdmin()) {
                     this.activateFeature('pixiv-settings', 'settings', async () => {
-                        await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261014-bookmark-scope');
+                        await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261110-cart-preview');
                         const feature = await window.auth.loadFeature('pixiv');
                         await feature.initSettings();
                     }, 'Pixiv 设置加载失败，请重试');
@@ -743,10 +743,10 @@ class UIManager {
         });
     }
 
-    resetAvatarUpload(prefix) {
+    async resetAvatarUpload(prefix) {
         const hidden = document.getElementById(`${prefix}-avatar-url`);
         const preview = document.getElementById(`${prefix}-avatar-preview`);
-        if (hidden?.value && !confirm('确认移除自定义头像并恢复网页图标？\n保存资料后生效。')) return;
+        if (hidden?.value && !(await window.PicManagerDialogs.confirm('确认移除自定义头像并恢复网页图标？\n保存资料后生效。'))) return;
         if (hidden) hidden.value = '';
         if (preview) preview.src = '/static/icon/Pic.png';
     }
@@ -1632,7 +1632,7 @@ class UIManager {
     }
 
     async deleteFeatureTag(tagId) {
-        if (!confirm('确定要删除这个特征标签吗？')) return;
+        if (!(await window.PicManagerDialogs.confirm('确定要删除这个特征标签吗？'))) return;
         try {
             await api.deleteFeatureTag(tagId);
             this.invalidateCache('featureTags');
@@ -1720,7 +1720,7 @@ class UIManager {
     }
     
     async deleteGroup(groupId) {
-        if (!confirm('确定要删除此分组吗？删除后该分组下的所有角色也将被删除！')) {
+        if (!(await window.PicManagerDialogs.confirm('确定要删除此分组吗？删除后该分组下的所有角色也将被删除！'))) {
             return;
         }
         
@@ -1842,7 +1842,7 @@ class UIManager {
     }
     
     async deleteCharacter(characterId) {
-        if (!confirm('确定要删除此角色吗？')) {
+        if (!(await window.PicManagerDialogs.confirm('确定要删除此角色吗？'))) {
             return;
         }
         
@@ -1911,7 +1911,7 @@ class UIManager {
                 api.getFeatureTags()
             ]);
             const pixiv = await auth.loadFeature('pixiv');
-            await auth.loadStyle('/static/css/pixiv-ol.css?v=20261014-bookmark-scope');
+            await auth.loadStyle('/static/css/pixiv-ol.css?v=20261110-cart-preview');
             const rawTags = (image.pixiv_tags || []).filter(tag => tag && tag.name);
             let mappings = [], mappingError = '';
             if (rawTags.length) {
@@ -2027,7 +2027,7 @@ class UIManager {
     }
     
     async deleteImage(imageId) {
-        if (!confirm('确定要删除此图片吗？此操作不可恢复！')) {
+        if (!(await window.PicManagerDialogs.confirm('确定要删除此图片吗？此操作不可恢复！'))) {
             return;
         }
         
@@ -2212,7 +2212,7 @@ async function cleanupOrphaned() {
             '',
             '这些打不开的图片会先从列表里收起来，确认继续吗？'
         ].join('\n');
-        if (!confirm(message)) return;
+        if (!(await window.PicManagerDialogs.confirm(message))) return;
 
         const result = await api.cleanupOrphaned('archive');
         ui.showToast(result.message, 'success');
@@ -2241,7 +2241,7 @@ async function deleteInvalidRecords() {
             '',
             '此操作无法恢复，确认继续吗？'
         ].join('\n');
-        if (!confirm(message)) return;
+        if (!(await window.PicManagerDialogs.confirm(message))) return;
 
         const result = await api.cleanupOrphaned('delete');
         ui.showToast(`已删除 ${result.count} 条档案`, 'success');
@@ -2380,7 +2380,7 @@ function formatMaintenanceBytes(value) {
 }
 
 async function reviewPixivCheck(result, onConfirm=null) {
-    await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261014-bookmark-scope');
+    await window.auth.loadStyle('/static/css/pixiv-ol.css?v=20261110-cart-preview');
     if(result.queue_processing&&(window.pixivValidationStop||ui.currentPage!=='settings'||!ui.isAdminView()))return null;
     return new Promise(resolve=>{
         const safe=value=>ui.escapeHomeRankingText(value??'');
@@ -2433,7 +2433,7 @@ async function reviewPixivCheck(result, onConfirm=null) {
             if(current.value===''){error.textContent='请先确认库内现图对应的页码';return;}
             if(selected.length>100){error.textContent='每次最多补入 100 页';return;}
             if(selected.length&&!result.current.group_ids.length){error.textContent='请先为库内现图设置分组，再补入其他页';return;}
-            const choice={review_id:result.review_id,current_page:Number(current.value),pages:selected,upgrade:dialog.querySelector('[data-upgrade]').checked};
+            const choice={review_id:result.review_id,current_page:Number(current.value),pages:selected,upgrade:auto.checked||dialog.querySelector('[data-upgrade]').checked};
             if(!onConfirm){finish(choice);return;}
             stopAuto();auto.checked=false;submitting=true;error.textContent='';
             const controls=Array.from(dialog.querySelectorAll('button,input,select'),node=>[node,node.disabled]);
@@ -2727,15 +2727,16 @@ async function startProcessingPixivChecks() {
     finally{state.processing=false;state.autoPaused=true;state.offset=0;refreshPixivCheckQueue();}
 }
 
-async function scanPixivUpgrades() {
+async function scanPixivUpgrades(mode="metadata") {
     if(!ui.isAdminView()){ui.showToast('只有管理员可以执行维护操作','warning');return;}
     const state=pixivCheckQueueState;
     if(state.starting)return;
-    if(!confirm('确认开始 Pixiv 校验？\n连续三次拒绝访问的失效作品会清除 PID，图片文件会保留；有争议的作品进入待确认队列。'))return;
+    if(!(await window.PicManagerDialogs.confirm(mode==='quality'?'检查最近添加图片的清晰度？启用自动审核时会自动替换为匹配的更清晰原图。':'确认开始 Pixiv 信息校验？失效作品会清除 PID，图片文件保留；需要选择的作品进入待确认队列。')))return;
     state.starting=true;state.autoPaused=false;state.offset=0;state.deferred.clear();window.pixivValidationStop=false;
     const button=document.getElementById('scan-pixiv-upgrades-button');if(button)button.disabled=true;
     try {
-        const result=await api.startPixivCheckQueue();state.runId=result.id;
+        const limit=Math.max(1,Math.min(1000,Number(document.getElementById('pixiv-quality-limit')?.value)||100));
+        const result=await api.startPixivCheckQueue(mode,limit,!!document.getElementById('pixiv-check-auto')?.checked);state.runId=result.id;
         ui.showToast('Pixiv 后台校验已开始，需要选择的作品会进入待确认队列','success');
     } catch(error){ui.showToast(pixivCheckErrorMessage(error.message),'error');}
     finally{state.starting=false;refreshPixivCheckQueue();}

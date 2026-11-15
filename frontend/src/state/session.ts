@@ -33,7 +33,11 @@ export const useSession = defineStore('session', () => {
     pending = requestJSON<SessionEnvelope>('/auth/me').then(apply).catch(reason => {
       status.value = data.value ? 'ready' : 'error';
       error.value = reason instanceof APIError && reason.status === 401 ? '请先登录' : '暂时无法连接服务器，请重试';
-      if (reason instanceof APIError && reason.status === 401) window.location.replace('/login');
+      if (reason instanceof APIError && reason.status === 401) {
+        const destination = window.location.pathname + window.location.search + window.location.hash;
+        try { sessionStorage.setItem('picmanager-return-to', destination); } catch { /* Query keeps the destination. */ }
+        window.location.replace(`/login?redirect=${encodeURIComponent(destination)}`);
+      }
     }).finally(() => { pending = null; });
     return pending;
   }

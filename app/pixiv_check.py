@@ -308,7 +308,7 @@ def resolve(review_id, actor_id, current_page, pages, upgrade=False):
             raise PixivError("check_review_expired")
         service.require_account(db, review.account_revision)
         image = db.get(models.Image, review.image_id)
-        if not image or snapshot(image) != review.snapshot or is_complete(image):
+        if not image or snapshot(image) != review.snapshot or (is_complete(image) and not review.artwork.get("quality_review")):
             raise PixivError("image_changed")
         art = review.artwork
         if not 0 <= current_page < art["page_count"] or any(not 0 <= page < art["page_count"] for page in pages):
@@ -319,17 +319,13 @@ def resolve(review_id, actor_id, current_page, pages, upgrade=False):
         extras -= existing
         if extras and not image.groups:
             raise PixivError("group_required")
-        candidate = None
+        assessment = None
         if upgrade:
-            # Use only the administrator's chosen page, never replace with another page.
-            original_pid = image.pid
-            image.pid = canonical_pid(art["pid"], current_page)
-            try:
-                candidate = PixivUpgradeService.find_candidate(image, ArtworkClient(art))
-            except PixivLookupError:
-                raise PixivError("download_failed") from None
-            finally:
-                image.pid = original_pid
+            from .pixiv_quality import assess
+            with ImageService.source_file(image) as local:
+                assessment = assess(local, art, review.account_revision, current_page)
+            if snapshot(image) != review.snapshot:
+                raise PixivError('image_changed')
         source = record_page(db, image, art, current_page)
         enqueued = None
         if extras:
@@ -357,19 +353,67 @@ def resolve(review_id, actor_id, current_page, pages, upgrade=False):
             "pages": sorted(extras),
             "upgraded": False,
         }
-        if candidate:
-            token = PixivUpgradeService.make_token(image, candidate)
-            image.pixiv_checked_at = None
-            PixivUpgradeService.resolve(db, token, "replace")
-            source = (
-                db.query(models.PixivImageSource)
-                .filter_by(provider="pixiv", work_id=art["pid"], page_index=current_page)
-                .first()
-            )
-            if source and source.image_id == image.image_id:
+        if upgrade:
+            from .pixiv_quality import ensure
+            quality = ensure(db, image, art, review.account_revision, current_page, assessment=assessment)
+            result['upgraded'] = quality['upgraded']
+            result['quality_completed'] = quality['completed']
+            if quality['completed'] and source.image_id == image.image_id:
                 source.sha256 = hashlib.sha256(Path(ImageService.image_full_path(image)).read_bytes()).hexdigest()
-            result["upgraded"] = True
         db.query(models.PixivCheckItem).filter_by(review_id=review.id, status="review").update(
             {"status": "completed", "result": result}, synchronize_session=False,
         )
         return result
+
+
+def scan_quality_image(actor_id, image_id, *, revision, client, guard, auto_upgrade=False, **_kwargs):
+    """Recent-image quality pass; only a downloaded, matching original is evidence."""
+    with get_db_context() as db:
+        service.require_actor(db, actor_id); guard(db)
+        image = db.get(models.Image, image_id)
+        if not image or image.file_status != 'available' or not split_pid(image.pid):
+            return {'status': 'skipped'}
+        matched = is_complete(image)
+    if not matched:
+        result = scan_image(actor_id, image_id, revision=revision, client=client, guard=guard)
+        if result['status'] != 'validated':
+            return result
+    with get_db_context() as db:
+        guard(db)
+        image = db.get(models.Image, image_id)
+        before, meta = snapshot(image), image.pixiv_metadata
+        work, page = meta.work_id, meta.page_index
+    raw = client.call('illust_detail', illust_id=work).get('illust')
+    art = service.normalize_artwork(raw or {})
+    if not art or page >= art['page_count']:
+        raise PixivError('artwork_unsupported')
+    with get_db_context() as db:
+        service.require_actor(db, actor_id); guard(db); service.require_account(db, revision)
+        image = db.get(models.Image, image_id)
+        if snapshot(image) != before:
+            raise PixivError('image_changed')
+        db.expunge(image)
+    from .pixiv_quality import assess, replace_file
+    with ImageService.source_file(image) as local:
+        quality, remote = assess(local, art, revision, page)
+    with get_db_context() as db:
+        service.require_actor(db, actor_id); guard(db); service.require_account(db, revision)
+        image = db.get(models.Image, image_id)
+        if not image or snapshot(image) != before:
+            raise PixivError('image_changed')
+        if not quality['matched']:
+            image.pixiv_quality_checked_at = None
+            return {'status': 'quality_mismatch', 'image_id': image_id}
+        if quality['replace'] and not auto_upgrade:
+            review = models.PixivCheckReview(id=secrets.token_hex(24), image_id=image_id, actor_id=actor_id,
+                account_revision=revision, snapshot=before, artwork={**art, 'quality_review': True},
+                suggested_page=page, expires_at=datetime.utcnow()+timedelta(days=7))
+            db.add(review);db.flush()
+            return review_json(db, review)
+        if quality['replace']:
+            replace_file(db, image, remote, filename=f"{work}_p{page}.{quality['extension']}")
+        record_page(db, image, art, page)
+        db.flush()
+        image.pixiv_quality_checked_at = datetime.utcnow() if quality['sufficient'] else None
+        return {'status': 'quality_completed' if quality['sufficient'] else 'quality_review',
+                'image_id': image_id, 'upgraded': quality['replace']}
